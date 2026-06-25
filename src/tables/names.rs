@@ -1570,6 +1570,19 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Cbhhs => "cbhhs",
         Mnemonic::Cbheq => "cbheq",
         Mnemonic::Cbhne => "cbhne",
+        Mnemonic::Fdot => "fdot",
+        Mnemonic::Fmlallbb => "fmlallbb",
+        Mnemonic::Fmlallbt => "fmlallbt",
+        Mnemonic::Fmlalltb => "fmlalltb",
+        Mnemonic::Fvdot => "fvdot",
+        Mnemonic::Bfvdot => "bfvdot",
+        Mnemonic::Uvdot => "uvdot",
+        Mnemonic::Svdot => "svdot",
+        Mnemonic::Suvdot => "suvdot",
+        Mnemonic::Usvdot => "usvdot",
+        Mnemonic::Fvdotb => "fvdotb",
+        Mnemonic::Fvdott => "fvdott",
+        Mnemonic::Fmlalltt => "fmlalltt",
     }
 }
 

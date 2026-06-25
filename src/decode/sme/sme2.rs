@@ -50,6 +50,14 @@ pub enum Sh {
     GroupIdx,
     /// `{ <Zn>.. }, { <Zm>.. }` — two vector groups.
     GroupGroup,
+    /// `{ <Zn>.. }` — a single vector group, no second source (the SME2
+    /// `ADD`/`SUB`/`FADD`/`FSUB` accumulate-into-ZA two-operand forms).
+    GroupOnly,
+    /// `{ <Zn>, <Zn+1> }, <Zm>.<T>[<idx>]` — a **two-register** vector group and
+    /// an indexed single, used by the FP8 `FVDOTB`/`FVDOTT` whose `za.<T>[...]`
+    /// destination carries the `vgx4` qualifier ([`Form::vg`] is `4`) even though
+    /// the source group lists only two registers.
+    GroupIdxB,
     /// `<ZAda>, { <Zn>, <Zn+1> }.<T>, <Zm>.<T>, <Zk>[<idx>]` — `*TMOPA`.
     Tmopa,
 }
@@ -247,6 +255,15 @@ fn build(f: &Form, word: u32, out: &mut Instruction) {
         Sh::GroupGroup => {
             out.push_operand(zgroup(group_base(word, f.zn), f.vg, f.src));
             out.push_operand(zgroup(group_base(word, f.zm), f.vg, f.src));
+        }
+        Sh::GroupOnly => {
+            out.push_operand(zgroup(group_base(word, f.zn), f.vg, f.src));
+        }
+        Sh::GroupIdxB => {
+            // FP8 FVDOTB/FVDOTT: the source list is always a two-register group
+            // even though the `za` destination is `vgx4`.
+            out.push_operand(zgroup(group_base(word, f.zn), 2, f.src));
+            out.push_operand(zsrc_idx(pext(word, f.zm), f.src, pext(word, f.idx)));
         }
         Sh::Tmopa => {}
     }
@@ -504,6 +521,125 @@ pub static SME2_FORMS: &[Form] = &[
     F { mask: 0xffe0e00c, val: 0x81408000, code: Code::SmeUstmopaSB, shape: Sh::Tmopa, acc: VA::Ss, src: VA::Sb, span: 0, vg: 0, ws: 0x0, off: 0x0, zn: 0x3c0, zm: 0x1f0000, idx: 0x30, za: 0x3, zk: 0x1c00 },
     F { mask: 0xffe0e00c, val: 0x81608000, code: Code::SmeUtmopaSB, shape: Sh::Tmopa, acc: VA::Ss, src: VA::Sb, span: 0, vg: 0, ws: 0x0, off: 0x0, zn: 0x3c0, zm: 0x1f0000, idx: 0x30, za: 0x3, zk: 0x1c00 },
     F { mask: 0xffe0e00c, val: 0x81408008, code: Code::SmeUtmopaSH, shape: Sh::Tmopa, acc: VA::Ss, src: VA::Sh, span: 0, vg: 0, ws: 0x0, off: 0x0, zn: 0x3c0, zm: 0x1f0000, idx: 0x30, za: 0x3, zk: 0x1c00 },
+    F { mask: 0xffe19c38, val: 0xc1e01810, code: Code::SmeAddDDV2Gg, shape: Sh::GroupGroup, acc: VA::Sd, src: VA::Sd, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1e01c10, code: Code::SmeAddDDV2Go, shape: Sh::GroupOnly, acc: VA::Sd, src: VA::Sd, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1601810, code: Code::SmeAddDDV2Gs, shape: Sh::GroupSingle, acc: VA::Sd, src: VA::Sd, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1e11810, code: Code::SmeAddDDV4Gg, shape: Sh::GroupGroup, acc: VA::Sd, src: VA::Sd, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1e11c10, code: Code::SmeAddDDV4Go, shape: Sh::GroupOnly, acc: VA::Sd, src: VA::Sd, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1701810, code: Code::SmeAddDDV4Gs, shape: Sh::GroupSingle, acc: VA::Sd, src: VA::Sd, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01810, code: Code::SmeAddSSV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Ss, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1a01c10, code: Code::SmeAddSSV2Go, shape: Sh::GroupOnly, acc: VA::Ss, src: VA::Ss, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201810, code: Code::SmeAddSSV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Ss, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11810, code: Code::SmeAddSSV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Ss, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1a11c10, code: Code::SmeAddSSV4Go, shape: Sh::GroupOnly, acc: VA::Ss, src: VA::Ss, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301810, code: Code::SmeAddSSV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Ss, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01010, code: Code::SmeBfdotSHV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1501018, code: Code::SmeBfdotSHV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201010, code: Code::SmeBfdotSHV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11010, code: Code::SmeBfdotSHV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1509018, code: Code::SmeBfdotSHV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301010, code: Code::SmeBfdotSHV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1500018, code: Code::SmeBfvdotSHV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1e01c00, code: Code::SmeFaddDDV2Go, shape: Sh::GroupOnly, acc: VA::Sd, src: VA::Sd, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1e11c00, code: Code::SmeFaddDDV4Go, shape: Sh::GroupOnly, acc: VA::Sd, src: VA::Sd, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1a41c00, code: Code::SmeFaddHHV2Go, shape: Sh::GroupOnly, acc: VA::Sh, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1a51c00, code: Code::SmeFaddHHV4Go, shape: Sh::GroupOnly, acc: VA::Sh, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1a01c00, code: Code::SmeFaddSSV2Go, shape: Sh::GroupOnly, acc: VA::Ss, src: VA::Ss, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1a11c00, code: Code::SmeFaddSSV4Go, shape: Sh::GroupOnly, acc: VA::Ss, src: VA::Ss, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01020, code: Code::SmeFdotHBV2Gg, shape: Sh::GroupGroup, acc: VA::Sh, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09030, val: 0xc1d00020, code: Code::SmeFdotHBV2Gi, shape: Sh::GroupIdx, acc: VA::Sh, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc08, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201008, code: Code::SmeFdotHBV2Gs, shape: Sh::GroupSingle, acc: VA::Sh, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11020, code: Code::SmeFdotHBV4Gg, shape: Sh::GroupGroup, acc: VA::Sh, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09070, val: 0xc1109040, code: Code::SmeFdotHBV4Gi, shape: Sh::GroupIdx, acc: VA::Sh, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc08, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301008, code: Code::SmeFdotHBV4Gs, shape: Sh::GroupSingle, acc: VA::Sh, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01000, code: Code::SmeFdotSHV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1501008, code: Code::SmeFdotSHV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201000, code: Code::SmeFdotSHV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11000, code: Code::SmeFdotSHV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1509008, code: Code::SmeFdotSHV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301000, code: Code::SmeFdotSHV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1e01c08, code: Code::SmeFsubDDV2Go, shape: Sh::GroupOnly, acc: VA::Sd, src: VA::Sd, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1e11c08, code: Code::SmeFsubDDV4Go, shape: Sh::GroupOnly, acc: VA::Sd, src: VA::Sd, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1a41c08, code: Code::SmeFsubHHV2Go, shape: Sh::GroupOnly, acc: VA::Sh, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1a51c08, code: Code::SmeFsubHHV4Go, shape: Sh::GroupOnly, acc: VA::Sh, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1a01c08, code: Code::SmeFsubSSV2Go, shape: Sh::GroupOnly, acc: VA::Ss, src: VA::Ss, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1a11c08, code: Code::SmeFsubSSV4Go, shape: Sh::GroupOnly, acc: VA::Ss, src: VA::Ss, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1500008, code: Code::SmeFvdotSHV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09830, val: 0xc1d00800, code: Code::SmeFvdotbSBV4GiB, shape: Sh::GroupIdxB, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0x408, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09830, val: 0xc1d00810, code: Code::SmeFvdottSBV4GiB, shape: Sh::GroupIdxB, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0x408, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1e01400, code: Code::SmeSdotDHV2Gg, shape: Sh::GroupGroup, acc: VA::Sd, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09838, val: 0xc1d00008, code: Code::SmeSdotDHV2Gi, shape: Sh::GroupIdx, acc: VA::Sd, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0x400, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1601400, code: Code::SmeSdotDHV2Gs, shape: Sh::GroupSingle, acc: VA::Sd, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1e11400, code: Code::SmeSdotDHV4Gg, shape: Sh::GroupGroup, acc: VA::Sd, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09878, val: 0xc1d08008, code: Code::SmeSdotDHV4Gi, shape: Sh::GroupIdx, acc: VA::Sd, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0x400, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1701400, code: Code::SmeSdotDHV4Gs, shape: Sh::GroupSingle, acc: VA::Sd, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01400, code: Code::SmeSdotSBV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1501020, code: Code::SmeSdotSBV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201400, code: Code::SmeSdotSBV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11400, code: Code::SmeSdotSBV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1509020, code: Code::SmeSdotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301400, code: Code::SmeSdotSBV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1e01408, code: Code::SmeSdotSHV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1501000, code: Code::SmeSdotSHV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1601408, code: Code::SmeSdotSHV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1e11408, code: Code::SmeSdotSHV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1509000, code: Code::SmeSdotSHV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1701408, code: Code::SmeSdotSHV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1e01818, code: Code::SmeSubDDV2Gg, shape: Sh::GroupGroup, acc: VA::Sd, src: VA::Sd, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1e01c18, code: Code::SmeSubDDV2Go, shape: Sh::GroupOnly, acc: VA::Sd, src: VA::Sd, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1601818, code: Code::SmeSubDDV2Gs, shape: Sh::GroupSingle, acc: VA::Sd, src: VA::Sd, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1e11818, code: Code::SmeSubDDV4Gg, shape: Sh::GroupGroup, acc: VA::Sd, src: VA::Sd, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1e11c18, code: Code::SmeSubDDV4Go, shape: Sh::GroupOnly, acc: VA::Sd, src: VA::Sd, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1701818, code: Code::SmeSubDDV4Gs, shape: Sh::GroupSingle, acc: VA::Sd, src: VA::Sd, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01818, code: Code::SmeSubSSV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Ss, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c38, val: 0xc1a01c18, code: Code::SmeSubSSV2Go, shape: Sh::GroupOnly, acc: VA::Ss, src: VA::Ss, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201818, code: Code::SmeSubSSV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Ss, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11818, code: Code::SmeSubSSV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Ss, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffff9c78, val: 0xc1a11c18, code: Code::SmeSubSSV4Go, shape: Sh::GroupOnly, acc: VA::Ss, src: VA::Ss, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x0, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301818, code: Code::SmeSubSSV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Ss, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1501038, code: Code::SmeSudotSBV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201418, code: Code::SmeSudotSBV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1509038, code: Code::SmeSudotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301418, code: Code::SmeSudotSBV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1508038, code: Code::SmeSuvdotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09878, val: 0xc1d08808, code: Code::SmeSvdotDHV4Gi, shape: Sh::GroupIdx, acc: VA::Sd, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0x400, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1500020, code: Code::SmeSvdotSHV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1e01410, code: Code::SmeUdotDHV2Gg, shape: Sh::GroupGroup, acc: VA::Sd, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09838, val: 0xc1d00018, code: Code::SmeUdotDHV2Gi, shape: Sh::GroupIdx, acc: VA::Sd, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0x400, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1601410, code: Code::SmeUdotDHV2Gs, shape: Sh::GroupSingle, acc: VA::Sd, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1e11410, code: Code::SmeUdotDHV4Gg, shape: Sh::GroupGroup, acc: VA::Sd, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09878, val: 0xc1d08018, code: Code::SmeUdotDHV4Gi, shape: Sh::GroupIdx, acc: VA::Sd, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0x400, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1701410, code: Code::SmeUdotDHV4Gs, shape: Sh::GroupSingle, acc: VA::Sd, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01410, code: Code::SmeUdotSBV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1501030, code: Code::SmeUdotSBV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201410, code: Code::SmeUdotSBV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11410, code: Code::SmeUdotSBV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1509030, code: Code::SmeUdotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301410, code: Code::SmeUdotSBV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1e01418, code: Code::SmeUdotSHV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1501010, code: Code::SmeUdotSHV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1601418, code: Code::SmeUdotSHV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1e11418, code: Code::SmeUdotSHV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1509010, code: Code::SmeUdotSHV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1701418, code: Code::SmeUdotSHV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01408, code: Code::SmeUsdotSBV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1501028, code: Code::SmeUsdotSBV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201408, code: Code::SmeUsdotSBV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11408, code: Code::SmeUsdotSBV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1509028, code: Code::SmeUsdotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301408, code: Code::SmeUsdotSBV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1508028, code: Code::SmeUsvdotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09878, val: 0xc1d08818, code: Code::SmeUvdotDHV4Gi, shape: Sh::GroupIdx, acc: VA::Sd, src: VA::Sh, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0x400, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1500030, code: Code::SmeUvdotSHV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sh, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe19c38, val: 0xc1a01030, code: Code::SmeFdotSBV2Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0x1e0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09038, val: 0xc1500038, code: Code::SmeFdotSBV2Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1201018, code: Code::SmeFdotSBV2Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xffe39c78, val: 0xc1a11030, code: Code::SmeFdotSBV4Gg, shape: Sh::GroupGroup, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0x1c0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1508008, code: Code::SmeFdotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09c18, val: 0xc1301018, code: Code::SmeFdotSBV4Gs, shape: Sh::GroupSingle, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x3e0, zm: 0xf0000, idx: 0x0, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09030, val: 0xc1d01020, code: Code::SmeFvdotHBV2Gi, shape: Sh::GroupIdx, acc: VA::Sh, src: VA::Sb, span: 1, vg: 2, ws: 0x6000, off: 0x7, zn: 0x3c0, zm: 0xf0000, idx: 0xc08, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1508020, code: Code::SmeSvdotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
+    F { mask: 0xfff09078, val: 0xc1508030, code: Code::SmeUvdotSBV4Gi, shape: Sh::GroupIdx, acc: VA::Ss, src: VA::Sb, span: 1, vg: 4, ws: 0x6000, off: 0x7, zn: 0x380, zm: 0xf0000, idx: 0xc00, za: 0x0, zk: 0x0 },
 ];
 
 #[cfg(test)]
@@ -588,6 +724,53 @@ mod tests {
             0xC1000000u32, 0xC1200400, 0xC1100000, 0xC1108000, 0xC1800000, 0xC1C01000, 0xC1801000,
             0xC1400000, 0xC1200804, 0xC1A01008, 0xC1A11800, 0xC1201C00, 0xC1101000, 0xC1D00000,
             0x80400000, 0x80408000, 0x81400008, 0x81608000, 0x80608000, 0x81408008,
+        ] {
+            rt(w);
+        }
+    }
+
+    #[test]
+    fn za_dot_add_sub_render() {
+        // GAP example words render exactly as LLVM 21 (mnemonic padded to 8).
+        check(0xc12015d2, "udot    za.s[w8, 2, vgx2], { z14.b, z15.b }, z0.b");
+        check(0xc1203560, "sdot    za.s[w9, 0, vgx2], { z11.b, z12.b }, z0.b");
+        check(0xc1201429, "usdot   za.s[w8, 1, vgx2], { z1.b, z2.b }, z0.b");
+        check(0xc120163d, "sudot   za.s[w8, 5, vgx2], { z17.b, z18.b }, z0.b");
+        check(0xc150020c, "fvdot   za.s[w8, 4, vgx2], { z16.h, z17.h }, z0.h[0]");
+        check(0xc1500976, "uvdot   za.s[w8, 6, vgx2], { z10.h, z11.h }, z0.h[2]");
+        check(0xc15006a7, "svdot   za.s[w8, 7, vgx2], { z20.h, z21.h }, z0.h[1]");
+        check(0xc150051c, "bfvdot  za.s[w8, 4, vgx2], { z8.h, z9.h }, z0.h[1]");
+        check(0xc1508839, "suvdot  za.s[w8, 1, vgx4], { z0.b - z3.b }, z0.b[2]");
+        check(0xc1508128, "usvdot  za.s[w8, 0, vgx4], { z8.b - z11.b }, z0.b[0]");
+        check(0xc1203976, "add     za.s[w9, 6, vgx2], { z11.s, z12.s }, z0.s");
+        check(0xc1201898, "sub     za.s[w8, 0, vgx2], { z4.s, z5.s }, z0.s");
+        check(0xc110bc46, "fdot    za.h[w9, 6, vgx4], { z0.b - z3.b }, z0.b[6]");
+        check(0xc1201094, "bfdot   za.s[w8, 4, vgx2], { z4.h, z5.h }, z0.h");
+        check(0xc1d00e86, "fvdotb  za.s[w8, 6, vgx4], { z20.b, z21.b }, z0.b[2]");
+        check(0xc1d00f5f, "fvdott  za.s[w8, 7, vgx4], { z26.b, z27.b }, z0.b[3]");
+    }
+
+    #[test]
+    fn za_dot_add_sub_round_trip() {
+        // Every canonical form + every GAP example must round-trip exactly.
+        for &w in &[
+            0xc1a01030, 0xc1500038, 0xc1201018, 0xc1a11030, 0xc1508008, 0xc1301018, 0xc1d01020, 0xc1508020, 0xc1508030,
+            0xc12015d2, 0xc1203560, 0xc1201429, 0xc120163d, 0xc150020c, 0xc1500976, 0xc15006a7, 0xc150051c,
+            0xc1508839, 0xc1508128, 0xc1203976, 0xc1201898, 0xc110bc46, 0xc1201094, 0xc1d00e86, 0xc1d00f5f,
+            0xc1e01810, 0xc1e01c10, 0xc1601810, 0xc1e11810, 0xc1e11c10, 0xc1701810, 0xc1a01810, 0xc1a01c10,
+            0xc1201810, 0xc1a11810, 0xc1a11c10, 0xc1301810, 0xc1a01010, 0xc1501018, 0xc1201010, 0xc1a11010,
+            0xc1509018, 0xc1301010, 0xc1500018, 0xc1e01c00, 0xc1e11c00, 0xc1a41c00, 0xc1a51c00, 0xc1a01c00,
+            0xc1a11c00, 0xc1a01020, 0xc1d00020, 0xc1201008, 0xc1a11020, 0xc1109040, 0xc1301008, 0xc1a01000,
+            0xc1501008, 0xc1201000, 0xc1a11000, 0xc1509008, 0xc1301000, 0xc1e01c08, 0xc1e11c08, 0xc1a41c08,
+            0xc1a51c08, 0xc1a01c08, 0xc1a11c08, 0xc1500008, 0xc1d00800, 0xc1d00810, 0xc1e01400, 0xc1d00008,
+            0xc1601400, 0xc1e11400, 0xc1d08008, 0xc1701400, 0xc1a01400, 0xc1501020, 0xc1201400, 0xc1a11400,
+            0xc1509020, 0xc1301400, 0xc1e01408, 0xc1501000, 0xc1601408, 0xc1e11408, 0xc1509000, 0xc1701408,
+            0xc1e01818, 0xc1e01c18, 0xc1601818, 0xc1e11818, 0xc1e11c18, 0xc1701818, 0xc1a01818, 0xc1a01c18,
+            0xc1201818, 0xc1a11818, 0xc1a11c18, 0xc1301818, 0xc1501038, 0xc1201418, 0xc1509038, 0xc1301418,
+            0xc1508038, 0xc1d08808, 0xc1500020, 0xc1e01410, 0xc1d00018, 0xc1601410, 0xc1e11410, 0xc1d08018,
+            0xc1701410, 0xc1a01410, 0xc1501030, 0xc1201410, 0xc1a11410, 0xc1509030, 0xc1301410, 0xc1e01418,
+            0xc1501010, 0xc1601418, 0xc1e11418, 0xc1509010, 0xc1701418, 0xc1a01408, 0xc1501028, 0xc1201408,
+            0xc1a11408, 0xc1509028, 0xc1301408, 0xc1508028, 0xc1d08818, 0xc1500030,
         ] {
             rt(w);
         }

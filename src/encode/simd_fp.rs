@@ -85,6 +85,10 @@ pub fn is_simd_fp(code: Code) -> bool {
         // --- three-same widening / extra / complex ---
         | FmlalVec | FmlslVec | Fmlal2Vec | Fmlsl2Vec | SqrdmlahVec | SqrdmlshVec | FcmlaVec
         | FcaddVec | SdotVec | UdotVec | SdotIdx | UdotIdx
+        // --- FP8 / I8MM / BF16 dot-product & widening MLAL (NEON) ---
+        | FdotVec | FdotIdx | UsdotVec | UsdotIdx | SudotIdx | BfdotVec | BfdotIdx
+        | BfmlalbVec | BfmlaltVec | FmlalbVec | FmlaltVec
+        | FmlallbbVec | FmlallbtVec | FmlalltbVec | FmlallttVec
         // --- three-different ---
         | SaddlVec | Saddl2Vec | SaddwVec | Saddw2Vec | SsublVec | Ssubl2Vec | SsubwVec
         | Ssubw2Vec | AddhnVec | Addhn2Vec | SabalVec | Sabal2Vec | SubhnVec | Subhn2Vec

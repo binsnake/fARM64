@@ -92,6 +92,14 @@ pub enum Feature {
     /// register/immediate compare-and-branch forms `CB<cc>` (word/doubleword)
     /// plus their byte (`CBB<cc>`) and halfword (`CBH<cc>`) register variants.
     Cmpbr,
+    /// Int8 matrix multiply / mixed-sign dot product (`FEAT_I8MM`): the
+    /// Advanced SIMD `USDOT`/`SUDOT` byte dot products (vector and by-element).
+    I8mm,
+    /// 8-bit floating-point (`FEAT_FP8` and the `FP8DOT2`/`FP8DOT4`/`FP8FMA`
+    /// sub-features): the Advanced SIMD `FDOT` (to single/half), `FMLALB`/
+    /// `FMLALT` and `FMLALLBB`/`FMLALLBT`/`FMLALLTB`/`FMLALLTT` FP8 widening
+    /// multiply-accumulate forms (vector and by-element).
+    Fp8,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

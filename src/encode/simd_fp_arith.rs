@@ -49,6 +49,9 @@ mod simd_arith {
         if let Some(w) = extra_complex_dot(insn, code)? {
             return Ok(Some(w));
         }
+        if let Some(w) = ext_dot_mlal_vec(insn, code)? {
+            return Ok(Some(w));
+        }
         if let Some(w) = three_different(insn, code)? {
             return Ok(Some(w));
         }
@@ -507,6 +510,56 @@ mod simd_arith {
             }
             _ => Ok(None),
         }
+    }
+
+    /// FP8 / I8MM / BF16 Advanced-SIMD "three-register extension" dot-product
+    /// and widening MLAL — *vector* forms (the by-element forms are encoded in
+    /// `by_element`). Inverse of `decode::simd_fp::simd_arith::simd_three_reg_ext`.
+    /// Layout: `0 Q U 01110 size 0 Rm <word15:10> Rn Rd`.
+    fn ext_dot_mlal_vec(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeError> {
+        use Code::*;
+        // The MLAL codes (FmlalbVec/Bfmlalb.../Fmlall*) also carry a by-element
+        // form under the same Code; defer those to `by_element`.
+        if is_by_element(insn) {
+            return Ok(None);
+        }
+        let (u, size, q, lo) = match code {
+            FdotVec => {
+                // size + Q from the destination arrangement (to-single .2s/.4s ->
+                // size 00; to-half .4h/.8h -> size 01).
+                let (size, q) = match arr_of(insn, 0)? {
+                    VA::V2S => (0b00u32, 0u32),
+                    VA::V4S => (0b00, 1),
+                    VA::V4H => (0b01, 0),
+                    VA::V8H => (0b01, 1),
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                (0u32, size, q, 0b111111u32)
+            }
+            UsdotVec => (0, 0b10, q_of_arr(arr_of(insn, 0)?)?, 0b100111),
+            BfdotVec => (1, 0b01, q_of_arr(arr_of(insn, 0)?)?, 0b111111),
+            FmlalbVec => (0, 0b11, 0, 0b111111),
+            FmlaltVec => (0, 0b11, 1, 0b111111),
+            BfmlalbVec => (1, 0b11, 0, 0b111111),
+            BfmlaltVec => (1, 0b11, 1, 0b111111),
+            FmlallbbVec => (0, 0b00, 0, 0b110001),
+            FmlallbtVec => (0, 0b01, 0, 0b110001),
+            FmlalltbVec => (0, 0b00, 1, 0b110001),
+            FmlallttVec => (0, 0b01, 1, 0b110001),
+            _ => return Ok(None),
+        };
+        let rm = reg_num(insn, 2)?;
+        let rn = reg_num(insn, 1)?;
+        let rd = reg_num(insn, 0)?;
+        let word = (q << 30)
+            | (u << 29)
+            | top(false, false)
+            | (size << 22)
+            | (rm << 16)
+            | (lo << 10)
+            | (rn << 5)
+            | rd;
+        Ok(Some(word))
     }
 
     /// `(size, q)` for a complex FCMLA/FCADD vector arrangement.
@@ -1207,6 +1260,11 @@ mod simd_arith {
             return Ok(Some(enc_by_element_fcmla(insn)?));
         }
 
+        // FP8 / I8MM / BF16 by-element dot-product and widening MLAL.
+        if let Some(w) = ext_dot_mlal_byel(insn, code)? {
+            return Ok(Some(w));
+        }
+
         // (U, opcode4) for by-element.
         let fields = by_element_fields(code);
         let Some((u, opcode)) = fields else {
@@ -1280,6 +1338,137 @@ mod simd_arith {
             by_elem_word(q, u, size, opcode, h, l, m, vm, rn, rd)
         };
         Ok(Some(word))
+    }
+
+    /// FP8 / I8MM / BF16 by-element dot-product and widening MLAL. Inverse of
+    /// `decode::simd_fp::simd_arith::by_element_ext`. Returns `Ok(None)` for codes
+    /// outside this family. Caller guarantees the operand is by-element.
+    fn ext_dot_mlal_byel(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeError> {
+        use Code::*;
+        // Bail out before touching operands for codes outside this family — other
+        // by-element-shaped instructions (e.g. INS `mov v.h[i], w`) share this
+        // dispatch and must not have their operands mis-read.
+        if !matches!(
+            code,
+            FdotIdx
+                | SudotIdx
+                | UsdotIdx
+                | BfdotIdx
+                | BfmlalbVec
+                | BfmlaltVec
+                | FmlalbVec
+                | FmlaltVec
+                | FmlallbbVec
+                | FmlallbtVec
+                | FmlalltbVec
+                | FmlallttVec
+        ) {
+            return Ok(None);
+        }
+        let last = insn.op_count() - 1;
+        let rn = reg_num(insn, 1)?;
+        let rd = reg_num(insn, 0)?;
+        let vm = reg_num(insn, last)?;
+        let index = lane_of(insn, last)?;
+        let w = match code {
+            FdotIdx => {
+                // to-single (.2s/.4s) -> size00, .4b index (H:L, 5-bit Vm);
+                // to-half (.4h/.8h) -> size01, .2b index (H:L:M, 4-bit Vm).
+                match arr_of(insn, 0)? {
+                    VA::V2S | VA::V4S => {
+                        let q = q_of_arr(arr_of(insn, 0)?)?;
+                        let (h, l, m) = idx_hlm(0b10, vm, index);
+                        by_elem_word(q, 0, 0b00, 0b0000, h, l, m, vm, rn, rd)
+                    }
+                    VA::V4H | VA::V8H => {
+                        let q = if arr_of(insn, 0)? == VA::V8H { 1 } else { 0 };
+                        if vm > 0xf {
+                            return Err(EncodeError::InvalidOperand);
+                        }
+                        let (h, l, m) = split_index(0b01, index);
+                        by_elem_word(q, 0, 0b01, 0b0000, h, l, m, vm, rn, rd)
+                    }
+                    _ => return Err(EncodeError::InvalidOperand),
+                }
+            }
+            SudotIdx | UsdotIdx => {
+                let q = q_of_arr(arr_of(insn, 0)?)?;
+                let (h, l, m) = idx_hlm(0b10, vm, index);
+                let size = if code == SudotIdx { 0b00 } else { 0b10 };
+                by_elem_word(q, 0, size, 0b1111, h, l, m, vm, rn, rd)
+            }
+            BfdotIdx => {
+                let q = q_of_arr(arr_of(insn, 0)?)?;
+                let (h, l, m) = idx_hlm(0b10, vm, index);
+                by_elem_word(q, 0, 0b01, 0b1111, h, l, m, vm, rn, rd)
+            }
+            BfmlalbVec | BfmlaltVec => {
+                // size11, opcode1111, .h index (H:L:M, 4-bit Vm); B/T = Q.
+                let q = if code == BfmlaltVec { 1 } else { 0 };
+                if vm > 0xf {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                let (h, l, m) = split_index(0b01, index);
+                by_elem_word(q, 0, 0b11, 0b1111, h, l, m, vm, rn, rd)
+            }
+            FmlalbVec | FmlaltVec => {
+                // size11, opcode0000, .b byte index (4-bit), 3-bit Vm; B/T = Q.
+                let q = if code == FmlaltVec { 1 } else { 0 };
+                byte_idx_word(q, 0, 0b11, 0b0000, index, vm, rn, rd)?
+            }
+            FmlallbbVec | FmlallbtVec | FmlalltbVec | FmlallttVec => {
+                // U=1, opcode1000, .b byte index (4-bit), 3-bit Vm.
+                let (q, size) = match code {
+                    FmlallbbVec => (0, 0b00),
+                    FmlallbtVec => (0, 0b01),
+                    FmlalltbVec => (1, 0b00),
+                    _ => (1, 0b01),
+                };
+                byte_idx_word(q, 1, size, 0b1000, index, vm, rn, rd)?
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(w))
+    }
+
+    /// By-element word builder for the FP8 `.b` byte-indexed forms (FMLALB/T and
+    /// FMLALL*): a 4-bit index packed as `H(word<11>) : word<21> : word<20> :
+    /// word<19>` with a 3-bit `Vm` in `word<18:16>`.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    fn byte_idx_word(
+        q: u32,
+        u: u32,
+        size: u32,
+        opcode: u32,
+        index: u8,
+        vm: u32,
+        rn: u32,
+        rd: u32,
+    ) -> Result<u32, EncodeError> {
+        if vm > 0x7 {
+            return Err(EncodeError::InvalidOperand); // 3-bit Vm only.
+        }
+        let idx = index as u32;
+        if idx > 0xf {
+            return Err(EncodeError::InvalidImmediate);
+        }
+        let h = (idx >> 3) & 1; // word<11>
+        let i2 = (idx >> 2) & 1; // word<21>
+        let i1 = (idx >> 1) & 1; // word<20>
+        let i0 = idx & 1; // word<19>
+        Ok((q << 30)
+            | (u << 29)
+            | (0b01111 << 24)
+            | (size << 22)
+            | (i2 << 21)
+            | (i1 << 20)
+            | (i0 << 19)
+            | ((vm & 0x7) << 16)
+            | (opcode << 12)
+            | (h << 11)
+            | (rn << 5)
+            | rd)
     }
 
     /// `(U, opcode4)` for a by-element code.

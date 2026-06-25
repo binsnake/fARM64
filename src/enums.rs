@@ -261,6 +261,10 @@ pub enum VectorArrangement {
     /// other indexed arrangements this keeps its `4b` lane-group prefix even
     /// with a lane index, so its truncated suffix is also `.4b`.
     V4B,
+    /// `.2B` — two bytes (the indexed-element arrangement of the FP8 `FDOT`
+    /// to-half by-element form: `Vm.2B[index]`). Like [`VectorArrangement::V4B`]
+    /// it keeps its `2b` lane-group prefix even with a lane index.
+    V2B,
     /// `.1Q` — one quadword (PMULL/PMULL2 polynomial-long result).
     V1Q,
     // --- SVE element-width forms (size only; count is VL-dependent) ---
@@ -287,6 +291,7 @@ impl VectorArrangement {
             VectorArrangement::V8B
             | VectorArrangement::V16B
             | VectorArrangement::V4B
+            | VectorArrangement::V2B
             | VectorArrangement::Sb => 8,
             VectorArrangement::V4H | VectorArrangement::V8H | VectorArrangement::V2H | VectorArrangement::Sh => 16,
             VectorArrangement::V2S | VectorArrangement::V4S | VectorArrangement::Ss => 32,
@@ -303,6 +308,7 @@ impl VectorArrangement {
             VectorArrangement::V8B => 8,
             VectorArrangement::V16B => 16,
             VectorArrangement::V4B => 4,
+            VectorArrangement::V2B => 2,
             VectorArrangement::V4H => 4,
             VectorArrangement::V8H => 8,
             VectorArrangement::V2S => 2,
@@ -350,6 +356,14 @@ impl VectorArrangement {
         if let VectorArrangement::V4B = self {
             return ".4b";
         }
+        if let VectorArrangement::V2B = self {
+            return ".2b";
+        }
+        // The BF16 `BFDOT` by-element indexed operand keeps its `.2h` lane-group
+        // prefix even with a lane index (`Vm.2H[i]`).
+        if let VectorArrangement::V2H = self {
+            return ".2h";
+        }
         if !full {
             return match self.element_bits() {
                 8 => ".b",
@@ -372,6 +386,7 @@ impl VectorArrangement {
             VectorArrangement::V2D => ".2d",
             VectorArrangement::V2H => ".2h",
             VectorArrangement::V4B => ".4b",
+            VectorArrangement::V2B => ".2b",
             VectorArrangement::V1Q => ".1q",
             VectorArrangement::Sb => ".b",
             VectorArrangement::Sh => ".h",

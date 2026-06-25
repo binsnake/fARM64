@@ -2476,6 +2476,141 @@ codes! {
     SmeUstmopaSB => Ustmopa, Sme2, "`ustmopa za0.s, { z0.b, z1.b }, z0.b, z20[0]` (SME2).";
     SmeUtmopaSB => Utmopa, Sme2, "`utmopa za0.s, { z0.b, z1.b }, z0.b, z20[0]` (SME2).";
     SmeUtmopaSH => Utmopa, Sme2, "`utmopa za0.s, { z0.h, z1.h }, z0.h, z20[0]` (SME2).";
+    // --- NEON Advanced-SIMD FP8 / I8MM / BF16 dot-product & widening MLAL ---
+    FdotVec => Fdot, Fp8, "`FDOT <Vd>.<2s/4s>, <Vn>.<8b/16b>, <Vm>.<8b/16b>` / `FDOT <Vd>.<4h/8h>, ...` (Advanced SIMD FP8 dot product).";
+    FdotIdx => Fdot, Fp8, "`FDOT <Vd>.<2s/4s>, <Vn>.<8b/16b>, <Vm>.4B[i]` / to-half `Vm.2B[i]` (Advanced SIMD FP8 dot product by element).";
+    UsdotVec => Usdot, I8mm, "`USDOT <Vd>.<2s/4s>, <Vn>.<8b/16b>, <Vm>.<8b/16b>` (Advanced SIMD mixed-sign dot product).";
+    UsdotIdx => Usdot, I8mm, "`USDOT <Vd>.<2s/4s>, <Vn>.<8b/16b>, <Vm>.4B[i]` (Advanced SIMD mixed-sign dot product by element).";
+    SudotIdx => Sudot, I8mm, "`SUDOT <Vd>.<2s/4s>, <Vn>.<8b/16b>, <Vm>.4B[i]` (Advanced SIMD mixed-sign dot product by element).";
+    BfdotVec => Bfdot, Bf16, "`BFDOT <Vd>.<2s/4s>, <Vn>.<4h/8h>, <Vm>.<4h/8h>` (Advanced SIMD BF16 dot product).";
+    BfdotIdx => Bfdot, Bf16, "`BFDOT <Vd>.<2s/4s>, <Vn>.<4h/8h>, <Vm>.2H[i]` (Advanced SIMD BF16 dot product by element).";
+    BfmlalbVec => Bfmlalb, Bf16, "`BFMLALB <Vd>.4S, <Vn>.8H, <Vm>.8H` / `.H[i]` (Advanced SIMD BF16 widening MLAL bottom).";
+    BfmlaltVec => Bfmlalt, Bf16, "`BFMLALT <Vd>.4S, <Vn>.8H, <Vm>.8H` / `.H[i]` (Advanced SIMD BF16 widening MLAL top).";
+    FmlalbVec => Fmlalb, Fp8, "`FMLALB <Vd>.8H, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening MLAL bottom).";
+    FmlaltVec => Fmlalt, Fp8, "`FMLALT <Vd>.8H, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening MLAL top).";
+    FmlallbbVec => Fmlallbb, Fp8, "`FMLALLBB <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
+    FmlallbtVec => Fmlallbt, Fp8, "`FMLALLBT <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
+    FmlalltbVec => Fmlalltb, Fp8, "`FMLALLTB <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
+    FmlallttVec => Fmlalltt, Fp8, "`FMLALLTT <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
+    SmeAddDDV2Gg => Add, Sme2, "`add za.d[w8, 0, vgx2], { z0.d, z1.d }, { z0.d, z1.d }` (SME2).";
+    SmeAddDDV2Go => Add, Sme2, "`add za.d[w8, 0, vgx2], { z0.d, z1.d }` (SME2).";
+    SmeAddDDV2Gs => Add, Sme2, "`add za.d[w8, 0, vgx2], { z0.d, z1.d }, z0.d` (SME2).";
+    SmeAddDDV4Gg => Add, Sme2, "`add za.d[w8, 0, vgx4], { z0.d - z3.d }, { z0.d - z3.d }` (SME2).";
+    SmeAddDDV4Go => Add, Sme2, "`add za.d[w8, 0, vgx4], { z0.d - z3.d }` (SME2).";
+    SmeAddDDV4Gs => Add, Sme2, "`add za.d[w8, 0, vgx4], { z0.d - z3.d }, z0.d` (SME2).";
+    SmeAddSSV2Gg => Add, Sme2, "`add za.s[w8, 0, vgx2], { z0.s, z1.s }, { z0.s, z1.s }` (SME2).";
+    SmeAddSSV2Go => Add, Sme2, "`add za.s[w8, 0, vgx2], { z0.s, z1.s }` (SME2).";
+    SmeAddSSV2Gs => Add, Sme2, "`add za.s[w8, 0, vgx2], { z0.s, z1.s }, z0.s` (SME2).";
+    SmeAddSSV4Gg => Add, Sme2, "`add za.s[w8, 0, vgx4], { z0.s - z3.s }, { z0.s - z3.s }` (SME2).";
+    SmeAddSSV4Go => Add, Sme2, "`add za.s[w8, 0, vgx4], { z0.s - z3.s }` (SME2).";
+    SmeAddSSV4Gs => Add, Sme2, "`add za.s[w8, 0, vgx4], { z0.s - z3.s }, z0.s` (SME2).";
+    SmeBfdotSHV2Gg => Bfdot, Sme2, "`bfdot za.s[w8, 0, vgx2], { z0.h, z1.h }, { z0.h, z1.h }` (SME2).";
+    SmeBfdotSHV2Gi => Bfdot, Sme2, "`bfdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeBfdotSHV2Gs => Bfdot, Sme2, "`bfdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h` (SME2).";
+    SmeBfdotSHV4Gg => Bfdot, Sme2, "`bfdot za.s[w8, 0, vgx4], { z0.h - z3.h }, { z0.h - z3.h }` (SME2).";
+    SmeBfdotSHV4Gi => Bfdot, Sme2, "`bfdot za.s[w8, 0, vgx4], { z0.h - z3.h }, z0.h[0]` (SME2).";
+    SmeBfdotSHV4Gs => Bfdot, Sme2, "`bfdot za.s[w8, 0, vgx4], { z0.h - z3.h }, z0.h` (SME2).";
+    SmeBfvdotSHV2Gi => Bfvdot, Sme2, "`bfvdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeFaddDDV2Go => Fadd, Sme2, "`fadd za.d[w8, 0, vgx2], { z0.d, z1.d }` (SME2).";
+    SmeFaddDDV4Go => Fadd, Sme2, "`fadd za.d[w8, 0, vgx4], { z0.d - z3.d }` (SME2).";
+    SmeFaddHHV2Go => Fadd, Sme2, "`fadd za.h[w8, 0, vgx2], { z0.h, z1.h }` (SME2).";
+    SmeFaddHHV4Go => Fadd, Sme2, "`fadd za.h[w8, 0, vgx4], { z0.h - z3.h }` (SME2).";
+    SmeFaddSSV2Go => Fadd, Sme2, "`fadd za.s[w8, 0, vgx2], { z0.s, z1.s }` (SME2).";
+    SmeFaddSSV4Go => Fadd, Sme2, "`fadd za.s[w8, 0, vgx4], { z0.s - z3.s }` (SME2).";
+    SmeFdotHBV2Gg => Fdot, Sme2, "`fdot za.h[w8, 0, vgx2], { z0.b, z1.b }, { z0.b, z1.b }` (SME2).";
+    SmeFdotHBV2Gi => Fdot, Sme2, "`fdot za.h[w8, 0, vgx2], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeFdotHBV2Gs => Fdot, Sme2, "`fdot za.h[w8, 0, vgx2], { z0.b, z1.b }, z0.b` (SME2).";
+    SmeFdotHBV4Gg => Fdot, Sme2, "`fdot za.h[w8, 0, vgx4], { z0.b - z3.b }, { z0.b - z3.b }` (SME2).";
+    SmeFdotHBV4Gi => Fdot, Sme2, "`fdot za.h[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeFdotHBV4Gs => Fdot, Sme2, "`fdot za.h[w8, 0, vgx4], { z0.b - z3.b }, z0.b` (SME2).";
+    SmeFdotSHV2Gg => Fdot, Sme2, "`fdot za.s[w8, 0, vgx2], { z0.h, z1.h }, { z0.h, z1.h }` (SME2).";
+    SmeFdotSHV2Gi => Fdot, Sme2, "`fdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeFdotSHV2Gs => Fdot, Sme2, "`fdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h` (SME2).";
+    SmeFdotSHV4Gg => Fdot, Sme2, "`fdot za.s[w8, 0, vgx4], { z0.h - z3.h }, { z0.h - z3.h }` (SME2).";
+    SmeFdotSHV4Gi => Fdot, Sme2, "`fdot za.s[w8, 0, vgx4], { z0.h - z3.h }, z0.h[0]` (SME2).";
+    SmeFdotSHV4Gs => Fdot, Sme2, "`fdot za.s[w8, 0, vgx4], { z0.h - z3.h }, z0.h` (SME2).";
+    SmeFsubDDV2Go => Fsub, Sme2, "`fsub za.d[w8, 0, vgx2], { z0.d, z1.d }` (SME2).";
+    SmeFsubDDV4Go => Fsub, Sme2, "`fsub za.d[w8, 0, vgx4], { z0.d - z3.d }` (SME2).";
+    SmeFsubHHV2Go => Fsub, Sme2, "`fsub za.h[w8, 0, vgx2], { z0.h, z1.h }` (SME2).";
+    SmeFsubHHV4Go => Fsub, Sme2, "`fsub za.h[w8, 0, vgx4], { z0.h - z3.h }` (SME2).";
+    SmeFsubSSV2Go => Fsub, Sme2, "`fsub za.s[w8, 0, vgx2], { z0.s, z1.s }` (SME2).";
+    SmeFsubSSV4Go => Fsub, Sme2, "`fsub za.s[w8, 0, vgx4], { z0.s - z3.s }` (SME2).";
+    SmeFvdotSHV2Gi => Fvdot, Sme2, "`fvdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeFvdotbSBV4GiB => Fvdotb, Sme2, "`fvdotb za.s[w8, 0, vgx4], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeFvdottSBV4GiB => Fvdott, Sme2, "`fvdott za.s[w8, 0, vgx4], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeSdotDHV2Gg => Sdot, Sme2, "`sdot za.d[w8, 0, vgx2], { z0.h, z1.h }, { z0.h, z1.h }` (SME2).";
+    SmeSdotDHV2Gi => Sdot, Sme2, "`sdot za.d[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeSdotDHV2Gs => Sdot, Sme2, "`sdot za.d[w8, 0, vgx2], { z0.h, z1.h }, z0.h` (SME2).";
+    SmeSdotDHV4Gg => Sdot, Sme2, "`sdot za.d[w8, 0, vgx4], { z0.h - z3.h }, { z0.h - z3.h }` (SME2).";
+    SmeSdotDHV4Gi => Sdot, Sme2, "`sdot za.d[w8, 0, vgx4], { z0.h - z3.h }, z0.h[0]` (SME2).";
+    SmeSdotDHV4Gs => Sdot, Sme2, "`sdot za.d[w8, 0, vgx4], { z0.h - z3.h }, z0.h` (SME2).";
+    SmeSdotSBV2Gg => Sdot, Sme2, "`sdot za.s[w8, 0, vgx2], { z0.b, z1.b }, { z0.b, z1.b }` (SME2).";
+    SmeSdotSBV2Gi => Sdot, Sme2, "`sdot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeSdotSBV2Gs => Sdot, Sme2, "`sdot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b` (SME2).";
+    SmeSdotSBV4Gg => Sdot, Sme2, "`sdot za.s[w8, 0, vgx4], { z0.b - z3.b }, { z0.b - z3.b }` (SME2).";
+    SmeSdotSBV4Gi => Sdot, Sme2, "`sdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeSdotSBV4Gs => Sdot, Sme2, "`sdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b` (SME2).";
+    SmeSdotSHV2Gg => Sdot, Sme2, "`sdot za.s[w8, 0, vgx2], { z0.h, z1.h }, { z0.h, z1.h }` (SME2).";
+    SmeSdotSHV2Gi => Sdot, Sme2, "`sdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeSdotSHV2Gs => Sdot, Sme2, "`sdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h` (SME2).";
+    SmeSdotSHV4Gg => Sdot, Sme2, "`sdot za.s[w8, 0, vgx4], { z0.h - z3.h }, { z0.h - z3.h }` (SME2).";
+    SmeSdotSHV4Gi => Sdot, Sme2, "`sdot za.s[w8, 0, vgx4], { z0.h - z3.h }, z0.h[0]` (SME2).";
+    SmeSdotSHV4Gs => Sdot, Sme2, "`sdot za.s[w8, 0, vgx4], { z0.h - z3.h }, z0.h` (SME2).";
+    SmeSubDDV2Gg => Sub, Sme2, "`sub za.d[w8, 0, vgx2], { z0.d, z1.d }, { z0.d, z1.d }` (SME2).";
+    SmeSubDDV2Go => Sub, Sme2, "`sub za.d[w8, 0, vgx2], { z0.d, z1.d }` (SME2).";
+    SmeSubDDV2Gs => Sub, Sme2, "`sub za.d[w8, 0, vgx2], { z0.d, z1.d }, z0.d` (SME2).";
+    SmeSubDDV4Gg => Sub, Sme2, "`sub za.d[w8, 0, vgx4], { z0.d - z3.d }, { z0.d - z3.d }` (SME2).";
+    SmeSubDDV4Go => Sub, Sme2, "`sub za.d[w8, 0, vgx4], { z0.d - z3.d }` (SME2).";
+    SmeSubDDV4Gs => Sub, Sme2, "`sub za.d[w8, 0, vgx4], { z0.d - z3.d }, z0.d` (SME2).";
+    SmeSubSSV2Gg => Sub, Sme2, "`sub za.s[w8, 0, vgx2], { z0.s, z1.s }, { z0.s, z1.s }` (SME2).";
+    SmeSubSSV2Go => Sub, Sme2, "`sub za.s[w8, 0, vgx2], { z0.s, z1.s }` (SME2).";
+    SmeSubSSV2Gs => Sub, Sme2, "`sub za.s[w8, 0, vgx2], { z0.s, z1.s }, z0.s` (SME2).";
+    SmeSubSSV4Gg => Sub, Sme2, "`sub za.s[w8, 0, vgx4], { z0.s - z3.s }, { z0.s - z3.s }` (SME2).";
+    SmeSubSSV4Go => Sub, Sme2, "`sub za.s[w8, 0, vgx4], { z0.s - z3.s }` (SME2).";
+    SmeSubSSV4Gs => Sub, Sme2, "`sub za.s[w8, 0, vgx4], { z0.s - z3.s }, z0.s` (SME2).";
+    SmeSudotSBV2Gi => Sudot, Sme2, "`sudot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeSudotSBV2Gs => Sudot, Sme2, "`sudot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b` (SME2).";
+    SmeSudotSBV4Gi => Sudot, Sme2, "`sudot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeSudotSBV4Gs => Sudot, Sme2, "`sudot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b` (SME2).";
+    SmeSuvdotSBV4Gi => Suvdot, Sme2, "`suvdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeSvdotDHV4Gi => Svdot, Sme2, "`svdot za.d[w8, 0, vgx4], { z0.h - z3.h }, z0.h[0]` (SME2).";
+    SmeSvdotSHV2Gi => Svdot, Sme2, "`svdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeUdotDHV2Gg => Udot, Sme2, "`udot za.d[w8, 0, vgx2], { z0.h, z1.h }, { z0.h, z1.h }` (SME2).";
+    SmeUdotDHV2Gi => Udot, Sme2, "`udot za.d[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeUdotDHV2Gs => Udot, Sme2, "`udot za.d[w8, 0, vgx2], { z0.h, z1.h }, z0.h` (SME2).";
+    SmeUdotDHV4Gg => Udot, Sme2, "`udot za.d[w8, 0, vgx4], { z0.h - z3.h }, { z0.h - z3.h }` (SME2).";
+    SmeUdotDHV4Gi => Udot, Sme2, "`udot za.d[w8, 0, vgx4], { z0.h - z3.h }, z0.h[0]` (SME2).";
+    SmeUdotDHV4Gs => Udot, Sme2, "`udot za.d[w8, 0, vgx4], { z0.h - z3.h }, z0.h` (SME2).";
+    SmeUdotSBV2Gg => Udot, Sme2, "`udot za.s[w8, 0, vgx2], { z0.b, z1.b }, { z0.b, z1.b }` (SME2).";
+    SmeUdotSBV2Gi => Udot, Sme2, "`udot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeUdotSBV2Gs => Udot, Sme2, "`udot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b` (SME2).";
+    SmeUdotSBV4Gg => Udot, Sme2, "`udot za.s[w8, 0, vgx4], { z0.b - z3.b }, { z0.b - z3.b }` (SME2).";
+    SmeUdotSBV4Gi => Udot, Sme2, "`udot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeUdotSBV4Gs => Udot, Sme2, "`udot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b` (SME2).";
+    SmeUdotSHV2Gg => Udot, Sme2, "`udot za.s[w8, 0, vgx2], { z0.h, z1.h }, { z0.h, z1.h }` (SME2).";
+    SmeUdotSHV2Gi => Udot, Sme2, "`udot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeUdotSHV2Gs => Udot, Sme2, "`udot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h` (SME2).";
+    SmeUdotSHV4Gg => Udot, Sme2, "`udot za.s[w8, 0, vgx4], { z0.h - z3.h }, { z0.h - z3.h }` (SME2).";
+    SmeUdotSHV4Gi => Udot, Sme2, "`udot za.s[w8, 0, vgx4], { z0.h - z3.h }, z0.h[0]` (SME2).";
+    SmeUdotSHV4Gs => Udot, Sme2, "`udot za.s[w8, 0, vgx4], { z0.h - z3.h }, z0.h` (SME2).";
+    SmeUsdotSBV2Gg => Usdot, Sme2, "`usdot za.s[w8, 0, vgx2], { z0.b, z1.b }, { z0.b, z1.b }` (SME2).";
+    SmeUsdotSBV2Gi => Usdot, Sme2, "`usdot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeUsdotSBV2Gs => Usdot, Sme2, "`usdot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b` (SME2).";
+    SmeUsdotSBV4Gg => Usdot, Sme2, "`usdot za.s[w8, 0, vgx4], { z0.b - z3.b }, { z0.b - z3.b }` (SME2).";
+    SmeUsdotSBV4Gi => Usdot, Sme2, "`usdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeUsdotSBV4Gs => Usdot, Sme2, "`usdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b` (SME2).";
+    SmeUsvdotSBV4Gi => Usvdot, Sme2, "`usvdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeUvdotDHV4Gi => Uvdot, Sme2, "`uvdot za.d[w8, 0, vgx4], { z0.h - z3.h }, z0.h[0]` (SME2).";
+    SmeUvdotSHV2Gi => Uvdot, Sme2, "`uvdot za.s[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]` (SME2).";
+    SmeFdotSBV2Gg => Fdot, Sme2, "`fdot za.s[w8, 0, vgx2], { z0.b, z1.b }, { z0.b, z1.b }` (SME2).";
+    SmeFdotSBV2Gi => Fdot, Sme2, "`fdot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeFdotSBV2Gs => Fdot, Sme2, "`fdot za.s[w8, 0, vgx2], { z0.b, z1.b }, z0.b` (SME2).";
+    SmeFdotSBV4Gg => Fdot, Sme2, "`fdot za.s[w8, 0, vgx4], { z0.b - z3.b }, { z0.b - z3.b }` (SME2).";
+    SmeFdotSBV4Gi => Fdot, Sme2, "`fdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeFdotSBV4Gs => Fdot, Sme2, "`fdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b` (SME2).";
+    SmeFvdotHBV2Gi => Fvdot, Sme2, "`fvdot za.h[w8, 0, vgx2], { z0.b, z1.b }, z0.b[0]` (SME2).";
+    SmeSvdotSBV4Gi => Svdot, Sme2, "`svdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    SmeUvdotSBV4Gi => Uvdot, Sme2, "`uvdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
 }
 
 impl Code {
@@ -5386,6 +5521,32 @@ pub enum Mnemonic {
     Cbheq,
     /// `CBHNE` (FEAT_CMPBR halfword compare-and-branch if not equal).
     Cbhne,
+    /// `FDOT` (Advanced SIMD FP8 dot product, to single/half precision).
+    Fdot,
+    /// `FMLALLBB` (Advanced SIMD FP8 widening ×4 multiply-add, bottom-bottom).
+    Fmlallbb,
+    /// `FMLALLBT` (Advanced SIMD FP8 widening ×4 multiply-add, bottom-top).
+    Fmlallbt,
+    /// `FMLALLTB` (Advanced SIMD FP8 widening ×4 multiply-add, top-bottom).
+    Fmlalltb,
+    /// `FMLALLTT` (Advanced SIMD FP8 widening ×4 multiply-add, top-top).
+    Fmlalltt,
+    /// `FVDOT` (SME2 multi-vector FP16 vertical dot product into ZA).
+    Fvdot,
+    /// `BFVDOT` (SME2 multi-vector BF16 vertical dot product into ZA).
+    Bfvdot,
+    /// `UVDOT` (SME2 multi-vector unsigned vertical dot product into ZA).
+    Uvdot,
+    /// `SVDOT` (SME2 multi-vector signed vertical dot product into ZA).
+    Svdot,
+    /// `SUVDOT` (SME2 multi-vector signed-by-unsigned vertical dot product into ZA).
+    Suvdot,
+    /// `USVDOT` (SME2 multi-vector unsigned-by-signed vertical dot product into ZA).
+    Usvdot,
+    /// `FVDOTB` (SME2 FP8 multi-vector vertical dot product into ZA, bottom).
+    Fvdotb,
+    /// `FVDOTT` (SME2 FP8 multi-vector vertical dot product into ZA, top).
+    Fvdott,
 }
 
 impl Mnemonic {

@@ -600,6 +600,16 @@ mod imp {
                 word |= pdep(group_field(insn, 1, f.vg, f.src, f.zn)?, f.zn);
                 word |= pdep(group_field(insn, 2, f.vg, f.src, f.zm)?, f.zm);
             }
+            Sh::GroupOnly => {
+                word |= pdep(group_field(insn, 1, f.vg, f.src, f.zn)?, f.zn);
+            }
+            Sh::GroupIdxB => {
+                // FP8 FVDOTB/FVDOTT: a two-register group with a `vgx4` ZA dest.
+                word |= pdep(group_field(insn, 1, 2, f.src, f.zn)?, f.zn);
+                let (zm, idx) = z_single_idx(insn, 2, f.src)?;
+                word |= pdep(zm, f.zm);
+                word |= pdep(idx, f.idx);
+            }
             Sh::Tmopa => unreachable!(),
         }
         Ok(word)

@@ -555,6 +555,13 @@ fn fp_three_same(
 /// half-precision three-same family (`word<11:10>=01`, opcode in `word<13:11>`).
 #[inline]
 fn three_same_extra_or_fp16(word: u32, scalar: bool, features: FeatureSet, out: &mut Instruction) {
+    // FP8 / I8MM / BF16 "three-register extension" dot-product and widening
+    // multiply-add (vector only). These claim specific `word<15:10>` opcodes,
+    // including the `size==00` slot that the copy family below would otherwise
+    // own, so they must be tried *before* the `size==00` early return.
+    if !scalar && simd_three_reg_ext(word, features, out) {
+        return;
+    }
     // The Advanced SIMD copy family (DUP/INS/SMOV/UMOV/MOV) lives in the same
     // `word<21>==0` region with `word<15>==0 && word<10>==1`, distinguished by
     // `word<23:22>==00`. The three-same "extra" (SQRDMLAH/SQRDMLSH), complex
@@ -774,6 +781,105 @@ fn complex_fp(word: u32, scalar: bool, features: FeatureSet, out: &mut Instructi
         out.push_operand(vreg(rn, arr));
         out.push_operand(vreg(rm, arr));
         out.push_operand(Operand::ImmUnsigned(deg));
+    }
+}
+
+/// Emit a plain three-vector-register form (`Vd.Ta, Vn.Tb, Vm.Tc`).
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn emit3(out: &mut Instruction, code: Code, rd: u32, ta: VA, rn: u32, tb: VA, rm: u32, tc: VA) {
+    out.set(code);
+    out.push_operand(vreg(rd, ta));
+    out.push_operand(vreg(rn, tb));
+    out.push_operand(vreg(rm, tc));
+}
+
+/// FP8 / I8MM / BF16 Advanced-SIMD "three-register extension" dot-product and
+/// widening multiply-add (vector forms). Returns `true` if `word` belongs to
+/// this family — setting `out` to the decoded instruction, or leaving it
+/// `Invalid` when the gating feature is absent or the sub-encoding is
+/// unallocated. Returns `false` (no `out` change) when `word` is *not* one of
+/// these forms, so the caller falls through to the rest of the dispatch.
+///
+/// All forms sit in the `word<21>==0` region with `word<15>==1 && word<10>==1`,
+/// keyed by `word<15:10>`:
+///   * `111111` — FDOT (U=0 size00 to-single / size01 to-half), FMLALB/FMLALT
+///     (U=0 size11, B/T = Q), BFDOT (U=1 size01), BFMLALB/BFMLALT (U=1 size11,
+///     B/T = Q). This whole opcode block is owned here (any other `(U,size)` is
+///     architecturally unallocated and left Invalid, never FCADD).
+///   * `100111` — USDOT (U=0 size10).
+///   * `110001` — FMLALLBB/BT/TB/TT (U=0 size00/01). `U==1` is FCMLA (rot=0) and
+///     is deferred to the complex-FP decoder.
+#[inline]
+fn simd_three_reg_ext(word: u32, features: FeatureSet, out: &mut Instruction) -> bool {
+    if bit(word, 15) != 1 || bit(word, 10) != 1 {
+        return false;
+    }
+    let lo = bits(word, 10, 6); // word<15:10>
+    let u = bit(word, 29);
+    let q = bit(word, 30);
+    let size = bits(word, 22, 2);
+    let rm = bits(word, 16, 5);
+    let rn = bits(word, 5, 5);
+    let rd = bits(word, 0, 5);
+
+    match lo {
+        0b111111 => {
+            // FDOT / FMLALB/T (U=0) and BFDOT / BFMLALB/T (U=1). The whole block
+            // is owned here regardless of `(U,size)`.
+            match (u, size) {
+                (0, 0b00) if features.has(Feature::Fp8) => {
+                    // FDOT to single: Vd.<2s/4s>, Vn.<8b/16b>, Vm.<8b/16b>.
+                    let (ta, tb) = (arr_sizeq(0b10, q), arr_sizeq(0b00, q));
+                    emit3(out, Code::FdotVec, rd, ta, rn, tb, rm, tb);
+                }
+                (0, 0b01) if features.has(Feature::Fp8) => {
+                    // FDOT to half: Vd.<4h/8h>, Vn.<8b/16b>, Vm.<8b/16b>.
+                    let (ta, tb) = (arr_fp16(q), arr_sizeq(0b00, q));
+                    emit3(out, Code::FdotVec, rd, ta, rn, tb, rm, tb);
+                }
+                (0, 0b11) if features.has(Feature::Fp8) => {
+                    // FMLALB (Q=0) / FMLALT (Q=1): Vd.8H, Vn.16B, Vm.16B.
+                    let code = if q == 0 { Code::FmlalbVec } else { Code::FmlaltVec };
+                    emit3(out, code, rd, VA::V8H, rn, VA::V16B, rm, VA::V16B);
+                }
+                (1, 0b01) if features.has(Feature::Bf16) => {
+                    // BFDOT: Vd.<2s/4s>, Vn.<4h/8h>, Vm.<4h/8h>.
+                    let (ta, tb) = (arr_sizeq(0b10, q), arr_fp16(q));
+                    emit3(out, Code::BfdotVec, rd, ta, rn, tb, rm, tb);
+                }
+                (1, 0b11) if features.has(Feature::Bf16) => {
+                    // BFMLALB (Q=0) / BFMLALT (Q=1): Vd.4S, Vn.8H, Vm.8H.
+                    let code = if q == 0 { Code::BfmlalbVec } else { Code::BfmlaltVec };
+                    emit3(out, code, rd, VA::V4S, rn, VA::V8H, rm, VA::V8H);
+                }
+                _ => {}
+            }
+            true
+        }
+        0b100111 if u == 0 && size == 0b10 => {
+            // USDOT: Vd.<2s/4s>, Vn.<8b/16b>, Vm.<8b/16b>.
+            if features.has(Feature::I8mm) {
+                let (ta, tb) = (arr_sizeq(0b10, q), arr_sizeq(0b00, q));
+                emit3(out, Code::UsdotVec, rd, ta, rn, tb, rm, tb);
+            }
+            true
+        }
+        0b110001 if u == 0 && (size == 0b00 || size == 0b01) => {
+            // FMLALLBB/BT/TB/TT: Vd.4S, Vn.16B, Vm.16B. First letter = Q,
+            // second = size<0> (B=0/T=1).
+            if features.has(Feature::Fp8) {
+                let code = match (q, size & 1) {
+                    (0, 0) => Code::FmlallbbVec,
+                    (0, _) => Code::FmlallbtVec,
+                    (1, 0) => Code::FmlalltbVec,
+                    (_, _) => Code::FmlallttVec,
+                };
+                emit3(out, code, rd, VA::V4S, rn, VA::V16B, rm, VA::V16B);
+            }
+            true
+        }
+        _ => false,
     }
 }
 
@@ -1682,6 +1788,13 @@ fn decode_by_element(word: u32, scalar: bool, features: FeatureSet, out: &mut In
         return;
     }
 
+    // FP8 / I8MM / BF16 by-element forms (FDOT/SUDOT/USDOT/BFDOT and the FP8 /
+    // BF16 widening MLAL) reuse the FMLAL by-element opcode slots and are
+    // disambiguated by `size`; try them before the size-agnostic table below.
+    if !scalar && by_element_ext(word, u, size, opcode, features, out) {
+        return;
+    }
+
     let kind = match (u, opcode) {
         (0, 0b0000) => Some(ByEl::Fmlal(Code::FmlalVec)),
         (0, 0b0001) => Some(ByEl::SameFp(Code::FmlaVec)),
@@ -1894,6 +2007,155 @@ fn by_element_fcmla(word: u32, scalar: bool, features: FeatureSet, out: &mut Ins
     out.push_operand(vreg(rn, arr));
     out.push_operand(vreg_idx(vm, ts, index));
     out.push_operand(Operand::ImmUnsigned(deg));
+}
+
+/// FP8 / I8MM / BF16 by-element forms that share the FMLAL by-element opcode
+/// slots, disambiguated by `size`. Returns `true` if `word` is one of these
+/// forms (setting `out`, or leaving it Invalid when the gating feature is
+/// absent); `false` to fall through to the size-agnostic FMLAL table.
+///
+/// Slots (`U`, `opcode = word<15:12>`):
+///   * `(0, 0000)`: size00 = FDOT to-single (`Vm.4B[H:L]`), size01 = FDOT
+///     to-half (`Vm.2B[H:L:M]`), size11 = FMLALB/FMLALT (`Vm.B[i4]`, B/T = Q).
+///     size10 falls through (FP16 FMLAL).
+///   * `(1, 1000)`: size00/01 = FMLALLBB/BT/TB/TT (`Vm.B[i4]`). size10/11 fall
+///     through (FP16 FMLAL2).
+///   * `(0, 1111)`: size00 = SUDOT, size01 = BFDOT (`Vm.2H[H:L]`), size10 =
+///     USDOT, size11 = BFMLALB/BFMLALT (`Vm.H[H:L:M]`, B/T = Q).
+#[inline]
+fn by_element_ext(
+    word: u32,
+    u: u32,
+    size: u32,
+    opcode: u32,
+    features: FeatureSet,
+    out: &mut Instruction,
+) -> bool {
+    let q = bit(word, 30);
+    let rn = bits(word, 5, 5);
+    let rd = bits(word, 0, 5);
+    // The 32-bit-group index (`.4b`/`.2h`): H:L (2-bit) with a 5-bit Vm.
+    let dot_idx = || decode_index(word, 0b10);
+    match (u, opcode) {
+        (0, 0b0000) => {
+            match size {
+                0b00 => {
+                    if features.has(Feature::Fp8) {
+                        let (vm, idx, _) = dot_idx();
+                        let (ta, tb) = (arr_sizeq(0b10, q), arr_sizeq(0b00, q));
+                        out.set(Code::FdotIdx);
+                        out.push_operand(vreg(rd, ta));
+                        out.push_operand(vreg(rn, tb));
+                        out.push_operand(vreg_idx(vm, VA::V4B, idx));
+                    }
+                    true
+                }
+                0b01 => {
+                    if features.has(Feature::Fp8) {
+                        let (vm, idx) = decode_index_h(word); // H:L:M, 4-bit Vm
+                        let (ta, tb) = (arr_fp16(q), arr_sizeq(0b00, q));
+                        out.set(Code::FdotIdx);
+                        out.push_operand(vreg(rd, ta));
+                        out.push_operand(vreg(rn, tb));
+                        out.push_operand(vreg_idx(vm, VA::V2B, idx));
+                    }
+                    true
+                }
+                0b11 => {
+                    if features.has(Feature::Fp8) {
+                        let (vm, idx) = decode_index_b(word);
+                        let code = if q == 0 { Code::FmlalbVec } else { Code::FmlaltVec };
+                        out.set(code);
+                        out.push_operand(vreg(rd, VA::V8H));
+                        out.push_operand(vreg(rn, VA::V16B));
+                        out.push_operand(vreg_idx(vm, VA::Sb, idx));
+                    }
+                    true
+                }
+                _ => false, // size10 -> FP16 FMLAL by element.
+            }
+        }
+        (1, 0b1000) => match size {
+            0b00 | 0b01 => {
+                if features.has(Feature::Fp8) {
+                    let (vm, idx) = decode_index_b(word);
+                    let code = match (q, size & 1) {
+                        (0, 0) => Code::FmlallbbVec,
+                        (0, _) => Code::FmlallbtVec,
+                        (1, 0) => Code::FmlalltbVec,
+                        (_, _) => Code::FmlallttVec,
+                    };
+                    out.set(code);
+                    out.push_operand(vreg(rd, VA::V4S));
+                    out.push_operand(vreg(rn, VA::V16B));
+                    out.push_operand(vreg_idx(vm, VA::Sb, idx));
+                }
+                true
+            }
+            _ => false, // size10 -> FP16 FMLAL2 by element.
+        },
+        (0, 0b1111) => {
+            match size {
+                0b00 => {
+                    if features.has(Feature::I8mm) {
+                        let (vm, idx, _) = dot_idx();
+                        let (ta, tb) = (arr_sizeq(0b10, q), arr_sizeq(0b00, q));
+                        out.set(Code::SudotIdx);
+                        out.push_operand(vreg(rd, ta));
+                        out.push_operand(vreg(rn, tb));
+                        out.push_operand(vreg_idx(vm, VA::V4B, idx));
+                    }
+                }
+                0b01 => {
+                    if features.has(Feature::Bf16) {
+                        let (vm, idx, _) = dot_idx();
+                        let (ta, tb) = (arr_sizeq(0b10, q), arr_fp16(q));
+                        out.set(Code::BfdotIdx);
+                        out.push_operand(vreg(rd, ta));
+                        out.push_operand(vreg(rn, tb));
+                        out.push_operand(vreg_idx(vm, VA::V2H, idx));
+                    }
+                }
+                0b10 => {
+                    if features.has(Feature::I8mm) {
+                        let (vm, idx, _) = dot_idx();
+                        let (ta, tb) = (arr_sizeq(0b10, q), arr_sizeq(0b00, q));
+                        out.set(Code::UsdotIdx);
+                        out.push_operand(vreg(rd, ta));
+                        out.push_operand(vreg(rn, tb));
+                        out.push_operand(vreg_idx(vm, VA::V4B, idx));
+                    }
+                }
+                _ => {
+                    // size11: BFMLALB (Q=0) / BFMLALT (Q=1): Vm.H[H:L:M].
+                    if features.has(Feature::Bf16) {
+                        let (vm, idx) = decode_index_h(word);
+                        let code = if q == 0 { Code::BfmlalbVec } else { Code::BfmlaltVec };
+                        out.set(code);
+                        out.push_operand(vreg(rd, VA::V4S));
+                        out.push_operand(vreg(rn, VA::V8H));
+                        out.push_operand(vreg_idx(vm, VA::Sh, idx));
+                    }
+                }
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Decode the FP8 `.b` byte-indexed element of the FMLALB/FMLALT and FMLALL*
+/// by-element forms: a 4-bit index packed as `H(word<11>) : word<21> :
+/// word<20> : word<19>` with a 3-bit `Vm` in `word<18:16>`.
+#[inline]
+fn decode_index_b(word: u32) -> (u32, u8) {
+    let h = bit(word, 11);
+    let i2 = bit(word, 21);
+    let i1 = bit(word, 20);
+    let i0 = bit(word, 19);
+    let vm = bits(word, 16, 3);
+    let idx = ((h << 3) | (i2 << 2) | (i1 << 1) | i0) as u8;
+    (vm, idx)
 }
 
 /// Decode the indexed `Vm` register, element index, and the indexed-element

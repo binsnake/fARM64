@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.74"
+publish = false
+description = "Host-only generator for fARM64's mechanical enum + name tables from a curated ARM-spec dataset. NOT part of the published library."
+
+[dependencies]
+# Host-only tool: free to use std and host-only deps. Kept dependency-light;
+# data-format deps (if any) are added as the generator is fleshed out.

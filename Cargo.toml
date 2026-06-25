@@ -1,0 +1,84 @@
+[package]
+name = "fARM64"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.74"
+license = "MIT"
+description = "A pure-Rust, no_std, zero-heap AArch64 (A64) disassembler, hand-written from the ARM Architecture Reference Manual."
+readme = "README.md"
+keywords = ["aarch64", "arm64", "disassembler", "no_std", "decoder"]
+categories = ["no-std", "encoding", "hardware-support"]
+repository = "https://github.com/binsnake/fARM64"
+
+# Original implementation derived from the ARM ARM (not a port of any other
+# decoder). Licensed MIT (matches the repo LICENSE).
+# The `xtask` sibling is a host-only code generator for the mechanical
+# lookup tables (the `Code`/`Mnemonic` enums and `&'static str` name tables); it
+# is NOT published. The library itself is hermetic: no build.rs, no network.
+[workspace]
+members = ["xtask"]
+
+# ---------------------------------------------------------------------------
+# Features
+#
+# The DEFAULT build is `no_std` with NO `alloc` and NO `std`: a freestanding /
+# no-CRT decoder + default formatter that performs ZERO heap allocation. Every
+# capability that needs a heap or an OS is strictly additive and opt-in.
+#
+# Portability tiers (see `open_decisions` / README):
+#   Tier A  default ........ no_std, no alloc  (must always build & run)
+#   Tier B  feature "alloc" . String/Vec conveniences, info factory
+#   Tier C  feature "std" ... std::error::Error impl, std-only test helpers
+# ---------------------------------------------------------------------------
+[features]
+# Tier A: pure no_std, no allocator, freestanding. The guaranteed-portable core.
+default = []
+
+# Tier C: opt into the standard library. Implies `alloc`.
+std = ["alloc"]
+
+# Tier B: opt into an allocator for String/Vec conveniences (format-to-String,
+# the allocate-once InstructionInfoFactory, token-collecting String sink).
+alloc = []
+
+# Secondary formatter dialect (GNU / objdump style). Pure no_std, no alloc.
+fmt-gnu = []
+
+# ---- Per-extension compile-out gates (independent of runtime FeatureSet) ----
+# A cargo feature decides what is COMPILED IN; the runtime FeatureSet decides
+# what is ACCEPTED at decode time. A base-only wasm build can omit the SVE/SME
+# tables entirely for a smaller binary.
+fp16 = []
+bf16 = []
+lse = []
+pauth = []
+mte = []
+sme = []
+sve = []
+crypto = []
+
+# Convenience meta-feature: every extension compiled in.
+full = ["fp16", "bf16", "lse", "pauth", "mte", "sme", "sve", "crypto"]
+
+# ---- Test/bench-only audit gate (NOT for downstream use) ----
+# Installs a global allocator that panics on ANY allocation so the differential
+# harness can PROVE the decode_into + FmtFormatter+BufSink path is zero-heap.
+no-alloc-audit = []
+
+# No runtime dependencies: keeps wasm32-unknown-unknown and aarch64-unknown-none
+# hermetic. All names are `&'static str` from const tables; no bitflags, no libc.
+[dependencies]
+
+# Dev-deps are test/bench only and never affect the published, no_std core.
+[dev-dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[package.metadata.docs.rs]
+# Document the full surface (all extensions + alloc/std) on docs.rs.
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,34 @@
+fARM64 — Acknowledgments
+Copyright 2026 The fARM64 authors.
+
+fARM64 is an ORIGINAL implementation of an AArch64 (A64) disassembler. All decode
+behaviour is hand-written from the ARM Architecture Reference Manual (the "ARM
+ARM"), which is the normative reference for this project. The fARM64 source code
+is original work, licensed under your choice of MIT OR Apache-2.0 (see LICENSE-MIT
+and LICENSE-APACHE). Nothing in this file imposes any additional obligation on
+users of fARM64.
+
+This file is a courtesy acknowledgment, not a required-attribution notice.
+
+Cross-checking oracle (development only)
+----------------------------------------
+During development, fARM64's output is differentially compared against several
+independent oracles: LLVM (llvm-mc / llvm-objdump), GNU binutils (objdump), and a
+third-party AArch64 test corpus from Vector 35's "arch-arm64" project:
+
+    arch-arm64
+    Copyright 2020-2024 Vector 35 Inc.
+    Licensed under the Apache License, Version 2.0.
+
+    A copy of the Apache License, Version 2.0 may be obtained at:
+    http://www.apache.org/licenses/LICENSE-2.0
+
+That corpus is used ONLY as one development cross-check among several. It is read
+locally, never shipped with fARM64, and is not authoritative: where it diverges
+from the ARM ARM, fARM64 follows the spec and records the intentional divergence.
+fARM64 is NOT a derivative work of arch-arm64; no fARM64 decode logic is ported,
+transpiled, or otherwise copied from it.
+
+Any vendored reference material under refs/ retains its own original license and
+copyright (see, e.g., refs/arch-arm64-master/LICENSE) and is present for local
+cross-checking only.

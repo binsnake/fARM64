@@ -2832,6 +2832,15 @@ codes! {
     SveFcvtzuZ => Fcvtzu, Sve2p1, "`FCVTZU <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
     SveBfcvtZ => Bfcvt, Sve2p1, "`BFCVT <Zd>.H, <Pg>/Z, <Zn>.S` (SVE2.1 zeroing).";
     SveFlogbZ => Flogb, Sve2p1, "`FLOGB <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+
+    // --- SME2 LUT (ZT0 lookup table) — FEAT_LUT / SME2 (G3) ---
+    SmeLuti2Zt => Luti2, Lut, "`LUTI2 {<Zd>.<T>...}, ZT0, <Zn>[<index>]` (SME2 ZT0 lookup, 2-bit indices; 1/2/4-reg `.B`/`.H`/`.S`).";
+    SmeLuti4Zt => Luti4, Lut, "`LUTI4 {<Zd>.<T>...}, ZT0, <Zn>[<index>]` (SME2 ZT0 lookup, 4-bit indices; 1/2/4-reg `.B`/`.H`/`.S`).";
+
+    // --- SME2 move multi-vectors to/from ZA tile slice group — FEAT_SME2 (G3) ---
+    SmeMovaMultiZToTile => Mov, Sme2, "`MOV ZA<tile><HV>.<T>[<Ws>, <off>:<off+N-1>], {<Zn>...}` (SME2, vectors to ZA tile slice).";
+    SmeMovaMultiTileToZ => Mov, Sme2, "`MOV {<Zd>...}, ZA<tile><HV>.<T>[<Ws>, <off>:<off+N-1>]` (SME2, ZA tile slice to vectors).";
+    SmeMovazMultiTileToZ => Movaz, Sme2, "`MOVAZ {<Zd>...}, ZA<tile><HV>.<T>[<Ws>, <off>:<off+N-1>]` (SME2, ZA tile slice to vectors, zeroing).";
 }
 
 impl Code {
@@ -5897,6 +5906,9 @@ pub enum Mnemonic {
     St3q,
     /// `ST4Q` (SVE2.1 four-register structured store, quadword).
     St4q,
+    // --- SME2 ZA tile move (G3) ---
+    /// `MOVAZ` (SME2 move ZA tile slice group to vectors, zeroing).
+    Movaz,
 }
 
 impl Mnemonic {

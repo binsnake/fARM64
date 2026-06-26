@@ -158,6 +158,8 @@ fn za_slice(f: &Form, word: u32) -> Operand {
         off: (pext(word, f.off) * f.span as u32) as u8,
         span: f.span,
         vg: f.vg,
+        tile: 0,
+        slice: SliceIndicator::None,
     }
 }
 

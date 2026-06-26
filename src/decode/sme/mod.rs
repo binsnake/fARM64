@@ -31,6 +31,8 @@ use crate::operand::{Operand, PredQual, SliceIndicator, SveMemMode};
 use crate::register::{gp_register, Register, RegWidth};
 
 pub(crate) mod sme2;
+pub(crate) mod sme_lut;
+pub(crate) mod sme_za_move;
 
 // ---------------------------------------------------------------------------
 // Register-bank tables (local, mirroring the SVE decoders).
@@ -86,7 +88,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
             if sme2 && bit(word, 24) == 1 {
                 sme2::decode_mul(word, out);
             } else {
-                decode_mova_add(word, out);
+                decode_mova_add(word, features, out);
             }
         }
         0b111 => decode_za_ldst(word, out),
@@ -296,8 +298,33 @@ fn decode_mopa_int(word: u32, out: &mut Instruction) {
 /// `word<21:17>`: `MOVA` is `0000x` (`word<20> == 0`, direction in `word<17>`)
 /// while `ADDHA`/`ADDVA` is `01000` (`word<20> == 1`). `word<24> == 1` is
 /// unallocated here.
-fn decode_mova_add(word: u32, out: &mut Instruction) {
+fn decode_mova_add(word: u32, features: FeatureSet, out: &mut Instruction) {
     if bit(word, 24) != 0 {
+        return;
+    }
+    // SME2 LUTI2/LUTI4 (ZT0) carve the `word<23> == 1, word<21:20> == 00,
+    // word<19> == 1` sub-region (FEAT_LUT); the SME2 ZA tile-slice `MOV`/`MOVAZ`
+    // (move multi-vectors) carve `word<21:19> == 000, word<18> == 1,
+    // word<16> == 0` (FEAT_SME2). Route them first; their shells never overlap
+    // the base MOVA / ADDHA / ADDVA encodings (which have word<18:17> == 00 with
+    // word<21:20> selecting the family).
+    if features.has(Feature::Lut)
+        && bit(word, 23) == 1
+        && bit(word, 21) == 0
+        && bit(word, 19) == 1
+    {
+        // word<20> is the LUTI strided/consecutive selector (free here); word<21>
+        // must be 0 and word<19> == 1 pins the LUTI ZT0 family.
+        sme_lut::decode(word, out);
+        return;
+    }
+    if features.has(Feature::Sme2)
+        && bits(word, 19, 3) == 0b000
+        && bit(word, 18) == 1
+        && bit(word, 16) == 0
+        && bits(word, 11, 2) == 0
+    {
+        sme_za_move::decode(word, out);
         return;
     }
     // Opcode `word<21:17>`: ADDHA/ADDVA are `01000`; MOVA is `0000x`.

@@ -114,6 +114,8 @@ pub const fn register_name(reg: Register) -> &'static str {
         Register::Pf22 => "pf22", Register::Pf23 => "pf23", Register::Pf24 => "pf24", Register::Pf25 => "pf25",
         Register::Pf26 => "pf26", Register::Pf27 => "pf27", Register::Pf28 => "pf28", Register::Pf29 => "pf29",
         Register::Pf30 => "pf30", Register::Pf31 => "pf31",
+        // SME2 lookup-table register (LLVM spells it lowercase `zt0`).
+        Register::Zt0 => "zt0",
     }
 }
 
@@ -1702,6 +1704,7 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::St2q => "st2q",
         Mnemonic::St3q => "st3q",
         Mnemonic::St4q => "st4q",
+        Mnemonic::Movaz => "movaz",
     }
 }
 

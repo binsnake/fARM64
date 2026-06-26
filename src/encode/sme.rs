@@ -90,6 +90,9 @@ mod imp {
                 | SmeStnt1bMV | SmeStnt1hMV | SmeStnt1wMV | SmeStnt1dMV
             // SME2 multi-vector shift-right-narrow.
                 | SmeSqrshr | SmeUqrshr | SmeSqrshrn | SmeUqrshrn | SmeSqrshru | SmeSqrshrun
+            // SME2 LUT (ZT0) + ZA tile move (G3).
+                | SmeLuti2Zt | SmeLuti4Zt
+                | SmeMovaMultiZToTile | SmeMovaMultiTileToZ | SmeMovazMultiTileToZ
         ) {
             return true;
         }
@@ -119,6 +122,10 @@ mod imp {
             | SmeStnt1bMV | SmeStnt1hMV | SmeStnt1wMV | SmeStnt1dMV => enc_mem(insn),
             SmeSqrshr | SmeUqrshr | SmeSqrshrn | SmeUqrshrn | SmeSqrshru | SmeSqrshrun => {
                 enc_narrow_shift(insn)
+            }
+            SmeLuti2Zt | SmeLuti4Zt => enc_luti_zt(insn),
+            SmeMovaMultiZToTile | SmeMovaMultiTileToZ | SmeMovazMultiTileToZ => {
+                enc_za_tile_move(insn)
             }
             other => {
                 // Multi-vector ALU (SEL/CLAMP/ZIP/UZP) is table-driven; fall back
@@ -585,9 +592,13 @@ mod imp {
         if f.shape == Sh::Tmopa {
             return enc_sme2_tmopa(insn, f);
         }
-        // Operand 0: the `za.<T>[Ws, off{:..}{, vgxN}]` destination.
+        // Operand 0: the `za.<T>[Ws, off{:..}{, vgxN}]` destination (group form
+        // only — the tile-slice `MOV`/`MOVAZ` form carries a slice direction and
+        // is encoded elsewhere).
         let (arr, sel, off, span, vg) = match insn.op(0) {
-            Operand::SmeZaSlice { arr, sel, off, span, vg } => (arr, sel, off, span, vg),
+            Operand::SmeZaSlice { arr, sel, off, span, vg, slice: SliceIndicator::None, .. } => {
+                (arr, sel, off, span, vg)
+            }
             _ => return Err(EncodeError::InvalidOperand),
         };
         if arr != Some(f.acc) || span != f.span || vg != f.vg {
@@ -1036,6 +1047,268 @@ mod imp {
             | (uresult << 6)
             | (uinput << 5)
             | zd;
+        Ok(word)
+    }
+
+    // -----------------------------------------------------------------------
+    // SME2 LUT (ZT0 lookup table) — inverse of `decode::sme::sme_lut`.
+    // -----------------------------------------------------------------------
+
+    /// Encode an SME2 `LUTI2`/`LUTI4` (ZT0) read. Operands:
+    /// `[ {Zd group} | Zd, ZT0, Zn[index] | {Zn, Zn+1} ]`. The element size +
+    /// register count + stride + index width determine the field positions (see
+    /// `decode::sme::sme_lut`).
+    fn enc_luti_zt(insn: &Instruction) -> R {
+        let is_l2 = insn.code() == Code::SmeLuti2Zt;
+
+        // --- LUTI4 register-pair source form (`.B`, 4-reg dest) ---
+        // Detected by a no-suffix, no-index 2-register *source* group at operand 2.
+        if !is_l2 {
+            if let Operand::SveVecGroup { first: src, count: 2, arr: None, stride: 1, .. } =
+                insn.op(2)
+            {
+                // Operand 0: 4-register `.B` destination group — consecutive
+                // (stride 1) or strided (stride 4).
+                let (zd, dst_strided) = match insn.op(0) {
+                    Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sb), stride, .. }
+                        if first.class() == RegClass::Sve && (stride == 1 || stride == 4) =>
+                    {
+                        (first.number() as u32, stride == 4)
+                    }
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                match insn.op(1) {
+                    Operand::Reg { reg: Register::Zt0, .. } => {}
+                    _ => return Err(EncodeError::InvalidOperand),
+                }
+                if src.class() != RegClass::Sve {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                let zn = src.number() as u32;
+                // Pair source base even.
+                if zn & 1 != 0 {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                // Dest base: consecutive multiple-of-4; strided window word<3:2>==0.
+                let st = if dst_strided {
+                    if zd & 0b1100 != 0 {
+                        return Err(EncodeError::InvalidOperand);
+                    }
+                    1u32 << 20
+                } else {
+                    if zd & 0b11 != 0 {
+                        return Err(EncodeError::InvalidOperand);
+                    }
+                    0
+                };
+                // word<23>=1, word<19>=1, word<17>=1 (L4), word<16>=1 (pair).
+                return Ok(0xC088_0000 | st | (1 << 17) | (1 << 16) | (zn << 5) | zd);
+            }
+        }
+
+        // Operand 0: the destination — a single `Zd.<T>` or a 2/4-register group.
+        let (zd, count, arr, stride) = match insn.op(0) {
+            Operand::Reg { reg, arr: Some(a), lane: None, .. }
+                if reg.class() == RegClass::Sve =>
+            {
+                (reg.number() as u32, 1u8, a, 1u8)
+            }
+            Operand::SveVecGroup { first, count, arr: Some(a), stride, .. }
+                if first.class() == RegClass::Sve && (count == 2 || count == 4) =>
+            {
+                (first.number() as u32, count, a, stride)
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Element size code (word<13:12>) — only `.b`/`.h`/`.s`.
+        let size = match arr {
+            VA::Sb => 0u32,
+            VA::Sh => 1,
+            VA::Ss => 2,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        let strided = match stride {
+            1 => false,
+            8 if count == 2 => true,
+            4 if count == 4 => true,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // The single-register form is consecutive only.
+        if count == 1 && strided {
+            return Err(EncodeError::InvalidOperand);
+        }
+        // The only unallocated consecutive (count, size) combo is `LUTI4` 4-reg `.b`.
+        if !is_l2 && count == 4 && size == 0 {
+            return Err(EncodeError::InvalidOperand);
+        }
+        // Strided narrows the set: `.s` never; `LUTI4` 4-reg strided is `.h`-only.
+        if strided {
+            if size == 2 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            if !is_l2 && count == 4 && size != 1 {
+                return Err(EncodeError::InvalidOperand);
+            }
+        }
+        // Destination group base: consecutive is span-aligned; strided uses the raw
+        // `word<4:0>` within the strided window (word<3> clear for 2-reg, word<3:2>
+        // clear for 4-reg).
+        match (strided, count) {
+            (false, 2) if zd & 1 != 0 => return Err(EncodeError::InvalidOperand),
+            (false, 4) if zd & 3 != 0 => return Err(EncodeError::InvalidOperand),
+            (true, 2) if zd & 0b1000 != 0 => return Err(EncodeError::InvalidOperand),
+            (true, 4) if zd & 0b1100 != 0 => return Err(EncodeError::InvalidOperand),
+            _ => {}
+        }
+
+        // Operand 1: ZT0.
+        match insn.op(1) {
+            Operand::Reg { reg: Register::Zt0, .. } => {}
+            _ => return Err(EncodeError::InvalidOperand),
+        }
+
+        // Operand 2: the indexed table source `Zn[index]`.
+        let (zn, index) = match insn.op(2) {
+            Operand::Reg { reg, arr: None, lane: Some(l), .. }
+                if reg.class() == RegClass::Sve =>
+            {
+                (reg.number() as u32, l as u32)
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+
+        // Index field: ends at word<17>(L2)/word<16>(L4); LSB and marker per count.
+        let top = if is_l2 { 17 } else { 16 };
+        let (idx_lsb, marker): (u32, u32) = match count {
+            1 => (14, 0),
+            2 => (15, 1 << 14),
+            _ /* 4 */ => (16, 1 << 15),
+        };
+        if idx_lsb > top {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let idx_bits = top - idx_lsb + 1;
+        let idx_max = (1u32 << idx_bits) - 1;
+        if index > idx_max {
+            return Err(EncodeError::InvalidImmediate);
+        }
+
+        // Shell: word<23> == 1, word<19> == 1. `LUTI2` sets word<18> == 1; `LUTI4`
+        // sets word<18> == 0 and the fixed word<17> == 1. word<20> is the strided
+        // selector.
+        let family = if is_l2 { 1u32 << 18 } else { 1u32 << 17 };
+        let st = if strided { 1u32 << 20 } else { 0 };
+        let r = if count == 1 { 1u32 } else { 0 }; // word<22>: single-reg
+        let word = 0xC088_0000  // word<23>=1, word<19>=1
+            | (r << 22)
+            | st
+            | family
+            | marker
+            | (index << idx_lsb)
+            | (size << 12)
+            | (zn << 5)
+            | zd;
+        Ok(word)
+    }
+
+    // -----------------------------------------------------------------------
+    // SME2 ZA tile-slice MOV / MOVAZ (move multi-vectors) — inverse of
+    // `decode::sme::sme_za_move`.
+    // -----------------------------------------------------------------------
+
+    /// Encode an SME2 ZA tile-slice `MOV`/`MOVAZ` (move multi-vectors). For the
+    /// vectors→ZA form operands are `[za-tile-slice, {Zn group}]`; for the ZA→
+    /// vectors `MOV`/`MOVAZ` forms they are `[{Zd group}, za-tile-slice]`.
+    fn enc_za_tile_move(insn: &Instruction) -> R {
+        use Code::*;
+        let code = insn.code();
+        let to_vector = matches!(code, SmeMovaMultiTileToZ | SmeMovazMultiTileToZ);
+        let movaz = code == SmeMovazMultiTileToZ;
+
+        // Locate the ZA tile-slice operand and the Z group operand by direction.
+        let (group_idx, tile_idx) = if to_vector { (0usize, 1usize) } else { (1usize, 0usize) };
+
+        // ZA tile-slice operand.
+        let (arr, sel, off, span, tile, vertical) = match insn.op(tile_idx) {
+            Operand::SmeZaSlice { arr: Some(a), sel, off, span, tile, slice, vg: 0 } => {
+                let v = match slice {
+                    SliceIndicator::Vertical => true,
+                    SliceIndicator::Horizontal => false,
+                    SliceIndicator::None => return Err(EncodeError::InvalidOperand),
+                };
+                (a, sel, off, span, tile, v)
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Element size code (`.B`=0 … `.D`=3); the tile count is `1 << size`.
+        let size = match arr {
+            VA::Sb => 0u32,
+            VA::Sh => 1,
+            VA::Ss => 2,
+            VA::Sd => 3,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // span must be 2 (vgx2) or 4 (vgx4) and match the bit10 selector.
+        let q = match span {
+            2 => 0u32,
+            4 => 1u32,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Ws select: w12..w15.
+        if sel.class() != RegClass::Gp {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let wn = sel.number() as u32;
+        if !(12..=15).contains(&wn) {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let ws = wn - 12;
+
+        // Recombine the 3-bit `tile:offset` field (inverse of the decoder's
+        // span-aware split). The offset sub-field is `3 - size` bits for vgx2 and
+        // one bit narrower for vgx4; the tile occupies the remaining high bits and
+        // must be `< 1 << size` (the architectural tile count for this size). The
+        // displayed offset must be a multiple of span and fit the sub-field.
+        let off_bits = (3 - size).saturating_sub(if span == 4 { 1 } else { 0 });
+        if (off as u32) % (span as u32) != 0 {
+            return Err(EncodeError::InvalidImmediate);
+        }
+        let off_field = off as u32 / span as u32;
+        let off_max = if off_bits == 0 { 0 } else { (1u32 << off_bits) - 1 };
+        if off_field > off_max {
+            return Err(EncodeError::InvalidImmediate);
+        }
+        if tile as u32 >= (1u32 << size) {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let field = ((tile as u32) << off_bits) | off_field;
+
+        // The Z group: count == span, consecutive (stride 1).
+        let zbase = match insn.op(group_idx) {
+            Operand::SveVecGroup { first, count, arr: Some(a), stride, .. }
+                if first.class() == RegClass::Sve
+                    && a == arr
+                    && stride == 1
+                    && count == span =>
+            {
+                first.number() as u32
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+
+        // Shell: word<31:24>=0xC0, word<18>=1.
+        let mut word = 0xC004_0000 // word<18>=1
+            | (size << 22)
+            | (vertical as u32) << 15
+            | (ws << 13)
+            | (q << 10);
+        if to_vector {
+            word |= 1 << 17; // direction = ZA -> vectors
+            word |= (movaz as u32) << 9;
+            word |= (field << 5) | zbase; // tile:off at word<7:5>, Zd at word<4:0>
+        } else {
+            word |= (zbase << 5) | field; // Zn at word<9:5>, tile:off at word<2:0>
+        }
         Ok(word)
     }
 

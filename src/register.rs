@@ -84,6 +84,9 @@ pub enum Register {
     Pf8, Pf9, Pf10, Pf11, Pf12, Pf13, Pf14, Pf15,
     Pf16, Pf17, Pf18, Pf19, Pf20, Pf21, Pf22, Pf23,
     Pf24, Pf25, Pf26, Pf27, Pf28, Pf29, Pf30, Pf31,
+
+    // --- SME2 lookup-table register (FEAT_LUT): the single ZT0 table ---
+    Zt0,
 }
 
 /// Coarse class of a [`Register`], used by operand programs and the formatter to
@@ -105,6 +108,8 @@ pub enum RegClass {
     Predicate,
     /// Prefetch pseudo-register.
     Prefetch,
+    /// SME2 lookup-table register (`ZT0`).
+    ZtLut,
 }
 
 /// Bit-width of a general-purpose register operand.
@@ -177,6 +182,9 @@ impl Register {
                 | Register::Pf8 | Register::Pf9 | Register::Pf10 | Register::Pf11 | Register::Pf12 | Register::Pf13 | Register::Pf14 | Register::Pf15
                 | Register::Pf16 | Register::Pf17 | Register::Pf18 | Register::Pf19 | Register::Pf20 | Register::Pf21 | Register::Pf22 | Register::Pf23
                 | Register::Pf24 | Register::Pf25 | Register::Pf26 | Register::Pf27 | Register::Pf28 | Register::Pf29 | Register::Pf30 | Register::Pf31 => 0,
+            // SME2 ZT0 lookup table: a fixed-size architectural table, not a
+            // value-width register — report 0 (VL-independent, like SVE).
+            Register::Zt0 => 0,
         }
     }
 
@@ -243,6 +251,8 @@ impl Register {
             Register::Pf18 => 18, Register::Pf19 => 19, Register::Pf20 => 20, Register::Pf21 => 21, Register::Pf22 => 22, Register::Pf23 => 23,
             Register::Pf24 => 24, Register::Pf25 => 25, Register::Pf26 => 26, Register::Pf27 => 27, Register::Pf28 => 28, Register::Pf29 => 29,
             Register::Pf30 => 30, Register::Pf31 => 31,
+            // ZT0 is the single, unnumbered SME2 lookup table.
+            Register::Zt0 => 0,
         }
     }
 
@@ -363,6 +373,7 @@ impl Register {
                 | Register::Pf8 | Register::Pf9 | Register::Pf10 | Register::Pf11 | Register::Pf12 | Register::Pf13 | Register::Pf14 | Register::Pf15
                 | Register::Pf16 | Register::Pf17 | Register::Pf18 | Register::Pf19 | Register::Pf20 | Register::Pf21 | Register::Pf22 | Register::Pf23
                 | Register::Pf24 | Register::Pf25 | Register::Pf26 | Register::Pf27 | Register::Pf28 | Register::Pf29 | Register::Pf30 | Register::Pf31 => RegClass::Prefetch,
+            Register::Zt0 => RegClass::ZtLut,
         }
     }
 

@@ -430,8 +430,10 @@ impl Formatter for FmtFormatter {
                 off,
                 span,
                 vg,
+                tile,
+                slice,
             } => {
-                self.emit_sme_za_slice(arr, sel, off, span, vg, out);
+                self.emit_sme_za_slice(arr, sel, off, span, vg, tile, slice, out);
             }
 
             Operand::SveVecGroup {
@@ -895,6 +897,11 @@ impl FmtFormatter {
     ///
     /// LLVM renders the slice offset/range and the `vgxN` qualifier in decimal,
     /// e.g. `za.s[w8, 0:3]`, `za.h[w8, 6, vgx2]`, `za.s[w9, 4:7, vgx4]`.
+    ///
+    /// When `slice` selects a tile direction the *tile*-slice spelling
+    /// `za<tile><h|v>.<T>[<Ws>, <off>:<off+span-1>]` is emitted instead (the SME2
+    /// `MOV`/`MOVAZ` move-multi-vectors-to/from-ZA-tile form), with no `vgxN`.
+    #[allow(clippy::too_many_arguments)]
     fn emit_sme_za_slice(
         &self,
         arr: Option<crate::enums::VectorArrangement>,
@@ -902,9 +909,21 @@ impl FmtFormatter {
         off: u8,
         span: u8,
         vg: u8,
+        tile: u8,
+        slice: SliceIndicator,
         out: &mut dyn FormatterOutput,
     ) {
         out.write("za", TokenKind::Register);
+        // Tile-slice form: `za<tile><h|v>` before the element-size suffix.
+        let is_tile = !matches!(slice, SliceIndicator::None);
+        if is_tile {
+            self.emit_dec_kind(tile as u64, TokenKind::Register, out);
+            match slice {
+                SliceIndicator::Horizontal => out.write("h", TokenKind::Register),
+                SliceIndicator::Vertical => out.write("v", TokenKind::Register),
+                SliceIndicator::None => {}
+            }
+        }
         if let Some(a) = arr {
             let suf = a.suffix(true);
             if !suf.is_empty() {
@@ -920,8 +939,9 @@ impl FmtFormatter {
             out.write(":", TokenKind::Punctuation);
             self.emit_dec((off + span - 1) as u64, out);
         }
-        // The optional `, vgx2`/`, vgx4` multi-vector qualifier.
-        if vg == 2 || vg == 4 {
+        // The optional `, vgx2`/`, vgx4` multi-vector qualifier (group form only;
+        // the tile-slice form never carries it).
+        if !is_tile && (vg == 2 || vg == 4) {
             self.write_raw_separator(out);
             self.emit_cased("vgx", self.opts.uppercase_registers, TokenKind::Decorator, out);
             self.emit_dec(vg as u64, out);

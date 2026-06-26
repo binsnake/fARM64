@@ -340,6 +340,14 @@ pub enum Operand {
     /// consecutive slices the group covers (`1` → `off`, `>1` → `off:off+span-1`);
     /// and [`vg`](Operand::SmeZaSlice::vg) is the multi-vector qualifier
     /// (`0` → none, `2` → `vgx2`, `4` → `vgx4`).
+    ///
+    /// The optional [`slice`](Operand::SmeZaSlice::slice) /
+    /// [`tile`](Operand::SmeZaSlice::tile) fields cover the SME2 *tile*-slice form
+    /// of `MOV`/`MOVAZ` (move multi-vectors to/from a ZA tile slice group): when
+    /// `slice` is [`SliceIndicator::Horizontal`]/[`SliceIndicator::Vertical`] the
+    /// operand renders `za<tile><h|v>.<T>[<Ws>, <off>:<off+span-1>]`
+    /// (e.g. `za0h.b[w12, 6:7]`), with no `vgxN` suffix. For the plain ZA-array
+    /// vector group form `slice` is [`SliceIndicator::None`] and `tile` is `0`.
     SmeZaSlice {
         /// Element-size arrangement (`.b`/`.h`/`.s`/`.d`).
         arr: Option<VectorArrangement>,
@@ -352,6 +360,13 @@ pub enum Operand {
         span: u8,
         /// Multi-vector qualifier: `0` (none), `2` (`vgx2`), or `4` (`vgx4`).
         vg: u8,
+        /// ZA tile number for the tile-slice form (rendered as `za<tile>`); `0`
+        /// for the plain ZA-array vector group form.
+        tile: u8,
+        /// Tile-slice direction: [`SliceIndicator::Horizontal`]/
+        /// [`SliceIndicator::Vertical`] selects the tile-slice `za<tile><h|v>`
+        /// rendering; [`SliceIndicator::None`] is the plain `za` group form.
+        slice: SliceIndicator,
     },
 
     /// An SME2/SVE2 multi-vector register *group* source, as LLVM renders the

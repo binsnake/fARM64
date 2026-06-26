@@ -415,6 +415,16 @@ fn gather_mnem(msz: u32, signed: bool, ff: bool) -> Mnemonic {
         (0, true, true) => Mnemonic::Ldff1sb, (1, true, true) => Mnemonic::Ldff1sh, (2, true, true) => Mnemonic::Ldff1sw, _ => Mnemonic::Ldff1d,
     }
 }
+/// `true` if a 32-bit-element gather (`.s` destination, `0x84`/`0x85`) load of
+/// `(msz, signed)` would write a 64-bit value — which a `.s` vector cannot hold,
+/// so the encoding is reserved → UNDEFINED. This is the `dword` memory size
+/// (`msz == 3`: `LD1D`/`LDFF1D`/`LDNT1D`) and the *signed* `word` size (`msz ==
+/// 2`, which sign-extends to 64-bit: `LD1SW`/`LDFF1SW`/`LDNT1SW`). The 64-bit
+/// gather quadrant (`0xC4`/`0xC5`, `.d` destination) is where those forms live.
+#[inline]
+fn gather32_load_reserved(msz: u32, signed: bool) -> bool {
+    msz == 3 || (msz == 2 && signed)
+}
 /// Scatter `ST1{b,h,w,d}` mnemonic by `msz`.
 fn st1_mnem(msz: u32) -> Mnemonic {
     match msz & 3 { 0 => Mnemonic::St1b, 1 => Mnemonic::St1h, 2 => Mnemonic::St1w, _ => Mnemonic::St1d }
@@ -500,8 +510,14 @@ fn structured(out: &mut Instruction, m: Mnemonic, form: Form, a: VA, zt: u32, nr
     out.push_operand(addr);
 }
 /// Finish a prefetch: `<prfop>, Pg, <addr>`.
+///
+/// The prefetch operation `prfop` is a 4-bit field (`word<3:0>`); `word<4>` is
+/// RES0 and any non-zero value there is UNDEFINED — leave [`Code::Invalid`].
 #[inline]
 fn prf(out: &mut Instruction, m: Mnemonic, form: Form, zt: u32, pg: u32, addr: Operand) {
+    if zt & 0b1_0000 != 0 {
+        return;
+    }
     out.set(code_for(m, form));
     out.set_mnemonic(m);
     out.push_operand(prefetch_op_sve(zt));
@@ -637,7 +653,11 @@ fn decode_qword_single(word: u32, top: u32, pg: u32, rn: u32, zt: u32, out: &mut
                 _ => return,
             };
             if op == 0b100 {
-                // scalar + scalar, `[Xn, Xm, lsl #lsl]`.
+                // scalar + scalar, `[Xn, Xm, lsl #lsl]`. `Xm == 31` (xzr) is the
+                // no-offset immediate form → UNDEFINED.
+                if rm == 0b11111 {
+                    return;
+                }
                 out.set(code_ss);
                 out.push_operand(zlist(zt, 1, VA::Sq));
                 out.push_operand(pg_z(pg));
@@ -658,7 +678,11 @@ fn decode_qword_single(word: u32, top: u32, pg: u32, rn: u32, zt: u32, out: &mut
                 _ => return,
             };
             if op == 0b010 {
-                // scalar + scalar, `[Xn, Xm, lsl #lsl]`.
+                // scalar + scalar, `[Xn, Xm, lsl #lsl]`. `Xm == 31` (xzr) is the
+                // no-offset immediate form → UNDEFINED.
+                if rm == 0b11111 {
+                    return;
+                }
                 out.set(code_ss);
                 out.push_operand(zlist(zt, 1, VA::Sq));
                 out.push_operand(pg_plain(pg));
@@ -751,16 +775,29 @@ fn decode_contig(word: u32, out: &mut Instruction) {
     if !store {
         match op {
             0 | 1 => {
-                // LD1RQ (b21==0) / LD1RO (b21==1).
+                // LD1RQ (b21==0) / LD1RO (b21==1). `word<22>` is RES0 for this
+                // replicating-quadword/octword family; non-zero → UNDEFINED.
+                if b22 == 1 {
+                    return;
+                }
                 let m = match (b21, msz & 3) {
                     (0, 0) => Mnemonic::Ld1rqb, (0, 1) => Mnemonic::Ld1rqh, (0, 2) => Mnemonic::Ld1rqw, (0, 3) => Mnemonic::Ld1rqd,
                     (_, 0) => Mnemonic::Ld1rob, (_, 1) => Mnemonic::Ld1roh, (_, 2) => Mnemonic::Ld1row, _ => Mnemonic::Ld1rod,
                 };
                 if op == 0 {
-                    // scalar + scalar, lsl #msz.
+                    // scalar + scalar, lsl #msz. `Xm == 31` (xzr) is the
+                    // no-offset immediate form → UNDEFINED here.
+                    if rm == 0b11111 {
+                        return;
+                    }
                     ld(out, m, Form::Ss, e, zt, pg, m_ss(rn, rm, msz as u8));
                 } else {
-                    // scalar + imm: LD1RQ scales by 16 (decimal radix); LD1RO is raw (hex).
+                    // scalar + imm: LD1RQ scales by 16 (decimal radix); LD1RO is
+                    // raw (hex). `word<20>` is RES0 for the immediate form →
+                    // UNDEFINED if set.
+                    if bits(word, 20, 1) == 1 {
+                        return;
+                    }
                     let i4 = sign_extend(bits(word, 16, 4) as u64, 4) as i32;
                     if b21 == 0 {
                         ld(out, m, Form::Imm, e, zt, pg, m_imm_dec(rn, i4 * 16));
@@ -770,6 +807,13 @@ fn decode_contig(word: u32, out: &mut Instruction) {
                 }
             }
             2 | 3 => {
+                // `Xm == 31` (xzr) is reserved for the non-fault-suppressing
+                // `LD1*` scalar+scalar form (`op == 2`): the no-offset case is
+                // the immediate form → UNDEFINED. The first-fault `LDFF1*`
+                // (`op == 3`) form *does* allow `xzr` (renders `[Xn]`).
+                if op == 2 && rm == 0b11111 {
+                    return;
+                }
                 let (m, a) = load_dtype(dtype);
                 let mn = if op == 3 { ff_of(m) } else { m };
                 ld(out, mn, Form::Ss, a, zt, pg, m_ss(rn, rm, lsl_of_mnem(m) as u32 as u8));
@@ -781,6 +825,17 @@ fn decode_contig(word: u32, out: &mut Instruction) {
                 ld(out, mn, Form::Imm, a, zt, pg, m_mulvl(rn, i4));
             }
             6 | 7 => {
+                // The scalar+scalar form (`op == 6`, both `LDNT1*` and the
+                // structured `LD{2,3,4}*`) is UNDEFINED with `Xm == 31` (xzr).
+                if op == 6 && rm == 0b11111 {
+                    return;
+                }
+                // The scalar+imm form (`op == 7`) has `word<20>` RES0; a set bit
+                // is UNDEFINED. (The `.q` `LD{2,3,4}Q` forms that reuse this slot
+                // are decoded earlier in `decode_qword`.)
+                if op == 7 && bits(word, 20, 1) == 1 {
+                    return;
+                }
                 let nr = (b22 * 2 + b21) as u8; // 0 -> LDNT1, else nreg-1
                 let e2 = esz(msz);
                 if nr == 0 {
@@ -815,11 +870,19 @@ fn decode_contig(word: u32, out: &mut Instruction) {
     }
     match op {
         2 => {
+            // `Xm == 31` (xzr) is the no-offset immediate form → UNDEFINED.
+            if rm == 0b11111 {
+                return;
+            }
             if let Some((m, a)) = store_dtype(dtype) {
                 st(out, m, Form::Ss, a, zt, pg, m_ss(rn, rm, lsl_of_mnem(m) as u32 as u8));
             }
         }
         3 => {
+            // `Xm == 31` (xzr) UNDEFINED for `STNT1*`/structured scalar+scalar.
+            if rm == 0b11111 {
+                return;
+            }
             let nr = (b22 * 2 + b21) as u8;
             let e2 = esz(msz);
             if nr == 0 {
@@ -889,11 +952,21 @@ fn decode_scatter(word: u32, out: &mut Instruction) {
     match op {
         1 => {
             // STNT1 vector base + scalar offset: base Zn = Rn, offset Xm = Rm.
+            // `b21` (the scale bit) is RES0 here → reserved if set; a `.s`
+            // (`b22==1`) offset cannot store a `dword` (`msz==3`).
+            if b21 == 1 || (msz == 3 && b22 == 1) {
+                return;
+            }
             let oe = if b22 == 1 { VA::Ss } else { VA::Sd };
             st(out, stnt1_mnem(msz), Form::Vs, oe, zt, pg, m_vs(rn, oe, rm));
         }
         4 | 6 => {
             // ST1 scalar+vec, 32-bit-unpacked offset (uxtw/sxtw). element b22?s:d.
+            // A `byte` store (`msz==0`) has no scale, so `b21==1` is reserved; a
+            // `.s` (`b22==1`) offset cannot store a `dword` (`msz==3`).
+            if (msz == 0 && b21 == 1) || (msz == 3 && b22 == 1) {
+                return;
+            }
             let oe = if b22 == 1 { VA::Ss } else { VA::Sd };
             let xs = if op == 6 { 1 } else { 0 };
             let (ext, amt) = gmod(xs, false, b21 == 1, msz);
@@ -902,11 +975,19 @@ fn decode_scatter(word: u32, out: &mut Instruction) {
         }
         5 => {
             if b22 == 0 {
-                // ST1 scalar+vec 64-bit [Xn, Zm.d{, lsl #msz}].
+                // ST1 scalar+vec 64-bit [Xn, Zm.d{, lsl #msz}]. A `byte` store
+                // (`msz==0`) has no scale → `b21==1` reserved.
+                if msz == 0 && b21 == 1 {
+                    return;
+                }
                 let (ext, amt) = gmod(0, true, b21 == 1, msz);
                 st(out, st1_mnem(msz), Form::G64, VA::Sd, zt, pg, m_xz(rn, zm, VA::Sd, ext, amt));
             } else {
-                // ST1 vec+imm [Zn.elt, #imm], element b21?s:d.
+                // ST1 vec+imm [Zn.elt, #imm], element b21?s:d. A `.s` element
+                // (`b21==1`) cannot store a `dword` (`msz==3`) → reserved.
+                if msz == 3 && b21 == 1 {
+                    return;
+                }
                 let oe = if b21 == 1 { VA::Ss } else { VA::Sd };
                 let imm = (bits(word, 16, 5) as i32) * (1i32 << msz);
                 let f = if oe == VA::Ss { Form::G32 } else { Form::G64 };
@@ -976,6 +1057,10 @@ fn decode_gather_32(word: u32, _top: u32, msz: u32, b22: u32, b21: u32, op: u32,
     if b21 == 1 && op >= 4 {
         let ff = op == 5 || op == 7;
         let signed = op == 4 || op == 5;
+        // A 64-bit-element load into a `.s` vector is reserved → UNDEFINED.
+        if gather32_load_reserved(msz, signed) {
+            return;
+        }
         let m = gather_mnem(msz, signed, ff);
         let imm = (bits(word, 16, 5) as i32) * (1i32 << msz);
         ld(out, m, Form::Vi, dst, zt, pg, m_vi(rn, dst, imm));
@@ -985,6 +1070,10 @@ fn decode_gather_32(word: u32, _top: u32, msz: u32, b22: u32, b21: u32, op: u32,
     if op <= 3 {
         let ff = op == 1 || op == 3;
         let signed = op == 0 || op == 1;
+        // A 64-bit-element load into a `.s` vector is reserved → UNDEFINED.
+        if gather32_load_reserved(msz, signed) {
+            return;
+        }
         let m = gather_mnem(msz, signed, ff);
         let (ext, amt) = gmod(b22, false, b21 == 1, msz);
         ld(out, m, Form::G32, dst, zt, pg, m_xz(rn, zm, dst, ext, amt));
@@ -992,12 +1081,19 @@ fn decode_gather_32(word: u32, _top: u32, msz: u32, b22: u32, b21: u32, op: u32,
     }
     // Region 00, op4-7: LDNT1 (vector base) op4/5, PRF scalar+scalar op6, PRF vec+imm op7.
     match op {
-        6 => prf(out, prf_mnem(msz), Form::Ss, zt, pg, m_ss(rn, rm, msz as u8)),
+        // PRF scalar+scalar: `Xm == 31` (xzr) is the no-offset immediate form
+        // → UNDEFINED (same reservation as the contiguous ld/st ss forms).
+        6 if rm != 0b11111 => prf(out, prf_mnem(msz), Form::Ss, zt, pg, m_ss(rn, rm, msz as u8)),
         7 => {
             let imm = (bits(word, 16, 5) as i32) * (1i32 << msz);
             prf(out, prf_mnem(msz), Form::Vi, zt, pg, m_vi(rn, dst, imm));
         }
         4 | 5 => {
+            // Vector-base `LDNT1*` into a `.s` vector: a 64-bit-element load is
+            // reserved → UNDEFINED (`LDNT1D` msz==3, `LDNT1SW` signed word).
+            if gather32_load_reserved(msz, op == 4) {
+                return;
+            }
             let m = ldnt1_mnem(msz, op == 4);
             ld(out, m, Form::Vs, dst, zt, pg, m_vs(rn, dst, rm));
         }
@@ -1104,6 +1200,11 @@ fn decode_ldr_str(word: u32, out: &mut Instruction, store: bool) {
         out.push_operand(zbare(bits(word, 0, 5)));
         out.push_operand(addr);
     } else {
+        // Predicate register transfer: the target is `Pt<3:0>`; `word<4>` is
+        // RES0 and any non-zero value there is UNDEFINED.
+        if bits(word, 4, 1) == 1 {
+            return;
+        }
         let code = if store { Code::SveStrP } else { Code::SveLdrP };
         out.set(code);
         out.set_mnemonic(if store { Mnemonic::Str } else { Mnemonic::Ldr });

@@ -128,6 +128,33 @@ pub fn decode(word: u32, out: &mut Instruction) {
         return;
     }
 
+    // Single-vector `LUTI6` (ZT0): `luti6 <Zd>.b, zt0, <Zn>` — the full opcode is
+    // `word<23:16> == 0xC8` (`<22> == 1` single, `<20> == 0` no strided form,
+    // `<18:16> == 000` the `LUTI6` slot) and `word<15:10> == 010000`. It is `.b`-only
+    // and has no element index. Fields: `Zn = word<9:5>`, `Zd = word<4:0>`.
+    // FEAT_LUT.
+    if bits(word, 16, 8) == 0xC8 && bits(word, 10, 6) == 0b010000 {
+        out.set(Code::SmeLuti6Single);
+        out.push_operand(Operand::Reg {
+            reg: sve_register(bits(word, 0, 5) as u8),
+            arr: Some(VA::Sb),
+            lane: None,
+            shift: None,
+            extend: None,
+            pred: None,
+        });
+        out.push_operand(zt0());
+        out.push_operand(Operand::Reg {
+            reg: sve_register(bits(word, 5, 5) as u8),
+            arr: None,
+            lane: None,
+            shift: None,
+            extend: None,
+            pred: None,
+        });
+        return;
+    }
+
     let single = bit(word, 22) == 1;
     let strided = bit(word, 20) == 1;
     let is_l2 = bit(word, 18) == 1;

@@ -157,9 +157,10 @@ fn fp_minmax_multi_multi_examples() {
 
 #[test]
 fn fp_minmax_reserved() {
-    // `.b` (size 00) is the BFloat16 BFMAX/BFMIN neighbour (FEAT_SME_B16B16), not
-    // this FP family — leave it for that decoder, so the FP form rejects size 00.
-    reserved(0xC120B100); // would be `.b`
+    // `.b` (size 00) is the BFloat16 BFMAX/BFMIN neighbour (FEAT_SME_B16B16),
+    // now implemented by the Q multi×multi decoder — it decodes as `bfmax`, so the
+    // FP family here correctly does not claim size 00.
+    check(0xC120B100, "bfmax { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }");
     // vgx4 with an odd group base bit set (`word<1>`/`word<17>` RES0).
     reserved(0xC1A0B922); // word<1> set -> base not a multiple of 4
     reserved(0xC1A2B920); // word<17> set -> Zm base not a multiple of 4

@@ -163,9 +163,14 @@ fn luti_zt0_reserved_and_neighbours() {
     let l4_4h = 0xC088_0000 | (1 << 17) | (1 << 15) | (1 << 12);
     assert!(!decode(l4_4h, 0, FeatureSet::ALL).is_invalid(), "LUTI4 4-reg .h must decode");
 
-    // `LUTI6` neighbour: word<18>=0, word<17>=0 — must not be claimed as LUTI4.
+    // `LUTI6` neighbour: word<18>=0, word<17>=0 — must be classified as the
+    // single-vector `LUTI6` (Q batch), never mis-claimed as `LUTI4`.
     let luti6 = 0xC0C8_4000; // luti6 z0.b, zt0, z0
-    assert!(decode(luti6, 0, FeatureSet::ALL).is_invalid(), "LUTI6 must stay Invalid (out of scope)");
+    assert_eq!(
+        decode(luti6, 0, FeatureSet::ALL).mnemonic().name(),
+        "luti6",
+        "LUTI6 single must decode as luti6 (not luti4)"
+    );
 
     // `ZERO` / `MOVT` neighbour: word<23>=0 — must not be claimed as LUTI.
     let zero_mnem = decode(0xC008_0000, 0, FeatureSet::ALL).mnemonic().name();

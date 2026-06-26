@@ -605,6 +605,20 @@ fn decode_mova_add(word: u32, features: FeatureSet, out: &mut Instruction) {
         sme_za_move::decode(word, out);
         return;
     }
+    // The SME2 multi-vector ZA-*array*-vector `MOV`/`MOVAZ` (`za.d[Ws, off, vgxN]`,
+    // `.d` only) carve the same `word<21:19> == 000, word<18> == 1, word<16> == 0`
+    // shell but with `word<11> == 1, word<12> == 0` (the tile-slice form above has
+    // `word<12:11> == 00`). FEAT_SME2.
+    if features.has(Feature::Sme2)
+        && bits(word, 19, 3) == 0b000
+        && bit(word, 18) == 1
+        && bit(word, 16) == 0
+        && bit(word, 11) == 1
+        && bit(word, 12) == 0
+    {
+        sme_za_move::decode_array(word, out);
+        return;
+    }
     // Opcode `word<21:17>`: ADDHA/ADDVA are `01000`; MOVA is `0000x`.
     // ADDHA/ADDVA additionally fix `word<23> == 1` (`word<22>` is the element
     // size); the `word<23> == 0` slot is unallocated (UNDEFINED in LLVM, e.g.

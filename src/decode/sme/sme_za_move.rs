@@ -166,3 +166,116 @@ pub fn decode(word: u32, out: &mut Instruction) {
         out.push_operand(zgroup(zn, span, arr));
     }
 }
+
+/// The ZA-*array*-vector slice operand `za.<T>[<Ws>, <off>, vgxN]`.
+///
+/// The slice offset is a single index (`span == 1`, no `off:off+n` range), and the
+/// multi-vector count is carried by `vg` (`2`/`4`) so the formatter appends the
+/// `, vgx2`/`, vgx4` qualifier.
+#[inline]
+fn za_array_slice(arr: VA, sel: u32, off: u32, vg: u8) -> Operand {
+    Operand::SmeZaSlice {
+        arr: Some(arr),
+        // The array-vector forms select with `w8..w11` (the 2-bit `Ws` field added
+        // to `w8`), unlike the tile-slice forms which use `w12..w15`.
+        sel: gp_register(false, RegWidth::W32, (8 + sel) as u8),
+        off: off as u8,
+        span: 1,
+        vg,
+        tile: 0,
+        slice: SliceIndicator::None,
+    }
+}
+
+/// Decode an SME2 multi-vector **ZA-array-vector** `MOV`/`MOVAZ` into `out`.
+///
+/// These move a 2-/4-register `Z` group to or from an *array* slice
+/// `za.d[<Ws>, <off>, vgxN]` (the `.d`/64-bit element is the only allocated size),
+/// e.g. `mov { z0.d, z1.d }, za.d[w8, 0, vgx2]` and the reverse
+/// `mov za.d[w8, 0, vgx2], { z0.d, z1.d }`; `movaz` is the zeroing readout (ZA →
+/// vectors only). They live in the SME `110` quadrant (top byte `0xC0`,
+/// `word<24> == 0`) and are dispatched from [`super::decode_mova_add`] once the
+/// shell `word<21:19> == 000`, `word<18> == 1`, `word<16> == 0`,
+/// `word<12:11> == 10` is selected (FEAT_SME2).
+///
+/// Field layout (derived from the LLVM 21 oracle):
+/// ```text
+///  31      24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7   5 4   0
+/// [ 1100_0000 | 0 0 | 0  0 | 0 | 1 | D | 0 | V | <Ws>| 1 | Q | ... ]
+/// ```
+/// * `word<23:22> == 00` (always `.d`); `word<17>` (`D`): `0` → vectors → ZA,
+///   `1` → ZA → vectors. `word<15>` (`V`) is RES0 (the array form has no slice
+///   direction). `word<14:13>` (`Ws`): `w8 + Ws`. `word<10>` (`Q`): vgx2(0)/vgx4(1).
+/// * ZA → vectors (`D == 1`): `word<9>` selects `MOV`(0)/`MOVAZ`(1); the `Z` group
+///   base is `word<4:1>` (vgx2, stride 2) / `word<4:2>` (vgx4, stride 4); the slice
+///   offset is `word<7:5>`; `word<8>` and `word<0>` are RES0.
+/// * vectors → ZA (`D == 0`): the `Z` group base is `word<9:6>` (vgx2, stride 2) /
+///   `word<9:7>` (vgx4, stride 4); the slice offset is `word<2:0>`; `word<5:3>`
+///   (vgx2) / `word<6:3>` (vgx4) are RES0.
+#[inline]
+pub fn decode_array(word: u32, out: &mut Instruction) {
+    // Shell re-check (caller has already gated `word<21:19>/18/16/12:11`).
+    // `word<23:22>` is RES0 (the array form is `.d` only); `word<15>` (V) is RES0.
+    if bits(word, 22, 2) != 0 || bit(word, 15) != 0 {
+        return;
+    }
+    let arr = VA::Sd;
+    let to_vector = bit(word, 17) == 1;
+    let ws = bits(word, 13, 2);
+    let span: u8 = if bit(word, 10) == 1 { 4 } else { 2 };
+    let base_mask = (span as u32) - 1;
+
+    if to_vector {
+        // ZA → vectors: Zd group base = word<4:1>/<4:2>, slice offset = word<7:5>,
+        // word<9> = MOV(0)/MOVAZ(1); word<8> and word<0> RES0.
+        if bit(word, 8) != 0 || bit(word, 0) != 0 {
+            return;
+        }
+        // vgx2 base in word<4:1> (stride 2), vgx4 in word<4:2> (stride 4; word<1>
+        // is then RES0).
+        let zd = if span == 4 {
+            if bit(word, 1) != 0 {
+                return;
+            }
+            bits(word, 2, 3) << 2
+        } else {
+            bits(word, 1, 4) << 1
+        };
+        if zd & base_mask != 0 {
+            return;
+        }
+        let off = bits(word, 5, 3);
+        let movaz = bit(word, 9) == 1;
+        out.set(if movaz {
+            Code::SmeMovazArrayToVec
+        } else {
+            Code::SmeMovaArrayToVec
+        });
+        out.push_operand(zgroup(zd, span, arr));
+        out.push_operand(za_array_slice(arr, ws, off, span));
+    } else {
+        // vectors → ZA: Zn group base = word<9:6>/<9:7>, slice offset = word<2:0>;
+        // word<5:3> (and word<6> for vgx4) RES0; word<9> RES0 only for vgx4's
+        // 3-bit field.
+        if bits(word, 3, 3) != 0 {
+            return;
+        }
+        let zn = if span == 4 {
+            // vgx4: base in word<9:7> (stride 4), word<6> RES0.
+            if bit(word, 6) != 0 {
+                return;
+            }
+            bits(word, 7, 3) << 2
+        } else {
+            // vgx2: base in word<9:6> (stride 2).
+            bits(word, 6, 4) << 1
+        };
+        if zn & base_mask != 0 {
+            return;
+        }
+        let off = bits(word, 0, 3);
+        out.set(Code::SmeMovaVecToArray);
+        out.push_operand(za_array_slice(arr, ws, off, span));
+        out.push_operand(zgroup(zn, span, arr));
+    }
+}

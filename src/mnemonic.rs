@@ -3292,6 +3292,96 @@ codes! {
     SmeBfcvtnNarrowFp => Bfcvtn, SmeF16f16, "`bfcvtn z0.h, { z0.s, z1.s }` (SME2 multi-vector FP32 to BF16 convert-narrow, interleaved).";
     SmeFcvtWiden => Fcvt, SmeF16f16, "`fcvt { z0.s, z1.s }, z0.h` (SME2 multi-vector FP16 to FP32 convert-widen).";
     SmeFcvtlWiden => Fcvtl, SmeF16f16, "`fcvtl { z0.s, z1.s }, z0.h` (SME2 multi-vector FP16 to FP32 convert-widen, interleaved).";
+
+    // --- Q1: SME2 multi-vector × MULTI-vector in-place ALU (siblings of the L3
+    // multi×single `*MVS*` forms). Slot `word<31:24> == 0xC1`, `word<21> == 1`,
+    // `word<15:12> == 1011`; `word<11>` = vgx2(0)/vgx4(1), `word<10>` selects the
+    // `sqdmulh` sub-table, `word<9:5>` the sub-opcode, `word<0>` the signed/unsigned
+    // (or max/min) selector. The second source is a multi-vector group `Zm`. The
+    // FP `fmax`/`fmin`/`fmaxnm`/`fminnm` non-`.b` forms are in `SME2_ALU_FORMS`; the
+    // members below are the integer ops, `famax`/`famin`, `fscale`, and the BF16
+    // (`size == 00`) `bf*` re-types (FEAT_SME_B16B16). ---
+    SmeSmaxMV2 => Smax, Sme2, "`smax { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeSmaxMV4 => Smax, Sme2, "`smax { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeUmaxMV2 => Umax, Sme2, "`umax { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeUmaxMV4 => Umax, Sme2, "`umax { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeSminMV2 => Smin, Sme2, "`smin { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeSminMV4 => Smin, Sme2, "`smin { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeUminMV2 => Umin, Sme2, "`umin { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeUminMV4 => Umin, Sme2, "`umin { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeSrshlMV2 => Srshl, Sme2, "`srshl { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeSrshlMV4 => Srshl, Sme2, "`srshl { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeUrshlMV2 => Urshl, Sme2, "`urshl { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeUrshlMV4 => Urshl, Sme2, "`urshl { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeSqdmulhMV2 => Sqdmulh, Sme2, "`sqdmulh { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeSqdmulhMV4 => Sqdmulh, Sme2, "`sqdmulh { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeFamaxMV2 => Famax, Faminmax, "`famax { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeFamaxMV4 => Famax, Faminmax, "`famax { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeFaminMV2 => Famin, Faminmax, "`famin { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeFaminMV4 => Famin, Faminmax, "`famin { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeFscaleMVMV2 => Fscale, Sme2, "`fscale { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi × multi, vgx2).";
+    SmeFscaleMVMV4 => Fscale, Sme2, "`fscale { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi × multi, vgx4).";
+    SmeBfmaxMV2 => Bfmax, SmeB16b16, "`bfmax { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }` (SME2 BF16 multi × multi, vgx2).";
+    SmeBfmaxMV4 => Bfmax, SmeB16b16, "`bfmax { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }` (SME2 BF16 multi × multi, vgx4).";
+    SmeBfminMV2 => Bfmin, SmeB16b16, "`bfmin { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }` (SME2 BF16 multi × multi, vgx2).";
+    SmeBfminMV4 => Bfmin, SmeB16b16, "`bfmin { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }` (SME2 BF16 multi × multi, vgx4).";
+    SmeBfmaxnmMV2 => Bfmaxnm, SmeB16b16, "`bfmaxnm { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }` (SME2 BF16 multi × multi, vgx2).";
+    SmeBfmaxnmMV4 => Bfmaxnm, SmeB16b16, "`bfmaxnm { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }` (SME2 BF16 multi × multi, vgx4).";
+    SmeBfminnmMV2 => Bfminnm, SmeB16b16, "`bfminnm { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }` (SME2 BF16 multi × multi, vgx2).";
+    SmeBfminnmMV4 => Bfminnm, SmeB16b16, "`bfminnm { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }` (SME2 BF16 multi × multi, vgx4).";
+    SmeBfscaleMV2 => Bfscale, SmeB16b16, "`bfscale { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }` (SME2 BF16 multi × multi, vgx2).";
+    SmeBfscaleMV4 => Bfscale, SmeB16b16, "`bfscale { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }` (SME2 BF16 multi × multi, vgx4).";
+
+    // --- Q2: SME2 multi-vector ZA-array-vector MOV/MOVAZ (`.d` only). Top byte
+    // 0xC0, `word<21:19> == 000`, `word<18> == 1`, `word<16> == 0`,
+    // `word<12:11> == 10`; `word<17>` = direction, `word<10>` = vgx2(0)/vgx4(1),
+    // `word<9>` = MOV/MOVAZ in the ZA→vectors direction. FEAT_SME2. ---
+    SmeMovaArrayToVec => Mov, Sme2, "`mov { z0.d, z1.d }, za.d[w8, 0, vgx2]` (SME2 ZA-array slice to vectors).";
+    SmeMovazArrayToVec => Movaz, Sme2, "`movaz { z0.d, z1.d }, za.d[w8, 0, vgx2]` (SME2 ZA-array slice to vectors, zeroing).";
+    SmeMovaVecToArray => Mov, Sme2, "`mov za.d[w8, 0, vgx2], { z0.d, z1.d }` (SME2 vectors to ZA-array slice).";
+
+    // --- Q3: SME2 single-vector LUTI6 reading the ZT0 table: `luti6 Zd.b, zt0,
+    // Zn`. Top byte 0xC0, `word<23:22> == 11`, `word<21:16> == 000000`,
+    // `word<15:10> == 010000`. `.b`-only, no element index. FEAT_LUT. ---
+    SmeLuti6Single => Luti6, Lut, "`luti6 z0.b, zt0, z0` (SME2 single-vector ZT0 lookup).";
+
+    // --- Q4: SME2 BF16 ZA-array accumulate `BFADD`/`BFSUB` — the `<22>=1` BF16
+    // siblings of the `FADD`/`FSUB` `.h` GroupOnly forms (`za.h[Ws, off, vgxN],
+    // { Zn.. }`). Top byte 0xC1, `<15:10> == 0111xx`, `<3> == 0` (add) / `<3> == 1`
+    // (sub). FEAT_SME_B16B16. ---
+    SmeBfaddV2Go => Bfadd, SmeB16b16, "`bfadd za.h[w8, 0, vgx2], { z0.h, z1.h }` (SME2 BF16 ZA-array accumulate, vgx2).";
+    SmeBfaddV4Go => Bfadd, SmeB16b16, "`bfadd za.h[w8, 0, vgx4], { z0.h - z3.h }` (SME2 BF16 ZA-array accumulate, vgx4).";
+    SmeBfsubV2Go => Bfsub, SmeB16b16, "`bfsub za.h[w8, 0, vgx2], { z0.h, z1.h }` (SME2 BF16 ZA-array accumulate, vgx2).";
+    SmeBfsubV4Go => Bfsub, SmeB16b16, "`bfsub za.h[w8, 0, vgx4], { z0.h - z3.h }` (SME2 BF16 ZA-array accumulate, vgx4).";
+
+    // --- Q5: SME2 multi-vector FP8 convert (FEAT_SME_F8F16). Slot
+    // `word<31:24> == 0xC1`, `word<15:10> == 111000`; `word<23:16>` opcode picks
+    // the family. Narrow `Zd.b, { Zn.. }`; widen `{ Zd.h, Zd+1.h }, Zn.b` with
+    // `word<0>` selecting the long `*l` variant. ---
+    SmeFcvtNarrowFp8 => Fcvt, SmeF8f16, "`fcvt z0.b, { z0.h, z1.h }` (SME2 FP16 to FP8 convert-narrow).";
+    SmeFcvtnNarrowFp8 => Fcvtn, SmeF8f16, "`fcvtn z0.b, { z0.s - z3.s }` (SME2 FP32 to FP8 convert-narrow, interleaved).";
+    SmeBfcvtNarrowFp8 => Bfcvt, SmeF8f16, "`bfcvt z0.b, { z0.h, z1.h }` (SME2 BF16 to FP8 convert-narrow).";
+    SmeF1cvtWiden => F1cvt, SmeF8f16, "`f1cvt { z0.h, z1.h }, z0.b` (SME2 FP8 to FP16 widen, even half).";
+    SmeF1cvtlWiden => F1cvtl, SmeF8f16, "`f1cvtl { z0.h, z1.h }, z0.b` (SME2 FP8 to FP16 widen-long, even half).";
+    SmeF2cvtWiden => F2cvt, SmeF8f16, "`f2cvt { z0.h, z1.h }, z0.b` (SME2 FP8 to FP16 widen, odd half).";
+    SmeF2cvtlWiden => F2cvtl, SmeF8f16, "`f2cvtl { z0.h, z1.h }, z0.b` (SME2 FP8 to FP16 widen-long, odd half).";
+    SmeBf1cvtWiden => Bf1cvt, SmeF8f16, "`bf1cvt { z0.h, z1.h }, z0.b` (SME2 FP8 to BF16 widen, even half).";
+    SmeBf1cvtlWiden => Bf1cvtl, SmeF8f16, "`bf1cvtl { z0.h, z1.h }, z0.b` (SME2 FP8 to BF16 widen-long, even half).";
+    SmeBf2cvtWiden => Bf2cvt, SmeF8f16, "`bf2cvt { z0.h, z1.h }, z0.b` (SME2 FP8 to BF16 widen, odd half).";
+    SmeBf2cvtlWiden => Bf2cvtl, SmeF8f16, "`bf2cvtl { z0.h, z1.h }, z0.b` (SME2 FP8 to BF16 widen-long, odd half).";
+
+    // --- Q6: SME2 multi-vector FP round-to-int / int-FP convert (`.s`-only,
+    // FEAT_SME2). Slot `word<31:24> == 0xC1`, `word<15:10> == 111000`; `word<23:16>`
+    // opcode selects the op, `word<20>` selects vgx2(0)/vgx4(1). `{ Zd.s.. },
+    // { Zn.s.. }`. ---
+    SmeFrintn => Frintn, Sme2, "`frintn { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector round to nearest).";
+    SmeFrintp => Frintp, Sme2, "`frintp { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector round toward +inf).";
+    SmeFrintm => Frintm, Sme2, "`frintm { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector round toward -inf).";
+    SmeFrinta => Frinta, Sme2, "`frinta { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector round to nearest, ties away).";
+    SmeScvtf => Scvtf, Sme2, "`scvtf { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector signed int to FP).";
+    SmeUcvtf => Ucvtf, Sme2, "`ucvtf { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector unsigned int to FP).";
+    SmeFcvtzs => Fcvtzs, Sme2, "`fcvtzs { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector FP to signed int).";
+    SmeFcvtzu => Fcvtzu, Sme2, "`fcvtzu { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector FP to unsigned int).";
 }
 
 impl Code {

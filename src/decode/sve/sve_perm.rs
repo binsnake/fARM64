@@ -347,10 +347,18 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
         }
 
         // `<15:13>=010`: predicate permute (ZIP/UZP/TRN/REV predicate, PUNPK).
-        0b010 => decode_pred_perm(word, out),
+        // Every member fixes `<21>=1`; a `<21>=0` word here is a reserved
+        // logical-immediate slot (e.g. `050055E0`) that `sve_int` now correctly
+        // leaves Invalid, so it must NOT mis-decode as a predicate `TRN2` — gate
+        // on `<21>=1` (verified: bit-21-cleared pred-perm words are LLVM
+        // UNDEFINED).
+        0b010 if bit(word, 21) == 1 => decode_pred_perm(word, out),
 
         // `<15:13>=100` / `101`: COMPACT, SPLICE, CLAST/LAST, REVB/H/W, REVD.
-        0b100 | 0b101 => decode_perm_misc(word, features, out),
+        // These also fix `<21>=1`; a `<21>=0` word is a reserved logical-immediate
+        // / LAST*-to-GP slot (e.g. `0500A7AE`) that must stay Invalid rather than
+        // mis-decode as `LASTA`/`LASTB`.
+        0b100 | 0b101 if bit(word, 21) == 1 => decode_perm_misc(word, features, out),
 
         _ => {}
     }
@@ -893,7 +901,11 @@ fn decode_dup_pred(word: u32, out: &mut Instruction) -> bool {
     // This `<21>=1, <15:14>=01, <9>=0, <4>=0` slot is PSEL (predicate select):
     // `PSEL <Pd>, <Pn>, <Pm>.<T>[<Wv>{, #imm}]`. It was historically mis-decoded
     // as a predicate-indexed `DUP`; the entire slot is PSEL per LLVM.
-    if bit(word, 9) != 0 || bit(word, 4) != 0 {
+    //
+    // `<15:14>` is a fixed `01` marker. A `<15:14>` of `10`/`11` reaches here only
+    // when the generation / break decoders decline, and is reserved → UNDEFINED
+    // (verified by an LLVM `<15:13>` sweep: only `010`/`011` decode as PSEL).
+    if bits(word, 14, 2) != 0b01 || bit(word, 9) != 0 || bit(word, 4) != 0 {
         return false;
     }
     // The element / index live in the SVE `tszh:tszl` field `<23:22>:<20:18>` (5

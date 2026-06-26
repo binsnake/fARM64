@@ -190,12 +190,17 @@ fn arr_hsd(size: u32) -> VA {
 /// Decode the SVE logical (bitmask) immediate from `(imm13 = imm_n:immr:imms)`
 /// for a 64-bit element container, returning the replicated value, or `None` for
 /// the reserved encodings.
+///
+/// The SVE bitmask uses the *logical-immediate* validity rule (ARM ARM
+/// `DecodeBitMasks(immN, imms, immr, TRUE)`): the `imms == all-ones` case is
+/// reserved → UNDEFINED, exactly like the base-ISA AND/ORR/EOR immediate. This
+/// mirrors `decode_logical_imm` in `dp_imm.rs` (which passes `immediate = true`).
 #[inline]
 fn sve_bitmask(imm13: u32) -> Option<u64> {
     let imm_n = bit(imm13, 12);
     let immr = bits(imm13, 6, 6);
     let imms = bits(imm13, 0, 6);
-    decode_bit_masks(imm_n, imms, immr, false, 64).map(|m| m.wmask)
+    decode_bit_masks(imm_n, imms, immr, true, 64).map(|m| m.wmask)
 }
 
 /// `SVEMoveMaskPreferred(imm13)` — whether `DUPM <Zd>.<T>, #imm` should render
@@ -285,9 +290,13 @@ fn left_shift_amount(tsz: u32, imm3: u32) -> Option<(VA, u32)> {
 #[inline]
 fn decode_05(word: u32, out: &mut Instruction) {
     // Logical immediate (AND/ORR/EOR/DUPM): word<21:19>==000 and word<18>==0
-    // (the imm13 occupies <17:5>), with the op in word<23:22>.
+    // (the imm13 occupies <17:5>), with the op in word<23:22>. `<18>` is a fixed
+    // `0` in this encoding; `<21:19>==000 && <18>==1` is reserved → UNDEFINED
+    // (verified by an LLVM bit-18 sweep over the AND/ORR/EOR/DUPM space).
     if bits(word, 19, 3) == 0 {
-        decode_logical_imm(word, out);
+        if bit(word, 18) == 0 {
+            decode_logical_imm(word, out);
+        }
         return;
     }
     // CPY (immediate): `<21:20>=01`, `<15>=0`. `MOV <Zd>.<T>, <Pg>/<Z|M>, #imm
@@ -346,12 +355,14 @@ fn decode_05(word: u32, out: &mut Instruction) {
                 decode_pmov(word, out);
             }
         }
-        // CPY (scalar) <15:13>=101 with <20:16>=01000: `CPY <Zd>.<T>, <Pg>/M,
+        // CPY (scalar) <15:13>=101 with <21:16>=1_01000: `CPY <Zd>.<T>, <Pg>/M,
         // <R><n|SP>` (binja/LLVM render the `MOV` alias). `Pg = <12:10>` is the
         // governing predicate, not a discriminator. The CLASTA/CLASTB/LASTA/LASTB-
         // to-GPR ops share <15:13>=101 but use other <20:16> opcodes (00000/00001/
-        // 10000/10001) and are left to the permute decoder.
-        0b101 if opc2016 == 0b01000 => {
+        // 10000/10001) and are left to the permute decoder. `<21>` is a fixed `1`
+        // in the CPY-from-GP form; `<21>==0` is reserved → UNDEFINED (verified by
+        // an LLVM bit-21 sweep across all four element sizes).
+        0b101 if opc2016 == 0b01000 && bit(word, 21) == 1 => {
             let w = if size == 3 { RegWidth::X64 } else { RegWidth::W32 };
             out.set(Code::SveCpyScalar);
             out.set_mnemonic(Mnemonic::Mov);
@@ -1338,6 +1349,15 @@ fn decode_24(word: u32, out: &mut Instruction) {
         (1, 1, 1, 0) => (Mnemonic::Cmplo, true),
         _ => (Mnemonic::Cmpls, true),
     };
+    // Wide compares (`SVE_CMP<cc>` against a `.d` second operand: CMPEQ/CMPNE/
+    // CMPGE/CMPGT/CMPLT/CMPLE/CMPHS/CMPHI/CMPLO/CMPLS *wide* forms) require the
+    // first operand to be *narrower* than the `.d` wide element, so `size == 0b11`
+    // (`.d`) is reserved → UNDEFINED. The same-width (non-wide) compares are valid
+    // for every size including `.d`. (Verified by an LLVM size sweep across all 16
+    // (op,b14,b13,ne) sub-encodings.)
+    if wide && size == 0b11 {
+        return;
+    }
     out.set(if wide { Code::SveCmpZw } else { Code::SveCmpZz });
     out.set_mnemonic(mnem);
     out.push_operand(preg_sz(pd, a));

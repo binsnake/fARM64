@@ -3400,6 +3400,14 @@ codes! {
     SmeMovtZt0Z => Movt, Sme2, "`movt zt0[0, mul vl], z0` (SME2 move a `Z` vector into the ZT0 table at a VL-scaled index, FEAT_SME2).";
     SmeMovtZt0X => Movt, Sme2, "`movt zt0[0], x0` (SME2 move a GP register into the ZT0 table at a byte offset, FEAT_SME2).";
     SmeMovtXZt0 => Movt, Sme2, "`movt x0, zt0[0]` (SME2 move from the ZT0 table at a byte offset into a GP register, FEAT_SME2).";
+
+    // --- S: SME2 `LUTI6` reading the ZT0 table with a register-group table source
+    // (`.b`-only, 4-register destination). Top byte `0xC0`, `word<23:16> == 0x8A`
+    // (`<22>=0` multi, `<21>=0`, `<19>=1`, `<18>=0` LUTI4/6 family, `<17:16>=10`),
+    // `word<15:10> == 000000`. `word<20>` picks consecutive(0)/strided(1) dest. The
+    // table source is the 3-register consecutive group `{ Zn - Zn+2 }` (`Zn =
+    // word<9:7>`, z0..z7); no ZT0 element index. FEAT_LUT. ---
+    SmeLuti6Zt => Luti6, Lut, "`luti6 { z0.b - z3.b }, zt0, { z0 - z2 }` (SME2 ZT0 lookup, register-group table source).";
 }
 
 impl Code {

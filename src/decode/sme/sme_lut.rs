@@ -85,6 +85,21 @@ fn zpair(first: u32) -> Operand {
     }
 }
 
+/// A 3-register consecutive `Z` group *source* `{Z<n> - Z<n+2>}` (no element
+/// suffix, no index) — the `LUTI6` register-group table source. LLVM renders the
+/// 3-register source as a `z.. - z..` range.
+#[inline]
+fn ztriple(first: u32) -> Operand {
+    Operand::SveVecGroup {
+        first: sve_register(first as u8),
+        count: 3,
+        arr: None,
+        range: true,
+        stride: 1,
+        lane: None,
+    }
+}
+
 /// The indexed table-source `Z<m>[index]` (no arrangement; bracketed lane).
 #[inline]
 fn zidx(m: u32, index: u32) -> Operand {
@@ -152,6 +167,46 @@ pub fn decode(word: u32, out: &mut Instruction) {
             extend: None,
             pred: None,
         });
+        return;
+    }
+
+    // `LUTI6` register-group table source (`.b` only, 4-register destination):
+    // `word<22>=0` (multi; `<23>=1`, `<21>=0`, `<19>=1` already pinned by the
+    // shell), `word<18>=0` selects the LUTI4/6 family, `word<17:16>=10`, and
+    // `word<15:10> == 000000`. `word<20>` is the destination-stride selector and
+    // is excluded from the opcode match. The table is the 3-register consecutive
+    // group `{Zn - Zn+2}` (`Zn = word<9:7>`, z0..z7, `word<6:5>` RES0); there is
+    // no ZT0 element index. `word<20>`: `0` → consecutive `{Zd - Zd+3}` (`Zd`
+    // multiple of 4), `1` → strided step-4 `{Zd, Zd+4, Zd+8, Zd+12}` (`word<3:2>`
+    // RES0, bases z0..z3 / z16..z19). This shape has no count marker, so it is
+    // matched before the generic indexed-source scan below. FEAT_LUT.
+    if bit(word, 22) == 0
+        && bits(word, 16, 3) == 0b010
+        && bits(word, 10, 6) == 0
+    {
+        // Source 3-register group base `Zn = word<9:7>`; `word<6:5>` RES0.
+        if bits(word, 5, 2) != 0 {
+            return;
+        }
+        let zn = bits(word, 7, 3);
+        let zd = bits(word, 0, 5);
+        let dst = if bit(word, 20) == 0 {
+            // Consecutive 4-register destination, base multiple-of-4.
+            if zd & 0b11 != 0 {
+                return;
+            }
+            zgroup(zd, 4, VA::Sb, 1)
+        } else {
+            // Strided step-4 destination, base window `word<3:2> == 0`.
+            if zd & 0b1100 != 0 {
+                return;
+            }
+            zgroup(zd, 4, VA::Sb, 4)
+        };
+        out.set(Code::SmeLuti6Zt);
+        out.push_operand(dst);
+        out.push_operand(zt0());
+        out.push_operand(ztriple(zn));
         return;
     }
 

@@ -110,7 +110,7 @@ mod imp {
                 | SmeMovaArrayToVec | SmeMovazArrayToVec | SmeMovaVecToArray
             // SME2 multi-vector LUTI6 (K3) + consecutive-dest LUTI6 (L3) +
             // single-vector LUTI6 (Q3).
-                | SmeLuti6 | SmeLuti6Consec | SmeLuti6Single
+                | SmeLuti6 | SmeLuti6Consec | SmeLuti6Single | SmeLuti6Zt
             // L3: SME2 multi × single in-place ALU.
                 | SmeAddMVS2 | SmeAddMVS4 | SmeSmaxMVS2 | SmeSmaxMVS4 | SmeUmaxMVS2 | SmeUmaxMVS4
                 | SmeSminMVS2 | SmeSminMVS4 | SmeUminMVS2 | SmeUminMVS4
@@ -189,6 +189,7 @@ mod imp {
             }
             SmeLuti2Zt | SmeLuti4Zt => enc_luti_zt(insn),
             SmeLuti6Single => enc_luti6_single(insn),
+            SmeLuti6Zt => enc_luti6_zt(insn),
             SmeLuti6 | SmeLuti6Consec => enc_luti6(insn),
             SmeAddMVS2 | SmeAddMVS4 | SmeSmaxMVS2 | SmeSmaxMVS4 | SmeUmaxMVS2 | SmeUmaxMVS4
             | SmeSminMVS2 | SmeSminMVS4 | SmeUminMVS2 | SmeUminMVS4 | SmeSrshlMVS2 | SmeSrshlMVS4
@@ -1834,6 +1835,56 @@ mod imp {
             _ => return Err(EncodeError::InvalidOperand),
         };
         Ok(0xc0c8_4000 | (zn << 5) | zd)
+    }
+
+    /// Encode the SME2 `LUTI6` ZT0 lookup with a register-group table source:
+    /// `luti6 { Zd.b - Zd+3.b }, zt0, { Zn - Zn+2 }`. Operand 0 is a 4-register
+    /// `.b` destination group — consecutive (stride 1) or strided step-4 (stride
+    /// 4); operand 1 is `ZT0`; operand 2 is the 3-register consecutive source
+    /// group `{ Zn - Zn+2 }` (no element suffix, no index). Inverse of the
+    /// register-group block in `decode::sme::sme_lut::decode`.
+    fn enc_luti6_zt(insn: &Instruction) -> R {
+        // Operand 0: 4-register `.b` destination group, consecutive or strided.
+        let (zd, dst_strided) = match insn.op(0) {
+            Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sb), stride, .. }
+                if first.class() == RegClass::Sve && (stride == 1 || stride == 4) =>
+            {
+                (first.number() as u32, stride == 4)
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Operand 1: ZT0.
+        match insn.op(1) {
+            Operand::Reg { reg: Register::Zt0, .. } => {}
+            _ => return Err(EncodeError::InvalidOperand),
+        }
+        // Operand 2: 3-register consecutive `.<none>` source group `{ Zn - Zn+2 }`.
+        let zn = match insn.op(2) {
+            Operand::SveVecGroup { first, count: 3, arr: None, stride: 1, .. }
+                if first.class() == RegClass::Sve =>
+            {
+                first.number() as u32
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Source base z0..z7 (encoded in word<9:7>; word<6:5> RES0).
+        if zn > 7 {
+            return Err(EncodeError::InvalidOperand);
+        }
+        // Destination base: consecutive multiple-of-4; strided window word<3:2>==0.
+        let st = if dst_strided {
+            if zd & 0b1100 != 0 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            1u32 << 20
+        } else {
+            if zd & 0b11 != 0 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            0
+        };
+        // word<23>=1, word<19>=1, word<17:16>=10 (LUTI6 group), Zn in word<9:7>.
+        Ok(0xC08A_0000 | st | (zn << 7) | zd)
     }
 
     fn enc_luti_zt(insn: &Instruction) -> R {

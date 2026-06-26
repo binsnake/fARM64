@@ -28,17 +28,30 @@ Commit | What
 `ff7bab4` | **H4** over-decode hardening: add/sub extended `opt!=00`, NEON ld/st-structure `.1d`/reserved, FP16-MLAL `size<0>`; + FEAT_RPRFM
 
 ### Measured impact (identical 614,400-word random+structured sample, `--mattr=+all`)
-Metric | Before (prev handoff start) | After this session
-|-|-|-|
-LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 mnem | **205 / 54 mnem**  (−69%)
-LLVM **REVERSE** (fARM64 decodes, LLVM rejects = over-decode) | 19,199 / 264 | **9,199 / 228**  (−52%)
-**DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | **69 / 14**  (−96%)
+Metric | Session start | After G+FMMLA+H | **Final (after I)**
+|-|-|-|-|
+LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 | 205 / 54 | **45 / 34  (−93%)**
+LLVM **REVERSE** (fARM64 decodes, LLVM rejects = over-decode) | 19,199 / 264 | 9,199 / 228 | **2,577 / 169  (−87%)**
+**DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | 69 / 14 | **69 / 14  (−96%)**
+
+Plus the **I-batch** (over-decode + remaining-gap closure):
+Commit | What
+|-|-|
+`1927603` | **I1** SME ZA-array ld/st over-decode (LD1*/ST1* word<4>, LD1Q/ST1Q size, LDR/STR-ZA fixed fields)
+`573baf6` | **I2** SVE memory over-decode (scalar+scalar `Xm==xzr`, 32-bit-gather-of-64-bit, prefetch `prfop<4>`, LDR/STR-P, scatter size/scale)
+`bf78a9b` | **I3** gap tail: NEON FP16→FP32 `fdot`, SVE2.3 `addqp`/`addsubp`/`udot`/`sdot`, SME2 `luti6`, SVE `fmmla`(.s,.h,.h), `sqabs`/`sqneg`, FEAT_CPA `madpt`/`mlapt`/`subp`, SVE `famax`/`famin`, `frint*` `/m`, LRCPC3 `ldapp`/`ldap`/`stlp`
 
 (Sample is ~1/8 the size of the 5M `llvm_diff.rs` run, so treat counts as relative magnitudes.)
 Regenerate: dump fARM64 over a sweep, run the oracle on the same words, bucket by mnemonic
 (scratch `survey.py`).
 
-## 1. Remaining GAPs (missing — 205 in-sample, prioritised)
+## 1. Remaining GAPs (missing — **45** in-sample after I3, 34 distinct, all ≤4 each)
+> The I3 batch CLOSED most of the list below (addqp/addsubp, luti6 single, fmmla .s.h.h, udot/sdot,
+> sqabs/sqneg, CPA madpt/mlapt/subp, famax/famin, frint /m, LRCPC3 ldapp/ldap/stlp). What remains is a
+> thin tail of **SME2/SVE2 multi-vector** forms (`luti6`/`fmul`/`fmaxnm` `{z..}` groups `C132FDE3`/
+> `C1F8E8C6`/`C1A0B126`; SVE-AES2 `.q` `aesdimc`/`aese`/`pmull` `4533EE14`/`453AEAEE`/`4534F90C`;
+> SVE `fcvtnt`/`fcvtlt`/`urecpe`/`ursqrte`) plus a few cross-width scalar `FCVT*` (`1EF40243` `fcvtms s3,h18`).
+
 Family | Example word | LLVM | area | notes
 |-|-|-|-|-|
 NEON FP16 2-way `fdot` | `0E85FF12` | `fdot v18.2s, v24.4h, v5.4h` | simd_fp | FEAT_FP16FML-style 2-way; vector + by-element (H4 deferred)
@@ -56,9 +69,17 @@ scalar `fcvtms`(h→s)… | `1EF40243` | `fcvtms s3, h18` | simd_fp | a few scal
 SVE `aesdimc`/AES-q | `4533EE14` | `aesdimc {z,z},{z,z},z.q[i]` | sve | FEAT_SVE_AES2 multi-vector
 …~40 more distinct, ≤3 each (long tail).
 
-## 2. Remaining over-decodes (REVERSE — 9,199 in-sample, prioritised)
-Dominated now by **SVE/SME load-store reserved encodings** (the base/NEON/SME-outer-product
-offenders were fixed in H2/H4). Each row = LLVM rejects, fARM64 still decodes:
+## 2. Remaining over-decodes (REVERSE — **2,577** in-sample after I1/I2, 169 distinct)
+> I1/I2 CLOSED the big load-store blocks below (SME-ZA ld1q/st1q/st1b/st1d/str/ldr; SVE gather +
+> contiguous-`xzr` + prefetch). The remaining tail (prioritised): SVE **64-bit gather** with
+> `uxtw`/`sxtw` offset (`C5AF14C1`, ~0.5k); SVE `mov`/CPY-imm reserved (`05156075`, 185, in
+> `sve_int.rs`); SME **single-vector `mova`** shadowing MOVAZ (`C040215F`, 110 — also a mnemonic
+> disagreement); SVE `ext` imm out-of-range (`05AF14C1`, 86); NEON FCMLA-fp16 by-element
+> (`2F623A9B`, 79); remaining reserved PSEL `tsz` (58); NEON FP16 three-same tail (~0.2k); SVE
+> logical-immediate (~118); NEON `.2d` by-element (~70); SME ADDHA/ADDVA (~66).
+
+The table below is the PRE-I1/I2 worklist (the top rows are now fixed), kept for the field-by-field
+likely-cause notes. Each row = LLVM rejects, fARM64 still decodes:
 
 count | mnem | example | likely cause
 |-|-|-|-|

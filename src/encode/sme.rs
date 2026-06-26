@@ -106,6 +106,8 @@ mod imp {
             // SME2 LUT (ZT0) + ZA tile move (G3).
                 | SmeLuti2Zt | SmeLuti4Zt
                 | SmeMovaMultiZToTile | SmeMovaMultiTileToZ | SmeMovazMultiTileToZ
+            // SME2 multi-vector LUTI6 (K3).
+                | SmeLuti6
         ) {
             return true;
         }
@@ -145,6 +147,7 @@ mod imp {
                 enc_narrow_shift(insn)
             }
             SmeLuti2Zt | SmeLuti4Zt => enc_luti_zt(insn),
+            SmeLuti6 => enc_luti6(insn),
             SmeMovaMultiZToTile | SmeMovaMultiTileToZ | SmeMovazMultiTileToZ => {
                 enc_za_tile_move(insn)
             }
@@ -955,6 +958,11 @@ mod imp {
                 word |= pdep(group_field(insn, 1, f.vg, arr, f.zn)?, f.zn);
                 word |= pdep(group_field(insn, 2, f.vg, arr, f.zm)?, f.zm);
             }
+            AluSh::GroupGroupSingle => {
+                word |= pdep(group_field(insn, 1, f.vg, arr, f.zn)?, f.zn);
+                // Single multiplier `Zm` (a `z0..z15` register).
+                word |= pdep(z_single(insn, 2, arr)?, f.zm);
+            }
         }
         Ok(word)
     }
@@ -1197,6 +1205,55 @@ mod imp {
             | (uresult << 6)
             | (uinput << 5)
             | zd;
+        Ok(word)
+    }
+
+    /// Encode the SME2 multi-vector `LUTI6` (FEAT_LUT), inverse of
+    /// `decode::sme::sme2::decode_luti6`. Operands:
+    /// `[ {Zd,Zd+4,Zd+8,Zd+12}.h, {Zn,Zn+1}.h, {Zt,Zt+1}[index] ]`.
+    fn enc_luti6(insn: &Instruction) -> R {
+        // Operand 0: 4-register strided destination group (stride 4), `.h`. The
+        // base is in `{0..3, 16..19}` and is split as `word<4>` (high) and
+        // `word<1:0>` (low).
+        let zd = match insn.op(0) {
+            Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sh), stride: 4, .. }
+                if first.class() == RegClass::Sve =>
+            {
+                first.number() as u32
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        if (zd & 0x0c) != 0 || zd > 19 {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let zd_field = ((zd >> 4) << 4) | (zd & 0x3);
+        // Operand 1: 2-register consecutive source group, `.h`. Base is `word<9:5>`.
+        let zn = match insn.op(1) {
+            Operand::SveVecGroup { first, count: 2, arr: Some(VA::Sh), stride: 1, .. }
+                if first.class() == RegClass::Sve =>
+            {
+                first.number() as u32
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Operand 2: the table pair `{ Zt, Zt+1 }[index]` (no element suffix). The
+        // base is `word<20:16>` (5-bit, consecutive pair); the single-bit index is
+        // `word<22>`.
+        let (table, index) = match insn.op(2) {
+            Operand::SveVecGroup {
+                first,
+                count: 2,
+                arr: None,
+                stride: 1,
+                lane: Some(idx),
+                ..
+            } if first.class() == RegClass::Sve => (first.number() as u32, idx as u32),
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        if index > 1 {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let word = 0xc120_fc00 | (index << 22) | (table << 16) | (zn << 5) | zd_field;
         Ok(word)
     }
 

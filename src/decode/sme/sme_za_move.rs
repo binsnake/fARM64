@@ -54,6 +54,7 @@ fn zgroup(first: u32, count: u8, arr: VA) -> Operand {
         arr: Some(arr),
         range: count == 4 && (first + 3) < 32,
         stride: 1,
+        lane: None,
     }
 }
 

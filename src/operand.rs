@@ -398,6 +398,10 @@ pub enum Operand {
         /// Register-number step between successive members (`1` consecutive, `8`
         /// or `4` for the strided multi-vector lists).
         stride: u8,
+        /// Optional element index rendered immediately after the closing brace
+        /// (`{ z18, z19 }[0]`), used by the SME2 multi-vector `LUTI6` table-pair
+        /// operand. `None` for the usual register lists.
+        lane: Option<u8>,
     },
 
     /// An SME2 / SVE2.1 **predicate-as-counter** governing operand (`PNg`), as

@@ -32,6 +32,7 @@
 
 use crate::decode::bits::{bit, bits};
 use crate::enums::{ExtendType, VectorArrangement as VA};
+use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::Code;
 use crate::operand::{Operand, SliceIndicator, SveMemMode};
@@ -198,6 +199,7 @@ fn zgroup(first: u32, count: u8, arr: VA) -> Operand {
         // comma list.
         range: count == 4 && (first + 3) < 32,
         stride: 1,
+        lane: None,
     }
 }
 
@@ -297,14 +299,66 @@ pub fn decode_tmopa(word: u32, out: &mut Instruction) {
 /// ([`decode_narrow_shift`]) shares the `word<15:11> == 11011` slot with `SDOT`/
 /// `FDOT`/... but is distinguished by its size field (`word<23:21>`), so it is
 /// tried first with a strict size validation that rejects the neighbours.
-pub fn decode_mul(word: u32, out: &mut Instruction) {
-    if decode_narrow_shift(word, out) {
+pub fn decode_mul(word: u32, features: FeatureSet, out: &mut Instruction) {
+    if decode_luti6(word, features, out) {
+        // matched the SME2 multi-vector LUTI6 (FEAT_LUT)
+    } else if decode_narrow_shift(word, out) {
         // matched the shift-right-narrow family
     } else if let Some(f) = lookup(word) {
         build(f, word, out);
     } else if let Some(f) = alu_lookup(word) {
         build_alu(f, word, out);
     }
+}
+
+/// Decode the SME2 multi-vector `LUTI6` (FEAT_LUT): a four-register strided
+/// destination group, a two-register consecutive source group, and a
+/// two-register table-pair selector with a single-bit element index.
+///
+/// Shape: `{ Zd, Zd+4, Zd+8, Zd+12 }.H, { Zn, Zn+1 }.H, { Zt, Zt+1 }[<index>]`.
+/// Fields: the destination group base is `(word<4> << 4) | word<1:0>` (a stride-4
+/// group of four `.H` registers, so the base is in `{0..3, 16..19}` and
+/// `word<3:2>` is RES0); `Zn = word<9:5>` (2-register consecutive, wraps); the
+/// table-pair base is `word<20:16>` (a 2-register consecutive group rendered
+/// without an element suffix); the element index is `word<22>` (1 bit, `word<23>`
+/// RES0). The opcode pins `word<21> == 1` and `word<15:10> == 111111`.
+///
+/// Returns `true` (and fills `out`) on a match, `false` otherwise.
+fn decode_luti6(word: u32, features: FeatureSet, out: &mut Instruction) -> bool {
+    // Family key: `word<31:24> == 0xC1`, `word<21> == 1`, `word<15:10> == 111111`.
+    if word & 0xff20_fc00 != 0xc120_fc00 {
+        return false;
+    }
+    if !features.has(Feature::Lut) {
+        return false;
+    }
+    // `word<23>` is RES0; the element index is the single bit `word<22>`. The
+    // destination base packs `word<4>` (high bit) and `word<1:0>` (low bits);
+    // `word<3:2>` are RES0 (a stride-4 four-register group only allocates bases
+    // `0..3` and `16..19`).
+    if bit(word, 23) != 0 || bits(word, 2, 2) != 0 {
+        return false;
+    }
+    let index = bit(word, 22) as u8;
+    let zd = (bit(word, 4) << 4) | bits(word, 0, 2);
+    let zn = bits(word, 5, 5);
+    let table = bits(word, 16, 5);
+    out.set(Code::SmeLuti6);
+    // Destination: 4-register strided group (stride 4), `.h`, rendered as a comma
+    // list (the stride-4 lists never take the `z.. - z..` range form).
+    out.push_operand(strided_group(zd, 4, VA::Sh, 4));
+    // Source: 2-register consecutive group, `.h`.
+    out.push_operand(zgroup(zn, 2, VA::Sh));
+    // Table pair `{ Zt, Zt+1 }[index]` — no element suffix, bracketed index.
+    out.push_operand(Operand::SveVecGroup {
+        first: sve_register(table as u8),
+        count: 2,
+        arr: None,
+        range: false,
+        stride: 1,
+        lane: Some(index),
+    });
+    true
 }
 
 /// Decode the SME2 multi-vector saturating rounding shift-right-narrow-by-
@@ -385,6 +439,9 @@ pub enum AluSh {
     /// `{ Zd.. }, { Zn.. }, { Zm.. }` — three vector groups, no predicate
     /// (SME2/SVE2 multi-vector `FMUL`).
     GroupGroup3,
+    /// `{ Zd.. }, { Zn.. }, Zm.<T>` — two vector groups and a single multiplier
+    /// (SME2 multi-vector × single-multiplier `FMUL`, `Zm` in `z0..z15`).
+    GroupGroupSingle,
 }
 
 /// How a form's element-size suffix is recovered from the encoding.
@@ -491,6 +548,7 @@ fn alu_group(first: u32, count: u8, arr: VA) -> Operand {
         arr: Some(arr),
         range: count == 4 && (first + 3) < 32,
         stride: 1,
+        lane: None,
     }
 }
 
@@ -505,6 +563,7 @@ fn strided_group(first: u32, count: u8, arr: VA, stride: u8) -> Operand {
         arr: Some(arr),
         range: false,
         stride,
+        lane: None,
     }
 }
 
@@ -565,6 +624,12 @@ fn build_alu(f: &AluForm, word: u32, out: &mut Instruction) {
             out.push_operand(alu_group(group_base(word, f.zn), f.vg, arr));
             out.push_operand(alu_group(group_base(word, f.zm), f.vg, arr));
         }
+        AluSh::GroupGroupSingle => {
+            out.push_operand(alu_group(group_base(word, f.zd), f.vg, arr));
+            out.push_operand(alu_group(group_base(word, f.zn), f.vg, arr));
+            // Single multiplier `Zm` is a plain `z0..z15` register (4-bit field).
+            out.push_operand(zsrc(pext(word, f.zm), arr));
+        }
     }
 }
 
@@ -606,6 +671,24 @@ pub static SME2_ALU_FORMS: &[AluForm] = &[
     // vgx4(1). `AluArr::Fp` rejects `.b` (size 00 is the BF16 BFMUL neighbour).
     A { mask: 0xff21fc21, val: 0xc120e400, code: Code::SmeFmulMV2, shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3c0, zm: 0x1e0000 },
     A { mask: 0xff23fc63, val: 0xc121e400, code: Code::SmeFmulMV4, shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x1c0000 },
+    // SME2 multi-vector FP min/max (multi & multi, in-place): { Zdn }, { Zdn },
+    // { Zm }. The destination and first source share the `<4:1>`/`<4:2>` group
+    // field (so `zn == zd`); `<5>` selects the `nm` (number) variant and `<0>`
+    // selects min(1)/max(0). `<9:6> == 0100` opcode marker. `AluArr::Fp` rejects
+    // `.b` (size 00). vgx4 narrows the group fields and pins `<1>`/`<17>` to 0.
+    A { mask: 0xff21ffe1, val: 0xc120b100, code: Code::SmeFmaxMV2,   shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x1e, zm: 0x1e0000 },
+    A { mask: 0xff21ffe1, val: 0xc120b101, code: Code::SmeFminMV2,   shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x1e, zm: 0x1e0000 },
+    A { mask: 0xff21ffe1, val: 0xc120b120, code: Code::SmeFmaxnmMV2, shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x1e, zm: 0x1e0000 },
+    A { mask: 0xff21ffe1, val: 0xc120b121, code: Code::SmeFminnmMV2, shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x1e, zm: 0x1e0000 },
+    A { mask: 0xff23ffe3, val: 0xc120b900, code: Code::SmeFmaxMV4,   shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x1c, zm: 0x1c0000 },
+    A { mask: 0xff23ffe3, val: 0xc120b901, code: Code::SmeFminMV4,   shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x1c, zm: 0x1c0000 },
+    A { mask: 0xff23ffe3, val: 0xc120b920, code: Code::SmeFmaxnmMV4, shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x1c, zm: 0x1c0000 },
+    A { mask: 0xff23ffe3, val: 0xc120b921, code: Code::SmeFminnmMV4, shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x1c, zm: 0x1c0000 },
+    // SME2 multi-vector × single-multiplier FMUL: { Zd }, { Zn }, Zm. The single
+    // multiplier `Zm` is a `z0..z15` register at `<20:17>` (4-bit) in both vgx2
+    // and vgx4. `<5> == 0` and `<0> == 0` fixed; vgx4 pins `<6>`/`<1>`.
+    A { mask: 0xff21fc21, val: 0xc120e800, code: Code::SmeFmulMVS2, shape: AluSh::GroupGroupSingle, arr: AluArr::Fp, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3c0, zm: 0x1e0000 },
+    A { mask: 0xff21fc63, val: 0xc121e800, code: Code::SmeFmulMVS4, shape: AluSh::GroupGroupSingle, arr: AluArr::Fp, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x1e0000 },
 ];
 
 // ===========================================================================

@@ -94,7 +94,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         }
         0b110 => {
             if sme2 && bit(word, 24) == 1 {
-                sme2::decode_mul(word, out);
+                sme2::decode_mul(word, features, out);
             } else {
                 decode_mova_add(word, features, out);
             }
@@ -478,6 +478,7 @@ fn vec_pair(first: u32, arr: VA) -> Operand {
         arr: Some(arr),
         range: false,
         stride: 1,
+        lane: None,
     }
 }
 
@@ -605,7 +606,10 @@ fn decode_mova_add(word: u32, features: FeatureSet, out: &mut Instruction) {
         return;
     }
     // Opcode `word<21:17>`: ADDHA/ADDVA are `01000`; MOVA is `0000x`.
-    if bit(word, 21) == 0 && bit(word, 20) == 1 && bits(word, 17, 3) == 0 {
+    // ADDHA/ADDVA additionally fix `word<23> == 1` (`word<22>` is the element
+    // size); the `word<23> == 0` slot is unallocated (UNDEFINED in LLVM, e.g.
+    // `C01000C1`), so the original decoder over-decoded it as `addha`/`addva`.
+    if bit(word, 23) == 1 && bit(word, 21) == 0 && bit(word, 20) == 1 && bits(word, 17, 3) == 0 {
         decode_addha_addva(word, out);
     } else if bits(word, 18, 4) == 0 {
         // MOVA: word<21:18> == 0000 (direction in word<17>).
@@ -620,6 +624,13 @@ fn decode_mova_add(word: u32, features: FeatureSet, out: &mut Instruction) {
 /// `word<22>` (`0`→`.S`, ZAda 2-bit; `1`→`.D`, ZAda 3-bit). Operand order is
 /// `ZAda.<T>, Pn/M, Pm/M, Zn.<T>` with `Zn = word<9:5>`, `Pn = word<12:10>`,
 /// `Pm = word<15:13>`.
+///
+/// The `ZAda` tile-number field occupies the low `word<4:0>` bits, but its width
+/// is element-size-dependent: `.S` names only 4 tiles (`word<1:0>`) and `.D` only
+/// 8 (`word<2:0>`). The bits of `word<4:0>` above the in-use `ZAda` field are
+/// RES0 — a set bit is UNDEFINED in LLVM (`.S`: `word<4:2>`, e.g. `C0901C6D`;
+/// `.D`: `word<4:3>`, e.g. `C0D12DFD`). The original decoder masked `ZAda` to the
+/// correct width but ignored those reserved high bits, over-decoding them.
 fn decode_addha_addva(word: u32, out: &mut Instruction) {
     let v = bit(word, 16);
     let pm = bits(word, 13, 3);
@@ -627,7 +638,13 @@ fn decode_addha_addva(word: u32, out: &mut Instruction) {
     let zn = bits(word, 5, 5);
     let is64 = bit(word, 22) == 1;
     let arr = if is64 { VA::Sd } else { VA::Ss };
-    let zada = if is64 { bits(word, 0, 3) } else { bits(word, 0, 2) };
+    // `ZAda` is `word<2:0>` (.D, 8 tiles) or `word<1:0>` (.S, 4 tiles); the higher
+    // bits of `word<4:0>` are RES0. Reject any set reserved bit.
+    let zada_width = if is64 { 3 } else { 2 };
+    if bits(word, zada_width, 5 - zada_width) != 0 {
+        return;
+    }
+    let zada = bits(word, 0, zada_width);
 
     out.set(if v == 0 { Code::SmeAddha } else { Code::SmeAddva });
     out.push_operand(zreg(zada, arr));

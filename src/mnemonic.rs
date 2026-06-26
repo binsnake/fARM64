@@ -3041,6 +3041,29 @@ codes! {
     // single-vector MOVA tile-to-vector shell but sets `word<9> == 1`; the regular
     // (non-zeroing) predicated `MOVA` keeps `word<9> == 0`. FEAT_SME2.
     SmeMovazTileToZ => Movaz, Sme2, "`MOVAZ <Zd>.<T>, <ZAn><HV>.<T>[<Ws>{,#imm}]` (SME2, ZA tile slice to vector, zeroing).";
+
+    // --- K3: SME2 multi-vector FP min/max (multi & multi, in-place) ---
+    // `{ Zdn }, { Zdn }, { Zm }` — the destination and first source are the same
+    // register group. FEAT_SME2.
+    SmeFmaxMV2 => Fmax, Sme2, "`fmax { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector, vgx2).";
+    SmeFmaxMV4 => Fmax, Sme2, "`fmax { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi-vector, vgx4).";
+    SmeFminMV2 => Fmin, Sme2, "`fmin { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector, vgx2).";
+    SmeFminMV4 => Fmin, Sme2, "`fmin { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi-vector, vgx4).";
+    SmeFmaxnmMV2 => Fmaxnm, Sme2, "`fmaxnm { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector, vgx2).";
+    SmeFmaxnmMV4 => Fmaxnm, Sme2, "`fmaxnm { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi-vector, vgx4).";
+    SmeFminnmMV2 => Fminnm, Sme2, "`fminnm { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector, vgx2).";
+    SmeFminnmMV4 => Fminnm, Sme2, "`fminnm { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }` (SME2 multi-vector, vgx4).";
+
+    // --- K3: SME2 multi-vector x single-multiplier FMUL ---
+    // `{ Zdn }, { Zn }, Zm` — a vector group times a single multiplier (Zm in
+    // z0..z15). FEAT_SME2.
+    SmeFmulMVS2 => Fmul, Sme2, "`fmul { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi-vector x single, vgx2).";
+    SmeFmulMVS4 => Fmul, Sme2, "`fmul { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi-vector x single, vgx4).";
+
+    // --- K3: SME2 multi-vector LUTI6 (4-register dest, 2-register table pair) ---
+    // `{ Zd0.h, Zd4.h, Zd8.h, Zd12.h }, { Zn.h, Zn+1.h }, { Zt, Zt+1 }[index]`.
+    // FEAT_LUT.
+    SmeLuti6 => Luti6, Lut, "`luti6 { z0.h, z4.h, z8.h, z12.h }, { z0.h, z1.h }, { z0, z1 }[0]` (SME2 multi-vector lookup).";
 }
 
 impl Code {

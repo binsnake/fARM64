@@ -442,8 +442,14 @@ impl Formatter for FmtFormatter {
                 arr,
                 range,
                 stride,
+                lane,
             } => {
                 self.emit_sve_vec_group(first, count, arr, range, stride, out);
+                if let Some(idx) = lane {
+                    out.write("[", TokenKind::Punctuation);
+                    self.emit_dec_kind(idx as u64, TokenKind::Number, out);
+                    out.write("]", TokenKind::Punctuation);
+                }
             }
 
             Operand::PredCounter { reg, zeroing, arr } => {

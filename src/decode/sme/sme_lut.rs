@@ -67,6 +67,7 @@ fn zgroup(first: u32, count: u8, arr: VA, stride: u8) -> Operand {
         // print as a comma list.
         range: stride == 1 && count == 4 && (first + 3) < 32,
         stride,
+        lane: None,
     }
 }
 
@@ -80,6 +81,7 @@ fn zpair(first: u32) -> Operand {
         arr: None,
         range: false,
         stride: 1,
+        lane: None,
     }
 }
 

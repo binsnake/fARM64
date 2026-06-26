@@ -65,6 +65,11 @@ pub(super) fn is_fp(code: Code) -> bool {
             | SveBfscale | SveBf2cvt | SveScvtflt
         // O: SVE2.2 multi-vector FP-to-int convert-narrow
             | SveFcvtzsn | SveFcvtzun
+        // P: SVE2.2 FP8 / int convert cluster (0x65 `<15:13>=001`)
+            | SveF1cvt | SveF2cvt | SveBf1cvt
+            | SveF1cvtlt | SveF2cvtlt | SveBf1cvtlt | SveBf2cvtlt
+            | SveFcvtnFp8 | SveFcvtnbFp8 | SveBfcvtnFp8 | SveFcvtntFp8
+            | SveScvtfWiden | SveUcvtfWiden | SveUcvtflt
         // H3: FCLAMP + FDOT + FP8 vector MLAL/MMLA + BFMMLA.h + BFMLSL
             | SveFclamp
             | SveFdotShVec | SveFdotShIdx | SveFdotHbVec | SveFdotHbIdx | SveFdotSbVec | SveFdotSbIdx
@@ -494,16 +499,74 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             base65(0) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zm, 5) | zdn
         }
         // ---- L1: SVE2.2 FP8/int down-convert `Zd.h, Zn.b` ----
-        // BF2CVT (size=00, <20:16>=01000, <12:10>=111),
-        // SCVTFLT (size=01, <20:16>=01100, <12:10>=110).
-        SveBf2cvt | SveScvtflt => {
+        // ---- P: SVE2.2 FP8 / int convert cluster (0x65 `<15:13>=001`) ----
+        // FP8 -> FP16/BF16 widen (single -> single), `Zd.h, Zn.b`, size==00,
+        // <20:16>=01000 (no -lt) / 01001 (-lt), <12:10>=1.<11:10> selector.
+        SveF1cvt | SveF2cvt | SveBf1cvt | SveBf2cvt
+        | SveF1cvtlt | SveF2cvtlt | SveBf1cvtlt | SveBf2cvtlt => {
             let zd = z(insn, 0)?;
             let zn = z(insn, 1)?;
-            let (size, opc, op210) = match code {
-                SveBf2cvt => (0u32, 0b01000u32, 0b111u32),
-                _ => (1, 0b01100, 0b110),
+            let (opc, var) = match code {
+                SveF1cvt => (0b01000u32, 0b00u32),
+                SveF2cvt => (0b01000, 0b01),
+                SveBf1cvt => (0b01000, 0b10),
+                SveBf2cvt => (0b01000, 0b11),
+                SveF1cvtlt => (0b01001, 0b00),
+                SveF2cvtlt => (0b01001, 0b01),
+                SveBf1cvtlt => (0b01001, 0b10),
+                _ => (0b01001, 0b11),
             };
-            base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b001, 13) | fld(op210, 10) | fld(zn, 5) | zd
+            base65(0) | fld(opc, 16) | fld(0b001, 13) | fld(0b1, 12) | fld(var, 10) | fld(zn, 5) | zd
+        }
+        // FP16/FP32 -> FP8 narrow from a consecutive 2-register source group,
+        // `Zd.b, { Zn.<T>, Zn+1.<T> }`, size==00, <20:16>=01010,
+        // <12:10>=1.<11:10> = FCVTN(00)/FCVTNB(01)/BFCVTN(10)/FCVTNT(11).
+        SveFcvtnFp8 | SveFcvtnbFp8 | SveBfcvtnFp8 | SveFcvtntFp8 => {
+            let zd = z(insn, 0)?;
+            let (zn, count) = group_first(insn, 1)?;
+            if count != 2 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            let var = match code {
+                SveFcvtnFp8 => 0b00u32,
+                SveFcvtnbFp8 => 0b01,
+                SveBfcvtnFp8 => 0b10,
+                _ => 0b11,
+            };
+            base65(0)
+                | fld(0b01010, 16)
+                | fld(0b001, 13)
+                | fld(0b1, 12)
+                | fld(var, 10)
+                | fld(zn, 5)
+                | zd
+        }
+        // Int -> FP widen (single -> single), `Zd.<Tw>, Zn.<Tn>`, <20:16>=01100,
+        // size from the (wider) destination element: .h=01, .s=10, .d=11.
+        // <12:10>=1.<11:10> = SCVTF(00)/UCVTF(01)/SCVTFLT(10)/UCVTFLT(11).
+        SveScvtfWiden | SveUcvtfWiden | SveScvtflt | SveUcvtflt => {
+            let zd = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let size = match arr_of(insn, 0)? {
+                VA::Sh => 0b01u32,
+                VA::Ss => 0b10,
+                VA::Sd => 0b11,
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            let var = match code {
+                SveScvtfWiden => 0b00u32,
+                SveUcvtfWiden => 0b01,
+                SveScvtflt => 0b10,
+                _ => 0b11,
+            };
+            base65(0)
+                | fld(size, 22)
+                | fld(0b01100, 16)
+                | fld(0b001, 13)
+                | fld(0b1, 12)
+                | fld(var, 10)
+                | fld(zn, 5)
+                | zd
         }
         // ---- O: SVE2.2 multi-vector FP-to-int convert-narrow ----
         // `FCVTZSN`/`FCVTZUN Zd.<Tn>, { Zn.<T>, Zn+1.<T> }`. <15:13>=001,

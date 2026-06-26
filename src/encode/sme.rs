@@ -125,6 +125,9 @@ mod imp {
                 | SmeSqcvtnNarrow | SmeUqcvtnNarrow | SmeSqcvtunNarrow
             // L3: SME2 2-vector saturating rounding shift-right-narrow.
                 | SmeSqrshrV2 | SmeUqrshrV2 | SmeSqrshruV2
+            // P: SME2 multi-vector FP convert (FP16/BF16 <-> FP32).
+                | SmeFcvtNarrow | SmeFcvtnNarrowFp | SmeBfcvtNarrow
+                | SmeBfcvtnNarrowFp | SmeFcvtWiden | SmeFcvtlWiden
         ) {
             return true;
         }
@@ -177,6 +180,8 @@ mod imp {
             SmeSunpk | SmeUunpk => enc_unpk(insn),
             SmeSqcvt | SmeUqcvt | SmeSqcvtu | SmeSqcvtnNarrow | SmeUqcvtnNarrow
             | SmeSqcvtunNarrow => enc_cvt_narrow(insn),
+            SmeFcvtNarrow | SmeFcvtnNarrowFp | SmeBfcvtNarrow | SmeBfcvtnNarrowFp
+            | SmeFcvtWiden | SmeFcvtlWiden => enc_fp_cvt(insn),
             SmeSqrshrV2 | SmeUqrshrV2 | SmeSqrshruV2 => enc_narrow_shift2(insn),
             SmeMovaMultiZToTile | SmeMovaMultiTileToZ | SmeMovazMultiTileToZ => {
                 enc_za_tile_move(insn)
@@ -1501,6 +1506,37 @@ mod imp {
         let size = (hi << 1) | u32::from(su);
         let word = 0xc133_e000 | (size << 22) | (zn << 7) | (op << 5) | zd;
         Ok(word)
+    }
+
+    /// Encode the SME2 multi-vector FP convert (FP16/BF16 <-> FP32), inverse of
+    /// `decode::sme::sme2::decode_fp_cvt`. Narrow forms are `[ Zd.h, { Zn, Zn+1 }.s ]`
+    /// (`<23:22>` = 00 fcvt/fcvtn, 01 bfcvt/bfcvtn; `<5>` selects the interleaving
+    /// variant; source group base = `word<9:6> * 2`). The widen form is
+    /// `[ { Zd, Zd+1 }.s, Zn.h ]` (`<23:22>` = 10; `<0>` selects fcvt/fcvtl;
+    /// dest group base = `word<4:1> * 2`).
+    fn enc_fp_cvt(insn: &Instruction) -> R {
+        use Code::*;
+        match insn.code() {
+            SmeFcvtNarrow | SmeFcvtnNarrowFp | SmeBfcvtNarrow | SmeBfcvtnNarrowFp => {
+                // Operand 0: single `Zd.h`; operand 1: 2-register `.s` source group.
+                let zd = z_single(insn, 0, VA::Sh)?;
+                let zn = group_field(insn, 1, 2, VA::Ss, 0x3c0)?;
+                let (size, interleave) = match insn.code() {
+                    SmeFcvtNarrow => (0u32, 0u32),
+                    SmeFcvtnNarrowFp => (0, 1),
+                    SmeBfcvtNarrow => (1, 0),
+                    _ => (1, 1),
+                };
+                Ok(0xc120_e000 | (size << 22) | (zn << 6) | (interleave << 5) | zd)
+            }
+            // Widen: 2-register `.s` destination group, single `Zn.h` source.
+            _ => {
+                let zd = group_field(insn, 0, 2, VA::Ss, 0x1e)?;
+                let zn = z_single(insn, 1, VA::Sh)?;
+                let interleave = u32::from(insn.code() == Code::SmeFcvtlWiden);
+                Ok(0xc1a0_e000 | (zd << 1) | (zn << 5) | interleave)
+            }
+        }
     }
 
     /// Encode the SME2 multi-vector 2-vector saturating rounding shift-right-narrow,

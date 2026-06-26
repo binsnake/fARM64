@@ -183,6 +183,110 @@ fn zgroup(first: u32, count: u8, a: VA) -> Operand {
     }
 }
 
+/// The SVE2.2 FP8 / int **convert cluster** sharing the `0x65`, `<21>=0`,
+/// `<15:13>=001` slot. All members have `<12>=1`; the `<20:16>` opcode selects
+/// the family and `<11:10>` (with `<23:22>` size) the variant. Returns `true`
+/// when it claimed `out` (valid or — for a recognised-but-feature-gated form —
+/// left invalid). Returns `false` only when the `<20:16>` opcode is outside this
+/// cluster, so the caller falls through to the other `<15:13>=001` forms.
+///
+/// Tables (all `<12>=1`, so the printed `<12:10>` value is `1` followed by the
+/// `<11:10>` selector shown):
+///
+/// | opc `<20:16>` | sz `<23:22>` | `<11:10>` | mnemonic | operands | feature |
+/// |-|-|-|-|-|-|
+/// | `01000` | 00 | 00/01/10/11 | F1CVT/F2CVT/BF1CVT/BF2CVT | `Zd.h, Zn.b` | FP8 |
+/// | `01001` | 00 | 00/01/10/11 | F1CVTLT/F2CVTLT/BF1CVTLT/BF2CVTLT | `Zd.h, Zn.b` | FP8 |
+/// | `01010` | 00 | 00/01/10/11 | FCVTN/FCVTNB/BFCVTN/FCVTNT | `Zd.b, { Zn.<T>, Zn+1.<T> }` | FP8 |
+/// | `01100` | 01/10/11 | 00/01/10/11 | SCVTF/UCVTF/SCVTFLT/UCVTFLT | `Zd.<Tw>, Zn.<Tn>` | SVE2p3 |
+#[inline]
+fn decode_65_convert_cluster(
+    word: u32,
+    size: u32,
+    features: FeatureSet,
+    out: &mut Instruction,
+) -> bool {
+    let opc = bits(word, 16, 5); // word<20:16>
+    let var = bits(word, 10, 2); // word<11:10>
+    let zn = bits(word, 5, 5);
+    let zd = bits(word, 0, 5);
+    match opc {
+        // FP8 -> FP16/BF16 widen (single -> single), `Zd.h, Zn.b`, size==00.
+        0b01000 | 0b01001 => {
+            if size != 0 {
+                return false; // size!=00 here is not part of this cluster.
+            }
+            if !features.has(Feature::Fp8) {
+                return true; // recognised; gated off — leave invalid.
+            }
+            let lt = opc == 0b01001;
+            let code = match (var, lt) {
+                (0b00, false) => Code::SveF1cvt,
+                (0b01, false) => Code::SveF2cvt,
+                (0b10, false) => Code::SveBf1cvt,
+                (0b11, false) => Code::SveBf2cvt,
+                (0b00, true) => Code::SveF1cvtlt,
+                (0b01, true) => Code::SveF2cvtlt,
+                (0b10, true) => Code::SveBf1cvtlt,
+                _ => Code::SveBf2cvtlt,
+            };
+            out.set(code);
+            out.push_operand(zreg(zd, VA::Sh));
+            out.push_operand(zreg(zn, VA::Sb));
+            true
+        }
+        // FP16/FP32 -> FP8 narrow from a consecutive 2-register source group,
+        // `Zd.b, { Zn.<T>, Zn+1.<T> }`, size==00. FCVTN/BFCVTN take `.h` sources,
+        // FCVTNB/FCVTNT take `.s` sources. Source-group base must be even.
+        0b01010 => {
+            if size != 0 {
+                return false;
+            }
+            if !features.has(Feature::Fp8) {
+                return true;
+            }
+            if zn & 1 != 0 {
+                return true; // recognised opcode; odd base reserved -> invalid.
+            }
+            let (code, sa) = match var {
+                0b00 => (Code::SveFcvtnFp8, VA::Sh),
+                0b01 => (Code::SveFcvtnbFp8, VA::Ss),
+                0b10 => (Code::SveBfcvtnFp8, VA::Sh),
+                _ => (Code::SveFcvtntFp8, VA::Ss),
+            };
+            out.set(code);
+            out.push_operand(zreg(zd, VA::Sb));
+            out.push_operand(zgroup(zn, 2, sa));
+            true
+        }
+        // Int -> FP widen (single -> single), `Zd.<Tw>, Zn.<Tn>`. The size selects
+        // the (wider) destination / (narrower) source element widths:
+        // 01 -> .h/.b, 10 -> .s/.h, 11 -> .d/.s (size==00 reserved). FEAT_SVE2p3.
+        0b01100 => {
+            let (da, sa) = match size {
+                0b01 => (VA::Sh, VA::Sb),
+                0b10 => (VA::Ss, VA::Sh),
+                0b11 => (VA::Sd, VA::Ss),
+                _ => return true, // size==00 reserved (recognised opcode).
+            };
+            if !features.has(Feature::Sve2p3) {
+                return true;
+            }
+            let code = match var {
+                0b00 => Code::SveScvtfWiden,
+                0b01 => Code::SveUcvtfWiden,
+                0b10 => Code::SveScvtflt,
+                _ => Code::SveUcvtflt,
+            };
+            out.set(code);
+            out.push_operand(zreg(zd, da));
+            out.push_operand(zreg(zn, sa));
+            true
+        }
+        _ => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point.
 // ---------------------------------------------------------------------------
@@ -292,25 +396,11 @@ fn decode_65_unpred_arith(word: u32, features: FeatureSet, out: &mut Instruction
 #[inline]
 fn decode_65_unary_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
-    // SVE2.2 FP8/int down-convert `Zd.h, Zn.b` (FEAT_FP8). These occupy the
-    // `<20:19>=01` sub-block of this `<15:13>=001` slot, with `<12:10>` selecting
-    // the variant. `BF2CVT` (size==00, `<20:16>=01000`, `<12:10>=111`) and
-    // `SCVTFLT` (size==01, `<20:16>=01100`, `<12:10>=110`).
-    if features.has(Feature::Fp8) {
-        let zn = bits(word, 5, 5);
-        let zd = bits(word, 0, 5);
-        if size == 0 && bits(word, 16, 5) == 0b01000 && bits(word, 10, 3) == 0b111 {
-            out.set(Code::SveBf2cvt);
-            out.push_operand(zreg(zd, VA::Sh));
-            out.push_operand(zreg(zn, VA::Sb));
-            return;
-        }
-        if size == 1 && bits(word, 16, 5) == 0b01100 && bits(word, 10, 3) == 0b110 {
-            out.set(Code::SveScvtflt);
-            out.push_operand(zreg(zd, VA::Sh));
-            out.push_operand(zreg(zn, VA::Sb));
-            return;
-        }
+    // SVE2.2 FP8 / int convert cluster sharing this `<15:13>=001` slot, all with
+    // `<12>=1`, selected by `<20:16>` opcode and the `<11:10>` variant. Covers
+    // the FP8<->FP16/BF16 widen/narrow families and the int->FP widen family.
+    if bit(word, 12) == 1 && decode_65_convert_cluster(word, size, features, out) {
+        return;
     }
 
     // SVE2.2 multi-vector FP-to-int convert-narrow (`FCVTZSN`/`FCVTZUN`,

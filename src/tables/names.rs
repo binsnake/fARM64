@@ -1780,6 +1780,15 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Sqcvtu => "sqcvtu",
         Mnemonic::Fcvtzsn => "fcvtzsn",
         Mnemonic::Fcvtzun => "fcvtzun",
+        Mnemonic::F1cvt => "f1cvt",
+        Mnemonic::F2cvt => "f2cvt",
+        Mnemonic::Bf1cvt => "bf1cvt",
+        Mnemonic::F1cvtlt => "f1cvtlt",
+        Mnemonic::F2cvtlt => "f2cvtlt",
+        Mnemonic::Bf1cvtlt => "bf1cvtlt",
+        Mnemonic::Bf2cvtlt => "bf2cvtlt",
+        Mnemonic::Fcvtnb => "fcvtnb",
+        Mnemonic::Ucvtflt => "ucvtflt",
     }
 }
 

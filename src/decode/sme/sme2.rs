@@ -310,6 +310,8 @@ pub fn decode_mul(word: u32, features: FeatureSet, out: &mut Instruction) {
         // matched the multi-vector × single-vector in-place ALU family
     } else if decode_unpk(word, out) {
         // matched the multi-vector UUNPK/SUNPK
+    } else if decode_fp_cvt(word, features, out) {
+        // matched the multi-vector FP convert (FCVT/FCVTN/BFCVT/BFCVTN/FCVTL)
     } else if decode_cvt_narrow(word, out) {
         // matched the multi-vector saturating extract-narrow family
     } else if let Some(f) = lookup(word) {
@@ -538,6 +540,71 @@ fn decode_unpk(word: u32, out: &mut Instruction) -> bool {
         out.push_operand(zgroup(zn, 2, src));
     }
     true
+}
+
+/// Decode the SME2 multi-vector **FP convert** between FP16/BF16 and FP32 (`FCVT`/
+/// `FCVTN`/`BFCVT`/`BFCVTN` narrow, `FCVT`/`FCVTL` widen). All members pin
+/// `word<31:24> == 0xC1`, `word<21> == 1`, `word<20:16> == 00000`,
+/// `word<15:10> == 111000`; `word<23:22>` size picks the family:
+///
+/// | sz `<23:22>` | direction | `<bit>` | mnemonics | operands | feature |
+/// |-|-|-|-|-|-|
+/// | `00` | narrow | `<5>` | FCVT(0)/FCVTN(1) | `Zd.h, { Zn.s, Zn+1.s }` | SME2 (FCVTN: SME_F16F16) |
+/// | `01` | narrow | `<5>` | BFCVT(0)/BFCVTN(1) | `Zd.h, { Zn.s, Zn+1.s }` | SME2 (BFCVTN: SME_F16F16) |
+/// | `10` | widen | `<0>` | FCVT(0)/FCVTL(1) | `{ Zd.s, Zd+1.s }, Zn.h` | SME_F16F16 |
+/// | `11` | — | — | reserved | — | — |
+///
+/// For the narrow forms the destination is a single `Zd = word<4:0>` `.h` register
+/// and the source is a consecutive 2-register `.s` group with base `word<9:6> * 2`
+/// (`word<5>` is the FCVT/FCVTN selector). For the widen form the destination is a
+/// consecutive 2-register `.s` group with base `word<4:1> * 2` (`word<0>` is the
+/// FCVT/FCVTL selector) and the source is a single `Zn = word<9:5>` `.h` register.
+///
+/// The interleaving variants (`FCVTN`/`BFCVTN`/`FCVTL`) and the whole widen
+/// direction require FEAT_SME_F16F16; the plain narrow `FCVT`/`BFCVT` need only
+/// FEAT_SME2. Returns `true` (and fills/leaves `out`) on a slot match.
+fn decode_fp_cvt(word: u32, features: FeatureSet, out: &mut Instruction) -> bool {
+    if word & 0xff3f_fc00 != 0xc120_e000 {
+        return false;
+    }
+    let has_f16f16 = features.has(Feature::SmeF16f16);
+    match bits(word, 22, 2) {
+        // Narrow: FP32 group -> FP16/BF16 single. `<5>` picks the interleaving
+        // variant (FCVTN/BFCVTN, FEAT_SME_F16F16); `word<5>==0` is FCVT/BFCVT.
+        sz @ (0b00 | 0b01) => {
+            let interleave = bit(word, 5) == 1;
+            if interleave && !has_f16f16 {
+                return true; // recognised; gated off.
+            }
+            let zd = bits(word, 0, 5);
+            let zn = bits(word, 6, 4) * 2;
+            let code = match (sz, interleave) {
+                (0b00, false) => Code::SmeFcvtNarrow,
+                (0b00, true) => Code::SmeFcvtnNarrowFp,
+                (0b01, false) => Code::SmeBfcvtNarrow,
+                _ => Code::SmeBfcvtnNarrowFp,
+            };
+            out.set(code);
+            out.push_operand(zsrc(zd, VA::Sh));
+            out.push_operand(zgroup(zn, 2, VA::Ss));
+            true
+        }
+        // Widen: FP16 single -> FP32 group (FEAT_SME_F16F16). `<0>` picks FCVT/FCVTL.
+        0b10 => {
+            if !has_f16f16 {
+                return true;
+            }
+            let zd = bits(word, 1, 4) * 2;
+            let zn = bits(word, 5, 5);
+            let code = if bit(word, 0) == 0 { Code::SmeFcvtWiden } else { Code::SmeFcvtlWiden };
+            out.set(code);
+            out.push_operand(zgroup(zd, 2, VA::Ss));
+            out.push_operand(zsrc(zn, VA::Sh));
+            true
+        }
+        // `<23:22> == 11` is reserved.
+        _ => true,
+    }
 }
 
 /// Decode the SME2 multi-vector saturating extract-narrow family: `<op> Zd.<th>,

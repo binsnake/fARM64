@@ -3251,6 +3251,47 @@ codes! {
     // 11=.s<-{.d} (00 reserved). FEAT_SVE2p2. ---
     SveFcvtzsn => Fcvtzsn, Sve2p2, "`FCVTZSN Zd.h, { Zn.s, Zn+1.s }` (SVE2.2 multi-vector FP-to-signed-int convert-narrow).";
     SveFcvtzun => Fcvtzun, Sve2p2, "`FCVTZUN Zd.h, { Zn.s, Zn+1.s }` (SVE2.2 multi-vector FP-to-unsigned-int convert-narrow).";
+
+    // --- P: SVE2.2 FP8 / int convert cluster sharing the 0x65 `<21>=0`,
+    // `<15:13>=001` slot (all `<12>=1`). The `<20:16>` opcode picks the family,
+    // `<11:10>` the variant; `<23:22>` size picks element widths. ---
+
+    // FP8 -> FP16/BF16 widen `Zd.h, Zn.b` (single -> single), `<20:16>=01000`,
+    // size==00, `<11:10>` = F1CVT(00)/F2CVT(01)/BF1CVT(10)/BF2CVT(11). FEAT_FP8.
+    SveF1cvt => F1cvt, Fp8, "`F1CVT Zd.h, Zn.b` (SVE2 FP8 to FP16 widen, even half).";
+    SveF2cvt => F2cvt, Fp8, "`F2CVT Zd.h, Zn.b` (SVE2 FP8 to FP16 widen, odd half).";
+    SveBf1cvt => Bf1cvt, Fp8, "`BF1CVT Zd.h, Zn.b` (SVE2 FP8 to BF16 widen, even half).";
+    // FP8 -> FP16/BF16 widen-long top `Zd.h, Zn.b`, `<20:16>=01001`, size==00,
+    // `<11:10>` = F1CVTLT(00)/F2CVTLT(01)/BF1CVTLT(10)/BF2CVTLT(11). FEAT_FP8.
+    SveF1cvtlt => F1cvtlt, Fp8, "`F1CVTLT Zd.h, Zn.b` (SVE2 FP8 to FP16 widen-long, even half).";
+    SveF2cvtlt => F2cvtlt, Fp8, "`F2CVTLT Zd.h, Zn.b` (SVE2 FP8 to FP16 widen-long, odd half).";
+    SveBf1cvtlt => Bf1cvtlt, Fp8, "`BF1CVTLT Zd.h, Zn.b` (SVE2 FP8 to BF16 widen-long, even half).";
+    SveBf2cvtlt => Bf2cvtlt, Fp8, "`BF2CVTLT Zd.h, Zn.b` (SVE2 FP8 to BF16 widen-long, odd half).";
+    // FP16/FP32 -> FP8 narrow from a consecutive 2-register source group
+    // `Zd.b, { Zn.<T>, Zn+1.<T> }`, `<20:16>=01010`, size==00, even source base,
+    // `<11:10>` = FCVTN(00,.h)/FCVTNB(01,.s)/BFCVTN(10,.h)/FCVTNT(11,.s). FEAT_FP8.
+    SveFcvtnFp8 => Fcvtn, Fp8, "`FCVTN Zd.b, { Zn.h, Zn+1.h }` (SVE2 FP16 to FP8 convert-narrow group).";
+    SveFcvtnbFp8 => Fcvtnb, Fp8, "`FCVTNB Zd.b, { Zn.s, Zn+1.s }` (SVE2 FP32 to FP8 convert-narrow bottom group).";
+    SveBfcvtnFp8 => Bfcvtn, Fp8, "`BFCVTN Zd.b, { Zn.h, Zn+1.h }` (SVE2 BF16 to FP8 convert-narrow group).";
+    SveFcvtntFp8 => Fcvtnt, Fp8, "`FCVTNT Zd.b, { Zn.s, Zn+1.s }` (SVE2 FP32 to FP8 convert-narrow top group).";
+    // Int -> FP widen `Zd.<Tw>, Zn.<Tn>` (single -> single), `<20:16>=01100`,
+    // sizes 01/10/11 -> .h/.b, .s/.h, .d/.s; `<11:10>` =
+    // SCVTF(00)/UCVTF(01)/SCVTFLT(10)/UCVTFLT(11). FEAT_SVE2p3.
+    SveScvtfWiden => Scvtf, Sve2p3, "`SCVTF Zd.s, Zn.h` (SVE2.2 signed int to FP widen).";
+    SveUcvtfWiden => Ucvtf, Sve2p3, "`UCVTF Zd.s, Zn.h` (SVE2.2 unsigned int to FP widen).";
+    SveUcvtflt => Ucvtflt, Sve2p3, "`UCVTFLT Zd.s, Zn.h` (SVE2.2 unsigned int low-to-top widening FP convert).";
+
+    // --- P: SME2 multi-vector FP convert between FP16/BF16 and FP32. Slot
+    // `word<31:24>=0xC1`, `<21>=1`, `<20:16>=00000`, `<15:10>=111000`; `<23:22>`
+    // size selects the family. Narrow forms take an FP32 2-register source group
+    // and a single FP16/BF16 destination; the widen form takes a single FP16
+    // source and an FP32 2-register destination group. ---
+    SmeFcvtNarrow => Fcvt, Sme2, "`fcvt z0.h, { z0.s, z1.s }` (SME2 multi-vector FP32 to FP16 convert-narrow).";
+    SmeFcvtnNarrowFp => Fcvtn, SmeF16f16, "`fcvtn z0.h, { z0.s, z1.s }` (SME2 multi-vector FP32 to FP16 convert-narrow, interleaved).";
+    SmeBfcvtNarrow => Bfcvt, Sme2, "`bfcvt z0.h, { z0.s, z1.s }` (SME2 multi-vector FP32 to BF16 convert-narrow).";
+    SmeBfcvtnNarrowFp => Bfcvtn, SmeF16f16, "`bfcvtn z0.h, { z0.s, z1.s }` (SME2 multi-vector FP32 to BF16 convert-narrow, interleaved).";
+    SmeFcvtWiden => Fcvt, SmeF16f16, "`fcvt { z0.s, z1.s }, z0.h` (SME2 multi-vector FP16 to FP32 convert-widen).";
+    SmeFcvtlWiden => Fcvtl, SmeF16f16, "`fcvtl { z0.s, z1.s }, z0.h` (SME2 multi-vector FP16 to FP32 convert-widen, interleaved).";
 }
 
 impl Code {
@@ -6471,6 +6512,25 @@ pub enum Mnemonic {
     Fcvtzsn,
     /// `FCVTZUN` (SVE2.2 multi-vector FP-to-unsigned-int convert-narrow).
     Fcvtzun,
+    // --- P: SVE2.2 FP8 / int convert cluster (0x65 `<15:13>=001`) ---
+    /// `F1CVT` (SVE2 FP8 to FP16 widen, even half).
+    F1cvt,
+    /// `F2CVT` (SVE2 FP8 to FP16 widen, odd half).
+    F2cvt,
+    /// `BF1CVT` (SVE2 FP8 to BF16 widen, even half).
+    Bf1cvt,
+    /// `F1CVTLT` (SVE2 FP8 to FP16 widen-long, even half).
+    F1cvtlt,
+    /// `F2CVTLT` (SVE2 FP8 to FP16 widen-long, odd half).
+    F2cvtlt,
+    /// `BF1CVTLT` (SVE2 FP8 to BF16 widen-long, even half).
+    Bf1cvtlt,
+    /// `BF2CVTLT` (SVE2 FP8 to BF16 widen-long, odd half).
+    Bf2cvtlt,
+    /// `FCVTNB` (SVE2 FP32 to FP8 convert-narrow bottom group).
+    Fcvtnb,
+    /// `UCVTFLT` (SVE2.2 unsigned int low-to-top widening FP convert).
+    Ucvtflt,
 }
 
 impl Mnemonic {

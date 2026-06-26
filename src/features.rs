@@ -134,6 +134,23 @@ pub enum Feature {
     /// PC-relative return/authenticate branch forms `RETAASPPC`/`RETABSPPC` and
     /// `AUTIASPPC`/`AUTIBSPPC` (`<label>`).
     PauthLr,
+    /// Non-widening BFloat16 (`FEAT_SME_B16B16`): the SME outer-product `BMOPA`/
+    /// `BMOPS` (`.s`) and `BFMOPA`/`BFMOPS` (`.h`) BFloat16 forms, plus the
+    /// `BFMOP4A`/`BFMOP4S` 4-source MOP4 BFloat16 variants.
+    SmeB16b16,
+    /// FP8-to-single SME outer product (`FEAT_SME_F8F32`): the `FMOPA` /
+    /// `FMOP4A` forms with an FP8 (`.b`) source accumulating into an `.s` tile.
+    SmeF8f32,
+    /// FP8-to-half SME outer product (`FEAT_SME_F8F16`): the `FMOPA` / `FMOP4A`
+    /// forms with an FP8 (`.b`) source accumulating into an `.h` tile.
+    SmeF8f16,
+    /// Half-precision SME outer product (`FEAT_SME_F16F16`): the non-widening
+    /// `FMOPA`/`FMOPS` (`.h`) forms and the `FMOP4A`/`FMOP4S` (`.h`) MOP4 forms.
+    SmeF16f16,
+    /// Quarter-tile 4-source SME outer products (`FEAT_SME_MOP4`): the
+    /// `FMOP4A`/`SMOP4A`/... family with a `{Zm, Zm+1}` (and optional `{Zn,
+    /// Zn+1}`) register-pair source replacing the governing predicates.
+    SmeMop4,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

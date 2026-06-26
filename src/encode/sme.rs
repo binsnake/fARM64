@@ -72,11 +72,24 @@ mod imp {
             // Outer products (FP / BF16).
             SmeFmopaH | SmeFmopaS | SmeFmopaD | SmeFmopsH | SmeFmopsS | SmeFmopsD
                 | SmeBfmopa | SmeBfmops
+                | SmeBmopaS | SmeBmopsS | SmeBfmopaH | SmeBfmopsH
+                | SmeFmopaHh | SmeFmopsHh | SmeFmopaB | SmeFmopaBh
             // Outer products (integer).
                 | SmeSmopaS | SmeSmopaD | SmeSmopsS | SmeSmopsD
                 | SmeUmopaS | SmeUmopaD | SmeUmopsS | SmeUmopsD
                 | SmeSumopaS | SmeSumopaD | SmeSumopsS | SmeSumopsD
                 | SmeUsmopaS | SmeUsmopaD | SmeUsmopsS | SmeUsmopsD
+                | SmeSmopaHs | SmeSmopsHs | SmeUmopaHs | SmeUmopsHs
+            // 4-source MOP4 outer products (FEAT_SME_MOP4).
+                | SmeFmop4aS | SmeFmop4sS | SmeFmop4aD | SmeFmop4sD
+                | SmeFmop4aHs | SmeFmop4sHs | SmeFmop4aHh | SmeFmop4sHh
+                | SmeFmop4aB | SmeFmop4aBh
+                | SmeBfmop4aS | SmeBfmop4sS | SmeBfmop4aHh | SmeBfmop4sHh
+                | SmeSmop4aS | SmeSmop4sS | SmeUmop4aS | SmeUmop4sS
+                | SmeSumop4aS | SmeSumop4sS | SmeUsmop4aS | SmeUsmop4sS
+                | SmeSmop4aHs | SmeSmop4sHs | SmeUmop4aHs | SmeUmop4sHs
+                | SmeSmop4aD | SmeSmop4sD | SmeUmop4aD | SmeUmop4sD
+                | SmeSumop4aD | SmeSumop4sD | SmeUsmop4aD | SmeUsmop4sD
             // MOVA / ADDHA / ADDVA.
                 | SmeMovaZToTile | SmeMovaTileToZ | SmeAddha | SmeAddva
             // ZA load/store.
@@ -108,10 +121,18 @@ mod imp {
         use Code::*;
         match insn.code() {
             SmeFmopaH | SmeFmopaS | SmeFmopaD | SmeFmopsH | SmeFmopsS | SmeFmopsD | SmeBfmopa
-            | SmeBfmops => enc_mopa_fp(insn),
+            | SmeBfmops | SmeBmopaS | SmeBmopsS | SmeBfmopaH | SmeBfmopsH | SmeFmopaHh
+            | SmeFmopsHh | SmeFmopaB | SmeFmopaBh => enc_mopa_fp(insn),
             SmeSmopaS | SmeSmopaD | SmeSmopsS | SmeSmopsD | SmeUmopaS | SmeUmopaD | SmeUmopsS
             | SmeUmopsD | SmeSumopaS | SmeSumopaD | SmeSumopsS | SmeSumopsD | SmeUsmopaS
-            | SmeUsmopaD | SmeUsmopsS | SmeUsmopsD => enc_mopa_int(insn),
+            | SmeUsmopaD | SmeUsmopsS | SmeUsmopsD | SmeSmopaHs | SmeSmopsHs | SmeUmopaHs
+            | SmeUmopsHs => enc_mopa_int(insn),
+            SmeFmop4aS | SmeFmop4sS | SmeFmop4aD | SmeFmop4sD | SmeFmop4aHs | SmeFmop4sHs
+            | SmeFmop4aHh | SmeFmop4sHh | SmeFmop4aB | SmeFmop4aBh | SmeBfmop4aS | SmeBfmop4sS
+            | SmeBfmop4aHh | SmeBfmop4sHh | SmeSmop4aS | SmeSmop4sS | SmeUmop4aS | SmeUmop4sS
+            | SmeSumop4aS | SmeSumop4sS | SmeUsmop4aS | SmeUsmop4sS | SmeSmop4aHs | SmeSmop4sHs
+            | SmeUmop4aHs | SmeUmop4sHs | SmeSmop4aD | SmeSmop4sD | SmeUmop4aD | SmeUmop4sD
+            | SmeSumop4aD | SmeSumop4sD | SmeUsmop4aD | SmeUsmop4sD => enc_mop4(insn),
             SmeAddha | SmeAddva => enc_addha_addva(insn),
             SmeMovaZToTile | SmeMovaTileToZ => enc_mova(insn),
             SmeLd1bZa | SmeLd1hZa | SmeLd1wZa | SmeLd1dZa | SmeLd1qZa | SmeSt1bZa | SmeSt1hZa
@@ -185,22 +206,55 @@ mod imp {
     // Outer products (FP / BF16): word<31:29> == 100, base 0x8000_0000.
     // -----------------------------------------------------------------------
 
-    /// `FMOPA`/`FMOPS`/`BFMOPA`/`BFMOPS`. Operands (as the decoder pushed them):
+    /// ZAda accumulator element size (selects the field width / reserved bits).
+    #[derive(Clone, Copy)]
+    enum ZaSize {
+        /// `.H` — 1-bit tile field (0..1).
+        H,
+        /// `.S` — 2-bit tile field (0..3).
+        S,
+        /// `.D` — 3-bit tile field (0..7).
+        D,
+    }
+
+    /// Range-check a ZAda tile number against its element-size field width.
+    #[inline]
+    fn check_zada(zada: u32, za: ZaSize) -> Result<(), EncodeError> {
+        let max = match za {
+            ZaSize::H => 1,
+            ZaSize::S => 3,
+            ZaSize::D => 7,
+        };
+        if zada > max {
+            return Err(EncodeError::InvalidOperand);
+        }
+        Ok(())
+    }
+
+    /// `FMOPA`/`FMOPS`/`BFMOPA`/`BFMOPS`/`BMOPA`/`BMOPS` and the FP8/FP16/BF16
+    /// non-widening forms. Operands (as the decoder pushed them):
     /// `[ZAda, Pn/M, Pm/M, Zn, Zm]`.
     fn enc_mopa_fp(insn: &Instruction) -> R {
         use Code::*;
         let code = insn.code();
-        // S = accumulate(0)/subtract(1); op24 + sz + (b21 for 16-bit) select form.
-        let (s, op24, sz, b21, zada_is_d) = match code {
-            SmeFmopaS => (0u32, 0u32, 0b10u32, 0u32, false),
-            SmeFmopsS => (1, 0, 0b10, 0, false),
-            SmeFmopaD => (0, 0, 0b11, 0, true),
-            SmeFmopsD => (1, 0, 0b11, 0, true),
-            // op24 == 1, sz == 10: word<21> picks FMOPA(1)/BFMOPA(0).
-            SmeFmopaH => (0, 1, 0b10, 1, false),
-            SmeFmopsH => (1, 1, 0b10, 1, false),
-            SmeBfmopa => (0, 1, 0b10, 0, false),
-            _ /* SmeBfmops */ => (1, 1, 0b10, 0, false),
+        // (S, op24, sz, b21, b3, ZAda size).
+        let (s, op24, sz, b21, b3, za) = match code {
+            SmeFmopaS => (0u32, 0u32, 0b10u32, 0u32, 0u32, ZaSize::S),
+            SmeFmopsS => (1, 0, 0b10, 0, 0, ZaSize::S),
+            SmeBmopaS => (0, 0, 0b10, 0, 1, ZaSize::S),
+            SmeBmopsS => (1, 0, 0b10, 0, 1, ZaSize::S),
+            SmeFmopaB => (0, 0, 0b10, 1, 0, ZaSize::S),
+            SmeFmopaBh => (0, 0, 0b10, 1, 1, ZaSize::H),
+            SmeFmopaD => (0, 0, 0b11, 0, 0, ZaSize::D),
+            SmeFmopsD => (1, 0, 0b11, 0, 0, ZaSize::D),
+            SmeBfmopa => (0, 1, 0b10, 0, 0, ZaSize::S),
+            SmeBfmops => (1, 1, 0b10, 0, 0, ZaSize::S),
+            SmeFmopaHh => (0, 1, 0b10, 0, 1, ZaSize::H),
+            SmeFmopsHh => (1, 1, 0b10, 0, 1, ZaSize::H),
+            SmeFmopaH => (0, 1, 0b10, 1, 0, ZaSize::S),
+            SmeFmopsH => (1, 1, 0b10, 1, 0, ZaSize::S),
+            SmeBfmopaH => (0, 1, 0b10, 1, 1, ZaSize::H),
+            _ /* SmeBfmopsH */ => (1, 1, 0b10, 1, 1, ZaSize::H),
         };
 
         let zada = z(insn, 0)?;
@@ -208,15 +262,7 @@ mod imp {
         let pm = p3(insn, 2)?;
         let zn = z(insn, 3)?;
         let zm = z(insn, 4)?;
-
-        // ZAda field width: 3 bits for `.D` (0..7), 2 bits for `.S` (0..3).
-        if zada_is_d {
-            if zada > 7 {
-                return Err(EncodeError::InvalidOperand);
-            }
-        } else if zada > 3 {
-            return Err(EncodeError::InvalidOperand);
-        }
+        check_zada(zada, za)?;
 
         let word = 0x8000_0000
             | (op24 << 24)
@@ -227,6 +273,7 @@ mod imp {
             | (pn << 10)
             | (zn << 5)
             | (s << 4)
+            | (b3 << 3)
             | zada;
         Ok(word)
     }
@@ -237,44 +284,44 @@ mod imp {
 
     /// `[US]MOPA`/`[US]MOPS` and the mixed-sign forms. Operands:
     /// `[ZAda, Pn/M, Pm/M, Zn, Zm]`. Signedness is `(u0=word<24>, u1=word<21>)`;
-    /// `S = word<4>`; size `word<23:22>` is `10` (32-bit) or `11` (64-bit).
+    /// `S = word<4>`; `sz = word<23:22>` and `b3 = word<3>` select the element
+    /// widths (`.B`/`.H` sources, `.S`/`.D` accumulator).
     fn enc_mopa_int(insn: &Instruction) -> R {
         use Code::*;
         let code = insn.code();
-        // (u0, u1, S, is64).
-        let (u0, u1, s, is64) = match code {
-            SmeSmopaS => (0u32, 0u32, 0u32, false),
-            SmeSmopsS => (0, 0, 1, false),
-            SmeUmopaS => (1, 1, 0, false),
-            SmeUmopsS => (1, 1, 1, false),
-            SmeSumopaS => (0, 1, 0, false),
-            SmeSumopsS => (0, 1, 1, false),
-            SmeUsmopaS => (1, 0, 0, false),
-            SmeUsmopsS => (1, 0, 1, false),
-            SmeSmopaD => (0, 0, 0, true),
-            SmeSmopsD => (0, 0, 1, true),
-            SmeUmopaD => (1, 1, 0, true),
-            SmeUmopsD => (1, 1, 1, true),
-            SmeSumopaD => (0, 1, 0, true),
-            SmeSumopsD => (0, 1, 1, true),
-            SmeUsmopaD => (1, 0, 0, true),
-            _ /* SmeUsmopsD */ => (1, 0, 1, true),
+        // (u0, u1, S, sz, b3, ZAda size).
+        let (u0, u1, s, sz, b3, za) = match code {
+            // 32-bit accumulator, byte sources.
+            SmeSmopaS => (0u32, 0u32, 0u32, 0b10u32, 0u32, ZaSize::S),
+            SmeSmopsS => (0, 0, 1, 0b10, 0, ZaSize::S),
+            SmeUmopaS => (1, 1, 0, 0b10, 0, ZaSize::S),
+            SmeUmopsS => (1, 1, 1, 0b10, 0, ZaSize::S),
+            SmeSumopaS => (0, 1, 0, 0b10, 0, ZaSize::S),
+            SmeSumopsS => (0, 1, 1, 0b10, 0, ZaSize::S),
+            SmeUsmopaS => (1, 0, 0, 0b10, 0, ZaSize::S),
+            SmeUsmopsS => (1, 0, 1, 0b10, 0, ZaSize::S),
+            // 32-bit accumulator, halfword sources (FEAT_SME2).
+            SmeSmopaHs => (0, 0, 0, 0b10, 1, ZaSize::S),
+            SmeSmopsHs => (0, 0, 1, 0b10, 1, ZaSize::S),
+            SmeUmopaHs => (1, 0, 0, 0b10, 1, ZaSize::S),
+            SmeUmopsHs => (1, 0, 1, 0b10, 1, ZaSize::S),
+            // 64-bit accumulator, halfword sources.
+            SmeSmopaD => (0, 0, 0, 0b11, 0, ZaSize::D),
+            SmeSmopsD => (0, 0, 1, 0b11, 0, ZaSize::D),
+            SmeUmopaD => (1, 1, 0, 0b11, 0, ZaSize::D),
+            SmeUmopsD => (1, 1, 1, 0b11, 0, ZaSize::D),
+            SmeSumopaD => (0, 1, 0, 0b11, 0, ZaSize::D),
+            SmeSumopsD => (0, 1, 1, 0b11, 0, ZaSize::D),
+            SmeUsmopaD => (1, 0, 0, 0b11, 0, ZaSize::D),
+            _ /* SmeUsmopsD */ => (1, 0, 1, 0b11, 0, ZaSize::D),
         };
-        let sz = if is64 { 0b11u32 } else { 0b10 };
 
         let zada = z(insn, 0)?;
         let pn = p3(insn, 1)?;
         let pm = p3(insn, 2)?;
         let zn = z(insn, 3)?;
         let zm = z(insn, 4)?;
-
-        if is64 {
-            if zada > 7 {
-                return Err(EncodeError::InvalidOperand);
-            }
-        } else if zada > 3 {
-            return Err(EncodeError::InvalidOperand);
-        }
+        check_zada(zada, za)?;
 
         let word = 0xA000_0000
             | (u0 << 24)
@@ -285,8 +332,102 @@ mod imp {
             | (pn << 10)
             | (zn << 5)
             | (s << 4)
+            | (b3 << 3)
             | zada;
         Ok(word)
+    }
+
+    /// `FMOP4A`/`SMOP4A`/... the 4-source MOP4 outer products. Operands:
+    /// `[ZAda, Zn, Zm]` where `Zn`/`Zm` are single `Z` registers or `{Z, Z+1}`
+    /// pairs. Rebuilds the predicate-free encoding (`word<16>`, `word<15:10>`
+    /// fixed at zero).
+    fn enc_mop4(insn: &Instruction) -> R {
+        use Code::*;
+        let code = insn.code();
+        // (op29, op24, sz, u1, b15, b3, S, ZAda size). `b15 = word<15>` is the
+        // int/FP re-type bit at `sz == 00`.
+        let (op29, op24, sz, u1, b15, b3, s, za) = match code {
+            // FP `sz == 00`.
+            SmeFmop4aS => (0u32, 0u32, 0b00u32, 0u32, 0u32, 0u32, 0u32, ZaSize::S),
+            SmeFmop4sS => (0, 0, 0b00, 0, 0, 0, 1, ZaSize::S),
+            SmeFmop4aB => (0, 0, 0b00, 1, 0, 0, 0, ZaSize::S),
+            SmeFmop4aBh => (0, 0, 0b00, 1, 0, 1, 0, ZaSize::H),
+            SmeBfmop4aS => (0, 1, 0b00, 0, 0, 0, 0, ZaSize::S),
+            SmeBfmop4sS => (0, 1, 0b00, 0, 0, 0, 1, ZaSize::S),
+            SmeFmop4aHh => (0, 1, 0b00, 0, 0, 1, 0, ZaSize::H),
+            SmeFmop4sHh => (0, 1, 0b00, 0, 0, 1, 1, ZaSize::H),
+            SmeFmop4aHs => (0, 1, 0b00, 1, 0, 0, 0, ZaSize::S),
+            SmeFmop4sHs => (0, 1, 0b00, 1, 0, 0, 1, ZaSize::S),
+            SmeBfmop4aHh => (0, 1, 0b00, 1, 0, 1, 0, ZaSize::H),
+            SmeBfmop4sHh => (0, 1, 0b00, 1, 0, 1, 1, ZaSize::H),
+            // Integer `sz == 00` (re-typed via `word<15> == 1`), `.s`/`.b`.
+            SmeSmop4aS => (0, 0, 0b00, 0, 1, 0, 0, ZaSize::S),
+            SmeSmop4sS => (0, 0, 0b00, 0, 1, 0, 1, ZaSize::S),
+            SmeSumop4aS => (0, 0, 0b00, 1, 1, 0, 0, ZaSize::S),
+            SmeSumop4sS => (0, 0, 0b00, 1, 1, 0, 1, ZaSize::S),
+            SmeUsmop4aS => (0, 1, 0b00, 0, 1, 0, 0, ZaSize::S),
+            SmeUsmop4sS => (0, 1, 0b00, 0, 1, 0, 1, ZaSize::S),
+            SmeUmop4aS => (0, 1, 0b00, 1, 1, 0, 0, ZaSize::S),
+            SmeUmop4sS => (0, 1, 0b00, 1, 1, 0, 1, ZaSize::S),
+            // Integer `sz == 00`, `.s`/`.h` (16-bit, `word<3> == 1`).
+            SmeSmop4aHs => (0, 0, 0b00, 0, 1, 1, 0, ZaSize::S),
+            SmeSmop4sHs => (0, 0, 0b00, 0, 1, 1, 1, ZaSize::S),
+            SmeUmop4aHs => (0, 1, 0b00, 0, 1, 1, 0, ZaSize::S),
+            SmeUmop4sHs => (0, 1, 0b00, 0, 1, 1, 1, ZaSize::S),
+            // FP64 (`sz == 11`).
+            SmeFmop4aD => (0, 0, 0b11, 0, 0, 1, 0, ZaSize::D),
+            SmeFmop4sD => (0, 0, 0b11, 0, 0, 1, 1, ZaSize::D),
+            // Integer `sz == 11`, `.d`/`.h`.
+            SmeSmop4aD => (1, 0, 0b11, 0, 0, 1, 0, ZaSize::D),
+            SmeSmop4sD => (1, 0, 0b11, 0, 0, 1, 1, ZaSize::D),
+            SmeSumop4aD => (1, 0, 0b11, 1, 0, 1, 0, ZaSize::D),
+            SmeSumop4sD => (1, 0, 0b11, 1, 0, 1, 1, ZaSize::D),
+            SmeUsmop4aD => (1, 1, 0b11, 0, 0, 1, 0, ZaSize::D),
+            SmeUsmop4sD => (1, 1, 0b11, 0, 0, 1, 1, ZaSize::D),
+            SmeUmop4aD => (1, 1, 0b11, 1, 0, 1, 0, ZaSize::D),
+            _ /* SmeUmop4sD */ => (1, 1, 0b11, 1, 0, 1, 1, ZaSize::D),
+        };
+
+        let zada = z(insn, 0)?;
+        check_zada(zada, za)?;
+        let (zn_pair, zn_base) = mop4_src(insn, 1)?;
+        let (zm_pair, zm_base) = mop4_src(insn, 2)?;
+        // `Zn` is a lower-bank register (0..15, even); `Zm` an upper-bank (16..31).
+        if zn_base >= 16 || zn_base & 1 != 0 {
+            return Err(EncodeError::InvalidOperand);
+        }
+        if !(16..32).contains(&zm_base) || zm_base & 1 != 0 {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let zn_field = (zn_pair << 4) | zn_base; // word<9:5>
+        let zm_field = (zm_pair << 4) | (zm_base - 16); // word<20:16>
+
+        let word = 0x8000_0000
+            | (op29 << 29)
+            | (op24 << 24)
+            | (sz << 22)
+            | (u1 << 21)
+            | (zm_field << 16)
+            | (b15 << 15)
+            | (zn_field << 5)
+            | (s << 4)
+            | (b3 << 3)
+            | zada;
+        Ok(word)
+    }
+
+    /// Read a MOP4 `Zn`/`Zm` source operand: returns `(pair_bit, base_reg)`.
+    /// Accepts a single `Z` register (`pair == 0`) or a 2-register
+    /// [`Operand::SveVecGroup`] (`pair == 1`).
+    #[inline]
+    fn mop4_src(insn: &Instruction, n: usize) -> Result<(u32, u32), EncodeError> {
+        match insn.op(n) {
+            Operand::Reg { reg, .. } if reg.class() == RegClass::Sve => {
+                Ok((0, reg.number() as u32))
+            }
+            Operand::SveVecGroup { first, count: 2, .. } => Ok((1, first.number() as u32)),
+            _ => Err(EncodeError::InvalidOperand),
+        }
     }
 
     // -----------------------------------------------------------------------

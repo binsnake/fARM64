@@ -2855,6 +2855,65 @@ codes! {
     Retabsppc => Retabsppc, PauthLr, "`RETABSPPC <label>` (FEAT_PAuth_LR PC-relative return, key B).";
     Autiasppc => Autiasppc, PauthLr, "`AUTIASPPC <label>` (FEAT_PAuth_LR PC-relative authenticate LR, key A).";
     Autibsppc => Autibsppc, PauthLr, "`AUTIBSPPC <label>` (FEAT_PAuth_LR PC-relative authenticate LR, key B).";
+
+    // --- SME outer-product additional predicated forms (H2) ---
+    // BFloat16 non-widening (FEAT_SME_B16B16): BMOPA/BMOPS `.s` and BFMOPA/BFMOPS `.h`.
+    SmeBmopaS => Bmopa, SmeB16b16, "`BMOPA <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.S, <Zm>.S` (FEAT_SME_B16B16).";
+    SmeBmopsS => Bmops, SmeB16b16, "`BMOPS <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.S, <Zm>.S` (FEAT_SME_B16B16).";
+    SmeBfmopaH => Bfmopa, SmeB16b16, "`BFMOPA <ZAda>.H, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H` (FEAT_SME_B16B16, non-widening).";
+    SmeBfmopsH => Bfmops, SmeB16b16, "`BFMOPS <ZAda>.H, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H` (FEAT_SME_B16B16, non-widening).";
+    // Half-precision non-widening (FEAT_SME_F16F16): FMOPA/FMOPS `.h`.
+    SmeFmopaHh => Fmopa, SmeF16f16, "`FMOPA <ZAda>.H, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H` (FEAT_SME_F16F16, non-widening).";
+    SmeFmopsHh => Fmops, SmeF16f16, "`FMOPS <ZAda>.H, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H` (FEAT_SME_F16F16, non-widening).";
+    // FP8 source (FEAT_SME_F8F32 / FEAT_SME_F8F16): FMOPA only (no subtract).
+    SmeFmopaB => Fmopa, SmeF8f32, "`FMOPA <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.B, <Zm>.B` (FEAT_SME_F8F32, FP8->FP32).";
+    SmeFmopaBh => Fmopa, SmeF8f16, "`FMOPA <ZAda>.H, <Pn>/M, <Pm>/M, <Zn>.B, <Zm>.B` (FEAT_SME_F8F16, FP8->FP16).";
+    // 16-bit integer to 32-bit (FEAT_SME2): SMOPA/UMOPS `.s` from `.h` sources.
+    SmeSmopaHs => Smopa, Sme2, "`SMOPA <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H` (FEAT_SME2, 16-bit signed int).";
+    SmeSmopsHs => Smops, Sme2, "`SMOPS <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H` (FEAT_SME2, 16-bit signed int).";
+    SmeUmopaHs => Umopa, Sme2, "`UMOPA <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H` (FEAT_SME2, 16-bit unsigned int).";
+    SmeUmopsHs => Umops, Sme2, "`UMOPS <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H` (FEAT_SME2, 16-bit unsigned int).";
+
+    // --- SME 4-source MOP4 outer products (FEAT_SME_MOP4, H2) ---
+    // FP variants. Source is `<Zn>` (single or `{Zn, Zn+1}` pair) and `<Zm>`
+    // (single or `{Zm, Zm+1}` pair); no governing predicates.
+    SmeFmop4aS => Fmop4a, SmeMop4, "`FMOP4A <ZAda>.S, <Zn>.S, <Zm>.S` (FEAT_SME_MOP4, FP32).";
+    SmeFmop4sS => Fmop4s, SmeMop4, "`FMOP4S <ZAda>.S, <Zn>.S, <Zm>.S` (FEAT_SME_MOP4, FP32).";
+    SmeFmop4aD => Fmop4a, SmeMop4, "`FMOP4A <ZAda>.D, <Zn>.D, <Zm>.D` (FEAT_SME_MOP4, FP64).";
+    SmeFmop4sD => Fmop4s, SmeMop4, "`FMOP4S <ZAda>.D, <Zn>.D, <Zm>.D` (FEAT_SME_MOP4, FP64).";
+    SmeFmop4aHs => Fmop4a, SmeMop4, "`FMOP4A <ZAda>.S, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, FP16->FP32).";
+    SmeFmop4sHs => Fmop4s, SmeMop4, "`FMOP4S <ZAda>.S, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, FP16->FP32).";
+    SmeFmop4aHh => Fmop4a, SmeMop4, "`FMOP4A <ZAda>.H, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, FP16).";
+    SmeFmop4sHh => Fmop4s, SmeMop4, "`FMOP4S <ZAda>.H, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, FP16).";
+    SmeFmop4aB => Fmop4a, SmeMop4, "`FMOP4A <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, FP8->FP32).";
+    SmeFmop4aBh => Fmop4a, SmeMop4, "`FMOP4A <ZAda>.H, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, FP8->FP16).";
+    SmeBfmop4aS => Bfmop4a, SmeMop4, "`BFMOP4A <ZAda>.S, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, BF16->FP32).";
+    SmeBfmop4sS => Bfmop4s, SmeMop4, "`BFMOP4S <ZAda>.S, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, BF16->FP32).";
+    SmeBfmop4aHh => Bfmop4a, SmeMop4, "`BFMOP4A <ZAda>.H, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, BF16).";
+    SmeBfmop4sHh => Bfmop4s, SmeMop4, "`BFMOP4S <ZAda>.H, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, BF16).";
+    // Integer variants, 32-bit accumulator / byte sources.
+    SmeSmop4aS => Smop4a, SmeMop4, "`SMOP4A <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, signed int).";
+    SmeSmop4sS => Smop4s, SmeMop4, "`SMOP4S <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, signed int).";
+    SmeUmop4aS => Umop4a, SmeMop4, "`UMOP4A <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, unsigned int).";
+    SmeUmop4sS => Umop4s, SmeMop4, "`UMOP4S <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, unsigned int).";
+    SmeSumop4aS => Sumop4a, SmeMop4, "`SUMOP4A <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, signed-by-unsigned).";
+    SmeSumop4sS => Sumop4s, SmeMop4, "`SUMOP4S <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, signed-by-unsigned).";
+    SmeUsmop4aS => Usmop4a, SmeMop4, "`USMOP4A <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, unsigned-by-signed).";
+    SmeUsmop4sS => Usmop4s, SmeMop4, "`USMOP4S <ZAda>.S, <Zn>.B, <Zm>.B` (FEAT_SME_MOP4, unsigned-by-signed).";
+    // Integer variants, 32-bit accumulator / halfword sources (16-bit).
+    SmeSmop4aHs => Smop4a, SmeMop4, "`SMOP4A <ZAda>.S, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, 16-bit signed int).";
+    SmeSmop4sHs => Smop4s, SmeMop4, "`SMOP4S <ZAda>.S, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, 16-bit signed int).";
+    SmeUmop4aHs => Umop4a, SmeMop4, "`UMOP4A <ZAda>.S, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, 16-bit unsigned int).";
+    SmeUmop4sHs => Umop4s, SmeMop4, "`UMOP4S <ZAda>.S, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, 16-bit unsigned int).";
+    // Integer variants, 64-bit accumulator / halfword sources.
+    SmeSmop4aD => Smop4a, SmeMop4, "`SMOP4A <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, signed int).";
+    SmeSmop4sD => Smop4s, SmeMop4, "`SMOP4S <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, signed int).";
+    SmeUmop4aD => Umop4a, SmeMop4, "`UMOP4A <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, unsigned int).";
+    SmeUmop4sD => Umop4s, SmeMop4, "`UMOP4S <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, unsigned int).";
+    SmeSumop4aD => Sumop4a, SmeMop4, "`SUMOP4A <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, signed-by-unsigned).";
+    SmeSumop4sD => Sumop4s, SmeMop4, "`SUMOP4S <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, signed-by-unsigned).";
+    SmeUsmop4aD => Usmop4a, SmeMop4, "`USMOP4A <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, unsigned-by-signed).";
+    SmeUsmop4sD => Usmop4s, SmeMop4, "`USMOP4S <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, unsigned-by-signed).";
 }
 
 impl Code {
@@ -5934,6 +5993,35 @@ pub enum Mnemonic {
     Autiasppc,
     /// `AUTIBSPPC` (FEAT_PAuth_LR PC-relative authenticate LR, key B).
     Autibsppc,
+    // --- SME outer-product BFloat16 + 4-source MOP4 mnemonics (H2) ---
+    /// `BMOPA` (SME BFloat16 outer product, accumulate).
+    Bmopa,
+    /// `BMOPS` (SME BFloat16 outer product, subtract).
+    Bmops,
+    /// `FMOP4A` (SME 4-source FP outer product, accumulate).
+    Fmop4a,
+    /// `FMOP4S` (SME 4-source FP outer product, subtract).
+    Fmop4s,
+    /// `BFMOP4A` (SME 4-source BFloat16 outer product, accumulate).
+    Bfmop4a,
+    /// `BFMOP4S` (SME 4-source BFloat16 outer product, subtract).
+    Bfmop4s,
+    /// `SMOP4A` (SME 4-source signed-integer outer product, accumulate).
+    Smop4a,
+    /// `SMOP4S` (SME 4-source signed-integer outer product, subtract).
+    Smop4s,
+    /// `UMOP4A` (SME 4-source unsigned-integer outer product, accumulate).
+    Umop4a,
+    /// `UMOP4S` (SME 4-source unsigned-integer outer product, subtract).
+    Umop4s,
+    /// `SUMOP4A` (SME 4-source signed-by-unsigned outer product, accumulate).
+    Sumop4a,
+    /// `SUMOP4S` (SME 4-source signed-by-unsigned outer product, subtract).
+    Sumop4s,
+    /// `USMOP4A` (SME 4-source unsigned-by-signed outer product, accumulate).
+    Usmop4a,
+    /// `USMOP4S` (SME 4-source unsigned-by-signed outer product, subtract).
+    Usmop4s,
 }
 
 impl Mnemonic {

@@ -70,8 +70,13 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         0b100 => {
             if sme2 && bits(word, 22, 2) == 0b01 {
                 sme2::decode_tmopa(word, out);
+            } else if is_mop4(word) {
+                // FEAT_SME_MOP4 4-source forms carve `sz == 00` and the
+                // `sz == 11, word<3> == 1` sub-regions out of the predicated
+                // FP outer-product quadrant.
+                decode_mop4(word, features, out);
             } else {
-                decode_mopa_fp(word, out);
+                decode_mopa_fp(word, features, out);
             }
         }
         0b101 => {
@@ -80,8 +85,11 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
             // `word<23>`); gated on FEAT_SME2.
             if sme2 && bit(word, 23) == 0 {
                 sme2::decode_mem(word, out);
+            } else if is_mop4(word) {
+                // Integer MOP4 lives only in `sz == 11, word<3> == 1`.
+                decode_mop4(word, features, out);
             } else {
-                decode_mopa_int(word, out);
+                decode_mopa_int(word, features, out);
             }
         }
         0b110 => {
@@ -167,65 +175,121 @@ fn tile_slice(tile: u32, vertical: bool, arr: VA, rs: u32, imm: Option<i16>) -> 
 // Outer products (FP / BF16): word<31:29> == 100.
 // ---------------------------------------------------------------------------
 
-/// `FMOPA`/`FMOPS`/`BFMOPA`/`BFMOPS` — floating-point and BFloat16 outer
-/// product, accumulate (`S==0`) or subtract (`S==1`) into a ZA tile.
+/// ZAda field width and reserved-bit check for a destination element size.
 ///
-/// Common fields: `ZAda` (low bits), `Zn = word<9:5>`, `Pn = word<12:10>`,
-/// `Pm = word<15:13>`, `Zm = word<20:16>`, `S = word<4>`. The variant is
-/// selected by `word<24>` and the size `word<23:22>`:
-/// `op<24>=0, sz<23:22>=10` → FP32; `=11` → FP64; `op<24>=1, sz=10` →
-/// 16-bit-input (`word<21>` then picks `FMOPA`(1)/`BFMOPA`(0)).
-fn decode_mopa_fp(word: u32, out: &mut Instruction) {
-    // Reserved bits of the outer-product frame must be zero (`word<3>`,
-    // `word<2>`? — only `word<4>` is `S`). Keep total: just decode the cases the
-    // architecture allocates and leave anything else invalid.
-    let s = bit(word, 4);
-    let zn = bits(word, 5, 5);
+/// Returns `Some(zada)` when the tile-number field is in range and the
+/// element-size-dependent reserved high bits of `word<2:0>` are zero, else
+/// `None` (the encoding is then unallocated). The accumulator tile counts are
+/// `.D`→8 (`word<2:0>`), `.S`→4 (`word<1:0>`, `word<2>` reserved), `.H`→2
+/// (`word<0>`, `word<2:1>` reserved).
+#[inline]
+fn zada_field(word: u32, dst: VA) -> Option<u32> {
+    match dst {
+        VA::Sd => Some(bits(word, 0, 3)),
+        VA::Ss => {
+            if bit(word, 2) != 0 {
+                return None;
+            }
+            Some(bits(word, 0, 2))
+        }
+        VA::Sh => {
+            if bits(word, 1, 2) != 0 {
+                return None;
+            }
+            Some(bits(word, 0, 1))
+        }
+        _ => None,
+    }
+}
+
+/// Emit a predicated outer product: `ZAda.<dst>, Pn/M, Pm/M, Zn.<src>, Zm.<src>`.
+#[inline]
+fn emit_mopa(word: u32, code: Code, dst: VA, src: VA, out: &mut Instruction) {
+    let zada = match zada_field(word, dst) {
+        Some(z) => z,
+        None => return,
+    };
     let pn = bits(word, 10, 3);
     let pm = bits(word, 13, 3);
+    let zn = bits(word, 5, 5);
     let zm = bits(word, 16, 5);
-    let op24 = bit(word, 24);
-    let sz = bits(word, 22, 2);
-
-    // Determine (code, dst-arr, src-arr).
-    let (code, dst, src) = if op24 == 0 {
-        match sz {
-            0b10 => {
-                // FP32: ZAda.S, Zn.S, Zm.S. (ZAda = word<1:0>.)
-                (if s == 0 { Code::SmeFmopaS } else { Code::SmeFmopsS }, VA::Ss, VA::Ss)
-            }
-            0b11 => {
-                // FP64: ZAda.D, Zn.D, Zm.D. (ZAda = word<2:0>.)
-                (if s == 0 { Code::SmeFmopaD } else { Code::SmeFmopsD }, VA::Sd, VA::Sd)
-            }
-            _ => return,
-        }
-    } else {
-        // op24 == 1: 16-bit-input forms, ZAda.S accumulator, src .H.
-        if sz != 0b10 {
-            return;
-        }
-        if bit(word, 21) == 1 {
-            // FMOPA/FMOPS (FP16 → FP32).
-            (if s == 0 { Code::SmeFmopaH } else { Code::SmeFmopsH }, VA::Ss, VA::Sh)
-        } else {
-            // BFMOPA/BFMOPS (BF16 → FP32).
-            (if s == 0 { Code::SmeBfmopa } else { Code::SmeBfmops }, VA::Ss, VA::Sh)
-        }
-    };
-
-    let zada = if matches!(dst, VA::Sd) {
-        bits(word, 0, 3)
-    } else {
-        bits(word, 0, 2)
-    };
-
     out.set(code);
     out.push_operand(zreg(zada, dst));
     out.push_operand(preg_m(pn));
     out.push_operand(preg_m(pm));
     out.push_operand(zreg(zn, src));
     out.push_operand(zreg(zm, src));
+}
+
+/// `FMOPA`/`FMOPS`/`BFMOPA`/`BFMOPS`/`BMOPA`/`BMOPS` — floating-point, BFloat16
+/// and the non-widening b16b16 outer products, accumulate (`S==0`) or subtract
+/// (`S==1`) into a ZA tile.
+///
+/// Common fields: `ZAda` (low bits), `Zn = word<9:5>`, `Pn = word<12:10>`,
+/// `Pm = word<15:13>`, `Zm = word<20:16>`, `S = word<4>`. The variant is a
+/// function of `op = word<24>`, the size `word<23:22>`, `b21 = word<21>` and
+/// `b3 = word<3>` (validated by oracle sweep — see `tests/sme_outerproduct_h2`).
+fn decode_mopa_fp(word: u32, features: FeatureSet, out: &mut Instruction) {
+    let s = bit(word, 4);
+    let op24 = bit(word, 24);
+    let sz = bits(word, 22, 2);
+    let b21 = bit(word, 21);
+    let b3 = bit(word, 3);
+
+    // (code, dst-arr, src-arr, feature). `None` for any unallocated slot.
+    let sel: Option<(Code, VA, VA, Feature)> = if op24 == 0 {
+        match (sz, b21, b3) {
+            // FP32: ZAda.S, Zn.S, Zm.S.
+            (0b10, 0, 0) => Some((
+                if s == 0 { Code::SmeFmopaS } else { Code::SmeFmopsS },
+                VA::Ss, VA::Ss, Feature::Sme,
+            )),
+            // b16b16 BMOPA/BMOPS: ZAda.S, Zn.S, Zm.S.
+            (0b10, 0, 1) => Some((
+                if s == 0 { Code::SmeBmopaS } else { Code::SmeBmopsS },
+                VA::Ss, VA::Ss, Feature::SmeB16b16,
+            )),
+            // FP8 → FP32 (FMOPA only, no subtract): ZAda.S, Zn.B, Zm.B.
+            (0b10, 1, 0) if s == 0 => Some((Code::SmeFmopaB, VA::Ss, VA::Sb, Feature::SmeF8f32)),
+            // FP8 → FP16 (FMOPA only): ZAda.H, Zn.B, Zm.B.
+            (0b10, 1, 1) if s == 0 => Some((Code::SmeFmopaBh, VA::Sh, VA::Sb, Feature::SmeF8f16)),
+            // FP64: ZAda.D, Zn.D, Zm.D.
+            (0b11, 0, 0) => Some((
+                if s == 0 { Code::SmeFmopaD } else { Code::SmeFmopsD },
+                VA::Sd, VA::Sd, Feature::Sme,
+            )),
+            _ => None,
+        }
+    } else {
+        // op24 == 1, sz == 10: 16-bit-input forms, src .H. (b21, b3) selects
+        // BF16→FP32 / FP16→FP16 / FP16→FP32 / BF16→BF16.
+        match (sz, b21, b3) {
+            (0b10, 0, 0) => Some((
+                if s == 0 { Code::SmeBfmopa } else { Code::SmeBfmops },
+                VA::Ss, VA::Sh, Feature::Sme,
+            )),
+            (0b10, 0, 1) => Some((
+                if s == 0 { Code::SmeFmopaHh } else { Code::SmeFmopsHh },
+                VA::Sh, VA::Sh, Feature::SmeF16f16,
+            )),
+            (0b10, 1, 0) => Some((
+                if s == 0 { Code::SmeFmopaH } else { Code::SmeFmopsH },
+                VA::Ss, VA::Sh, Feature::Sme,
+            )),
+            (0b10, 1, 1) => Some((
+                if s == 0 { Code::SmeBfmopaH } else { Code::SmeBfmopsH },
+                VA::Sh, VA::Sh, Feature::SmeB16b16,
+            )),
+            _ => None,
+        }
+    };
+
+    if let Some((code, dst, src, feat)) = sel {
+        if !features.has(feat) {
+            return;
+        }
+        emit_mopa(word, code, dst, src, out);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -235,57 +299,270 @@ fn decode_mopa_fp(word: u32, out: &mut Instruction) {
 /// `SMOPA`/`UMOPA`/`SUMOPA`/`USMOPA` and their `*OPS` (subtract) counterparts —
 /// integer outer product into a ZA tile.
 ///
-/// Signedness is the pair `(u0 = word<24>, u1 = word<21>)`: `(0,0)`→signed,
-/// `(1,1)`→unsigned, `(0,1)`→signed×unsigned, `(1,0)`→unsigned×signed.
-/// `S = word<4>` selects accumulate(0)/subtract(1). The size `word<23:22>` is
-/// `10`→32-bit (`ZAda.S`, `Zn.B`/`Zm.B`) or `11`→64-bit (`ZAda.D`, `Zn.H`/`Zm.H`,
-/// the `FEAT_SME_I16I64` form).
-fn decode_mopa_int(word: u32, out: &mut Instruction) {
-    let s = bit(word, 4);
-    let zn = bits(word, 5, 5);
-    let pn = bits(word, 10, 3);
-    let pm = bits(word, 13, 3);
-    let zm = bits(word, 16, 5);
+/// Signedness is the pair `(u0 = word<24>, u1 = word<21>)`. `S = word<4>`
+/// selects accumulate(0)/subtract(1). The size `word<23:22>` and `b3 = word<3>`
+/// select the source/destination element widths:
+/// * `sz==10, b3==0` → 32-bit accumulator, `.B` sources (FEAT_SME); the
+///   signedness for `.B` is `(0,0)`→S, `(0,1)`→SU, `(1,0)`→US, `(1,1)`→U.
+/// * `sz==10, b3==1` → 32-bit accumulator, `.H` sources (FEAT_SME2); only the
+///   symmetric `SMOPA`(`u0==0,u1==0`) / `UMOPA`(`u0==1,u1==0`) forms exist.
+/// * `sz==11, b3==0` → 64-bit accumulator, `.H` sources (FEAT_SME, I16I64).
+fn decode_mopa_int(word: u32, features: FeatureSet, out: &mut Instruction) {
     let u0 = bit(word, 24);
     let u1 = bit(word, 21);
     let sz = bits(word, 22, 2);
+    let b3 = bit(word, 3);
 
-    // (dst-arr, src-arr, ZAda width).
-    let (dst, src, is64) = match sz {
-        0b10 => (VA::Ss, VA::Sb, false),
-        0b11 => (VA::Sd, VA::Sh, true),
-        _ => return,
+    // (code, dst-arr, src-arr, feature) for the (sz, b3, u0, u1) slot.
+    let sel: Option<(Code, VA, VA, Feature)> = match (sz, b3) {
+        // 32-bit accumulator, byte sources (FEAT_SME).
+        (0b10, 0) => {
+            let code = mopa_int_code((u0, u1), bit(word, 4), IntForm::SByte);
+            code.map(|c| (c, VA::Ss, VA::Sb, Feature::Sme))
+        }
+        // 32-bit accumulator, halfword sources (FEAT_SME2): SMOPA / UMOPA only.
+        (0b10, 1) => {
+            let code = mopa_int_code((u0, u1), bit(word, 4), IntForm::SHalf);
+            code.map(|c| (c, VA::Ss, VA::Sh, Feature::Sme2))
+        }
+        // 64-bit accumulator, halfword sources (FEAT_SME, I16I64).
+        (0b11, 0) => {
+            let code = mopa_int_code((u0, u1), bit(word, 4), IntForm::DHalf);
+            code.map(|c| (c, VA::Sd, VA::Sh, Feature::Sme))
+        }
+        _ => None,
     };
 
-    // Map (u0, u1, S) to the encoding row.
-    let code = match (u0, u1, s, is64) {
-        (0, 0, 0, false) => Code::SmeSmopaS,
-        (0, 0, 1, false) => Code::SmeSmopsS,
-        (1, 1, 0, false) => Code::SmeUmopaS,
-        (1, 1, 1, false) => Code::SmeUmopsS,
-        (0, 1, 0, false) => Code::SmeSumopaS,
-        (0, 1, 1, false) => Code::SmeSumopsS,
-        (1, 0, 0, false) => Code::SmeUsmopaS,
-        (1, 0, 1, false) => Code::SmeUsmopsS,
-        (0, 0, 0, true) => Code::SmeSmopaD,
-        (0, 0, 1, true) => Code::SmeSmopsD,
-        (1, 1, 0, true) => Code::SmeUmopaD,
-        (1, 1, 1, true) => Code::SmeUmopsD,
-        (0, 1, 0, true) => Code::SmeSumopaD,
-        (0, 1, 1, true) => Code::SmeSumopsD,
-        (1, 0, 0, true) => Code::SmeUsmopaD,
-        (1, 0, 1, true) => Code::SmeUsmopsD,
-        _ => return,
+    if let Some((code, dst, src, feat)) = sel {
+        if !features.has(feat) {
+            return;
+        }
+        emit_mopa(word, code, dst, src, out);
+    }
+}
+
+/// Which integer outer-product row family (selects the `(u0,u1)` → mnemonic map).
+#[derive(Clone, Copy)]
+enum IntForm {
+    /// 32-bit accumulator, `.B` sources — all four signedness pairings.
+    SByte,
+    /// 32-bit accumulator, `.H` sources — only `SMOPA`/`UMOPA`.
+    SHalf,
+    /// 64-bit accumulator, `.H` sources — all four signedness pairings.
+    DHalf,
+}
+
+/// Map `(u0, u1)` signedness and `S` to the integer outer-product `Code`.
+#[inline]
+fn mopa_int_code(uu: (u32, u32), s: u32, form: IntForm) -> Option<Code> {
+    use Code::*;
+    let acc_sub = |a: Code, sub: Code| if s == 0 { a } else { sub };
+    Some(match form {
+        IntForm::SByte => match uu {
+            (0, 0) => acc_sub(SmeSmopaS, SmeSmopsS),
+            (0, 1) => acc_sub(SmeSumopaS, SmeSumopsS),
+            (1, 0) => acc_sub(SmeUsmopaS, SmeUsmopsS),
+            (1, 1) => acc_sub(SmeUmopaS, SmeUmopsS),
+            _ => return None,
+        },
+        IntForm::SHalf => match uu {
+            (0, 0) => acc_sub(SmeSmopaHs, SmeSmopsHs),
+            (1, 0) => acc_sub(SmeUmopaHs, SmeUmopsHs),
+            _ => return None,
+        },
+        IntForm::DHalf => match uu {
+            (0, 0) => acc_sub(SmeSmopaD, SmeSmopsD),
+            (0, 1) => acc_sub(SmeSumopaD, SmeSumopsD),
+            (1, 0) => acc_sub(SmeUsmopaD, SmeUsmopsD),
+            (1, 1) => acc_sub(SmeUmopaD, SmeUmopsD),
+            _ => return None,
+        },
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 4-source outer products (FEAT_SME_MOP4): the predicate-free quarter-tile
+// `FMOP4A`/`SMOP4A`/... forms that replace `Pn`/`Pm` with `{Zm, Zm+1}` (and
+// optionally `{Zn, Zn+1}`) register-pair sources.
+// ---------------------------------------------------------------------------
+
+/// `true` when `word` sits in the MOP4 sub-region of the outer-product quadrants
+/// (`word<31:29>` is `100` or `101`). MOP4 carves `sz == 00` and, within the
+/// `.d`/I16I64 `sz == 11` region, the `word<3> == 1` slot (`word<3>` is reserved
+/// for the predicated `sz == 11` forms). The `sz == 01` slot is `*TMOPA` and the
+/// predicated `sz == 10` forms keep `word<3>` for their own sub-typing, so MOP4
+/// never overlaps them.
+#[inline]
+fn is_mop4(word: u32) -> bool {
+    match bits(word, 22, 2) {
+        0b00 => true,
+        0b11 => bit(word, 3) == 1,
+        _ => false,
+    }
+}
+
+/// Map the integer MOP4 of a 32-bit accumulator (`sz == 00`, re-typed via
+/// `word<15> == 1`) to `(Code, src_arr)`. `b3 = word<3>` selects byte (`0`) vs
+/// halfword (`1`) sources; for the halfword sources only the symmetric
+/// `SMOP4`/`UMOP4` rows exist. Returns `None` for the unallocated combinations.
+#[inline]
+fn mop4_int_s_code(uu: (u32, u32), b3: u32, s: u32) -> Option<(Code, VA)> {
+    use Code::*;
+    let acc_sub = |a: Code, sub: Code| if s == 0 { a } else { sub };
+    Some(match (uu, b3) {
+        // Byte sources.
+        ((0, 0), 0) => (acc_sub(SmeSmop4aS, SmeSmop4sS), VA::Sb),
+        ((0, 1), 0) => (acc_sub(SmeSumop4aS, SmeSumop4sS), VA::Sb),
+        ((1, 0), 0) => (acc_sub(SmeUsmop4aS, SmeUsmop4sS), VA::Sb),
+        ((1, 1), 0) => (acc_sub(SmeUmop4aS, SmeUmop4sS), VA::Sb),
+        // Halfword sources (16-bit): only SMOPA / UMOPA.
+        ((0, 0), 1) => (acc_sub(SmeSmop4aHs, SmeSmop4sHs), VA::Sh),
+        ((1, 0), 1) => (acc_sub(SmeUmop4aHs, SmeUmop4sHs), VA::Sh),
+        _ => return None,
+    })
+}
+
+/// Map the integer MOP4 of a 64-bit accumulator (`sz == 11`) to a `Code`. All
+/// four `(u0, u1)` signedness pairings are valid; the source is always `.h`.
+#[inline]
+fn mop4_int_d_code(uu: (u32, u32), s: u32) -> Option<Code> {
+    use Code::*;
+    let acc_sub = |a: Code, sub: Code| if s == 0 { a } else { sub };
+    Some(match uu {
+        (0, 0) => acc_sub(SmeSmop4aD, SmeSmop4sD),
+        (0, 1) => acc_sub(SmeSumop4aD, SmeSumop4sD),
+        (1, 0) => acc_sub(SmeUsmop4aD, SmeUsmop4sD),
+        (1, 1) => acc_sub(SmeUmop4aD, SmeUmop4sD),
+        _ => return None,
+    })
+}
+
+/// Read a MOP4 `Zn` source: `word<5>` must be 0; `word<9>` selects a `{Zn,
+/// Zn+1}` pair; the base register is `word<9:5> & 0x0E`. Returns `None` when the
+/// low bit is set (reserved).
+#[inline]
+fn mop4_zn(word: u32, arr: VA) -> Option<Operand> {
+    if bit(word, 5) != 0 {
+        return None;
+    }
+    let base = bits(word, 5, 5) & 0x0E;
+    Some(if bit(word, 9) == 1 {
+        vec_pair(base, arr)
+    } else {
+        zreg(base, arr)
+    })
+}
+
+/// Read a MOP4 `Zm` source: `word<16>` must be 0; `word<20>` selects a `{Zm,
+/// Zm+1}` pair; the base register is `16 + (word<20:16> & 0x0E)`. Returns `None`
+/// when the low bit is set (reserved).
+#[inline]
+fn mop4_zm(word: u32, arr: VA) -> Option<Operand> {
+    if bit(word, 16) != 0 {
+        return None;
+    }
+    let base = 16 + (bits(word, 16, 5) & 0x0E);
+    Some(if bit(word, 20) == 1 {
+        vec_pair(base, arr)
+    } else {
+        zreg(base, arr)
+    })
+}
+
+/// A two-register consecutive vector group `{ z<n>.<T>, z<n+1>.<T> }`.
+#[inline]
+fn vec_pair(first: u32, arr: VA) -> Operand {
+    Operand::SveVecGroup {
+        first: Z[(first & 0x1f) as usize],
+        count: 2,
+        arr: Some(arr),
+        range: false,
+        stride: 1,
+    }
+}
+
+/// `FMOP4A`/`FMOP4S`/`BFMOP4*`/`SMOP4*`/... — the 4-source outer products.
+///
+/// Operands are `ZAda.<dst>, Zn.<src>, Zm.<src>` where the `Zn`/`Zm` may be
+/// single registers or `{Z, Z+1}` pairs (selected by `word<9>` / `word<20>`).
+/// There are no governing predicates: `word<16>` (`Zm<0>`) and `word<14:10>`
+/// are fixed at zero. The type is a function of `op29 = word<29>`, the size
+/// `word<23:22>`, `op24 = word<24>`, `u1 = word<21>`, the integer-select
+/// `b15 = word<15>` (only meaningful at `sz == 00`), `b3 = word<3>` and
+/// `S = word<4>` — derived by oracle sweep (see `tests/sme_outerproduct_h2`).
+fn decode_mop4(word: u32, features: FeatureSet, out: &mut Instruction) {
+    // Structural MOP4 frame: `word<14:10>` (the low predicate-position bits) and
+    // `Zm<0> = word<16>` are zero. `word<15>` is the int/FP type-select at
+    // `sz == 00`, so it is excluded from this guard.
+    if bits(word, 10, 5) != 0 || bit(word, 16) != 0 {
+        return;
+    }
+    if !features.has(Feature::SmeMop4) {
+        return;
+    }
+
+    let op29 = bit(word, 29);
+    let op24 = bit(word, 24);
+    let sz = bits(word, 22, 2);
+    let u1 = bit(word, 21);
+    let s = bit(word, 4);
+    let b15 = bit(word, 15);
+    let b3 = bit(word, 3);
+    let acc_sub = |a: Code, sub: Code| if s == 0 { a } else { sub };
+
+    // (code, dst-arr, src-arr).
+    let sel: Option<(Code, VA, VA)> = match (op29, sz) {
+        // Floating-point MOP4 quadrant, `sz == 00`. `word<15> == 1` re-types the
+        // slot as an *integer* (`.s` accumulator, `.b` sources).
+        (0, 0b00) if b15 == 0 => match (op24, u1, b3, s) {
+            (0, 0, 0, _) => Some((acc_sub(Code::SmeFmop4aS, Code::SmeFmop4sS), VA::Ss, VA::Ss)),
+            (0, 1, 0, 0) => Some((Code::SmeFmop4aB, VA::Ss, VA::Sb)),
+            (0, 1, 1, 0) => Some((Code::SmeFmop4aBh, VA::Sh, VA::Sb)),
+            (1, 0, 0, _) => Some((acc_sub(Code::SmeBfmop4aS, Code::SmeBfmop4sS), VA::Ss, VA::Sh)),
+            (1, 0, 1, _) => Some((acc_sub(Code::SmeFmop4aHh, Code::SmeFmop4sHh), VA::Sh, VA::Sh)),
+            (1, 1, 0, _) => Some((acc_sub(Code::SmeFmop4aHs, Code::SmeFmop4sHs), VA::Ss, VA::Sh)),
+            (1, 1, 1, _) => Some((acc_sub(Code::SmeBfmop4aHh, Code::SmeBfmop4sHh), VA::Sh, VA::Sh)),
+            _ => None,
+        },
+        // Integer MOP4 re-typed out of the FP `sz == 00` quadrant (`word<15>`==1):
+        // `.s` accumulator, `.b`/`.h` sources. `(u0=op24, u1, b3)` select
+        // signedness and source size.
+        (0, 0b00) /* b15 == 1 */ => {
+            mop4_int_s_code((op24, u1), b3, s).map(|(c, src)| (c, VA::Ss, src))
+        }
+        // FP64 MOP4: `sz == 11`, `word<3> == 1`, `word<15> == 0`.
+        (0, 0b11) if b3 == 1 && b15 == 0 && op24 == 0 && u1 == 0 => {
+            Some((acc_sub(Code::SmeFmop4aD, Code::SmeFmop4sD), VA::Sd, VA::Sd))
+        }
+        // Integer MOP4 (`word<29> == 1`): `.d` accumulator, `.h` sources.
+        (1, 0b11) if b3 == 1 && b15 == 0 => {
+            mop4_int_d_code((op24, u1), s).map(|c| (c, VA::Sd, VA::Sh))
+        }
+        _ => None,
     };
 
-    let zada = if is64 { bits(word, 0, 3) } else { bits(word, 0, 2) };
+    let (code, dst, src) = match sel {
+        Some(v) => v,
+        None => return,
+    };
+
+    let zada = match zada_field(word, dst) {
+        Some(z) => z,
+        None => return,
+    };
+    let zn = match mop4_zn(word, src) {
+        Some(z) => z,
+        None => return,
+    };
+    let zm = match mop4_zm(word, src) {
+        Some(z) => z,
+        None => return,
+    };
 
     out.set(code);
     out.push_operand(zreg(zada, dst));
-    out.push_operand(preg_m(pn));
-    out.push_operand(preg_m(pm));
-    out.push_operand(zreg(zn, src));
-    out.push_operand(zreg(zm, src));
+    out.push_operand(zn);
+    out.push_operand(zm);
 }
 
 // ---------------------------------------------------------------------------

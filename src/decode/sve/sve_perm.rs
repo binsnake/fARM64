@@ -185,7 +185,11 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
 
     match s1513 {
         // ZIP/UZP/TRN element-size permute: `<15:10>=0110xx`, `<12:10>` selects op.
-        0b011 => {
+        // Like the TBL/REV leaf below, every member fixes `<21>=1`; words with
+        // `<21>=0` belong to the CPY-imm / logical-immediate / EXT regions that
+        // `sve_int` owns (a `<21>=0` word here is a reserved CPY-imm slot, e.g.
+        // `05156075`, that must stay Invalid rather than mis-decode as `ZIP1`).
+        0b011 if bit(word, 21) == 1 => {
             let mnem = match bits(word, 10, 3) {
                 0b000 => Mnemonic::Zip1,
                 0b001 => Mnemonic::Zip2,
@@ -324,9 +328,17 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
                 out.push_operand(zreg_q(zm));
                 return;
             }
-            // EXT: `<15:11>=00001`, `<23:21>` carries the con/des bit at `<22>`.
-            //   des: <23:22>=00, con: <23:22>=01 ; both `<15:10>=0000xx/000101`.
-            // The two are distinguished by `<22>` (op=0 des, 1 con).
+            // EXT: `<23:21>` is `001` (destructive) or `011` (constructive) — i.e.
+            // `<23> == 0` and `<21> == 1`, with `<22>` selecting des(0)/con(1). The
+            // `<23> == 1` slots (e.g. `05AF14C1`, formerly mis-decoded as
+            // `ext z1.b, z1.b, z6.b, #0x7d`) and the `<21> == 0` slots (e.g.
+            // `050007E1`) are UNDEFINED. The valid `<23> == 1` `.Q` ZIP/UZP/TRN
+            // forms are already claimed by the q-permute branch above, and the
+            // valid `<21> == 0` logical-immediate / CPY-imm words are claimed by
+            // `sve_int` before this fallback runs, so neither reaches here.
+            if bit(word, 23) != 0 || bit(word, 21) != 1 {
+                return;
+            }
             if bit(word, 22) == 0 {
                 decode_ext_des(word, out);
             } else {

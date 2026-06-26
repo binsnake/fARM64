@@ -448,6 +448,13 @@ fn decode_cpy_imm(word: u32, out: &mut Instruction) {
     let sh = bit(word, 13);
     let imm8 = bits(word, 5, 8);
     let zd = bits(word, 0, 5);
+    // The `LSL #8` shift (`sh == 1`) widens the signed `imm8` past a byte, so it is
+    // reserved for the `.b` element size (`size == 00`): an 8-bit element cannot
+    // hold a shifted-by-8 value → UNDEFINED (e.g. `05156075`). The `.h`/`.s`/`.d`
+    // sizes accept the shift, and `sh == 0` is valid for every size.
+    if size == 0b00 && sh == 1 {
+        return;
+    }
     out.set(if merging {
         Code::SveCpyImmMerge
     } else {

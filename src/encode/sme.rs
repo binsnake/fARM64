@@ -90,8 +90,8 @@ mod imp {
                 | SmeSmop4aHs | SmeSmop4sHs | SmeUmop4aHs | SmeUmop4sHs
                 | SmeSmop4aD | SmeSmop4sD | SmeUmop4aD | SmeUmop4sD
                 | SmeSumop4aD | SmeSumop4sD | SmeUsmop4aD | SmeUsmop4sD
-            // MOVA / ADDHA / ADDVA.
-                | SmeMovaZToTile | SmeMovaTileToZ | SmeAddha | SmeAddva
+            // MOVA / MOVAZ / ADDHA / ADDVA.
+                | SmeMovaZToTile | SmeMovaTileToZ | SmeMovazTileToZ | SmeAddha | SmeAddva
             // ZA load/store.
                 | SmeLd1bZa | SmeLd1hZa | SmeLd1wZa | SmeLd1dZa | SmeLd1qZa
                 | SmeSt1bZa | SmeSt1hZa | SmeSt1wZa | SmeSt1dZa | SmeSt1qZa
@@ -134,7 +134,7 @@ mod imp {
             | SmeUmop4aHs | SmeUmop4sHs | SmeSmop4aD | SmeSmop4sD | SmeUmop4aD | SmeUmop4sD
             | SmeSumop4aD | SmeSumop4sD | SmeUsmop4aD | SmeUsmop4sD => enc_mop4(insn),
             SmeAddha | SmeAddva => enc_addha_addva(insn),
-            SmeMovaZToTile | SmeMovaTileToZ => enc_mova(insn),
+            SmeMovaZToTile | SmeMovaTileToZ | SmeMovazTileToZ => enc_mova(insn),
             SmeLd1bZa | SmeLd1hZa | SmeLd1wZa | SmeLd1dZa | SmeLd1qZa | SmeSt1bZa | SmeSt1hZa
             | SmeSt1wZa | SmeSt1dZa | SmeSt1qZa => enc_ld1_st1_za(insn),
             SmeLdrZa | SmeStrZa => enc_ldr_str_za(insn),
@@ -481,17 +481,23 @@ mod imp {
     /// 1/3, `.S` 2/2, `.D` 3/1, `.Q` 4/0. `Q` (size `11`, `word<16> == 1`) has no
     /// index.
     fn enc_mova(insn: &Instruction) -> R {
-        let to_vector = insn.code() == Code::SmeMovaTileToZ;
+        // `MOVAZ` (zeroing tile→vector readout, FEAT_SME2) shares this encoder; it
+        // is a tile→vector form with `word<9> == 1` and *no* governing predicate,
+        // so its operands are `MOVAZ <Zd>, <tile-slice>` (slice at index 1).
+        let movaz = insn.code() == Code::SmeMovazTileToZ;
+        let to_vector = movaz || insn.code() == Code::SmeMovaTileToZ;
 
-        // The tile-slice operand is operand 2 (TileToZ) or operand 0 (ZToTile).
-        let (zd_or_zn_idx, slice_idx, pg_reg, vec_idx) = if to_vector {
+        // Operand indices: the tile-slice, optional `Pg`, and the `Z` vector.
+        let (slice_idx, pg_reg, vec_idx) = if movaz {
+            // MOVAZ <Zd>, <tile-slice>.
+            (1usize, usize::MAX, 0usize)
+        } else if to_vector {
             // MOVA <Zd>, <Pg>/M, <tile-slice>.
-            (0usize, 2usize, 1usize, 0usize)
+            (2usize, 1usize, 0usize)
         } else {
             // MOVA <tile-slice>, <Pg>/M, <Zn>.
-            (2usize, 0usize, 1usize, 2usize)
+            (0usize, 1usize, 2usize)
         };
-        let _ = zd_or_zn_idx;
 
         // Read the tile-slice operand fields.
         let (tile_reg, slice, arr, sel, imm, has_imm) = match insn.op(slice_idx) {
@@ -523,7 +529,8 @@ mod imp {
             SliceIndicator::None => return Err(EncodeError::InvalidOperand),
         };
         let rs = wsel_field(sel)?;
-        let pg = p3(insn, pg_reg)?;
+        // `MOVAZ` has no predicate; its `word<12:10>` field is fixed zero.
+        let pg = if movaz { 0 } else { p3(insn, pg_reg)? };
         let tile = tile_reg.number() as u32;
 
         // Recombine the 4-bit ZAd:imm field: tile in the high (4 - imm_bits) bits,
@@ -555,9 +562,11 @@ mod imp {
         let base = 0xC000_0000 | (size << 22) | (q << 16) | (vertical << 15) | (rs << 13) | (pg << 10);
 
         let word = if to_vector {
-            // word<17> == 1; field at word<8:5>, Zd at word<4:0>.
+            // word<17> == 1; field at word<8:5>, Zd at word<4:0>. `MOVAZ` (the
+            // zeroing readout) additionally sets `word<9>`.
             let zd = z(insn, vec_idx)?;
-            base | (1u32 << 17) | (field << 5) | zd
+            let movaz_bit = if movaz { 1u32 << 9 } else { 0 };
+            base | (1u32 << 17) | movaz_bit | (field << 5) | zd
         } else {
             // word<17> == 0; field at word<3:0>, Zn at word<9:5>.
             let zn = z(insn, vec_idx)?;

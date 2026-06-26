@@ -3035,6 +3035,12 @@ codes! {
     LdappPair => Ldapp, Rcpc3, "`LDAPP <Xt>, <Xt2>, [<Xn|SP>]` (FEAT_LRCPC3 ordered load pair).";
     LdapPair => Ldap, Rcpc3, "`LDAP <Xt>, <Xt2>, [<Xn|SP>]` (FEAT_LRCPC3 ordered load pair).";
     StlpPair => Stlp, Rcpc3, "`STLP <Xt>, <Xt2>, [<Xn|SP>]` (FEAT_LRCPC3 ordered store pair).";
+
+    // --- J1: SME2 single-vector MOVAZ (ZA tile slice to vector, zeroing) ---
+    // The non-predicated readout that zeroes the ZA source. It shares the
+    // single-vector MOVA tile-to-vector shell but sets `word<9> == 1`; the regular
+    // (non-zeroing) predicated `MOVA` keeps `word<9> == 0`. FEAT_SME2.
+    SmeMovazTileToZ => Movaz, Sme2, "`MOVAZ <Zd>.<T>, <ZAn><HV>.<T>[<Ws>{,#imm}]` (SME2, ZA tile slice to vector, zeroing).";
 }
 
 impl Code {

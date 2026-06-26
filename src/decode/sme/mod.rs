@@ -609,7 +609,7 @@ fn decode_mova_add(word: u32, features: FeatureSet, out: &mut Instruction) {
         decode_addha_addva(word, out);
     } else if bits(word, 18, 4) == 0 {
         // MOVA: word<21:18> == 0000 (direction in word<17>).
-        decode_mova(word, out);
+        decode_mova(word, features, out);
     }
 }
 
@@ -650,12 +650,26 @@ fn decode_addha_addva(word: u32, out: &mut Instruction) {
 /// (`B`: 0 tile bits / 4 index; `H`: 1/3; `S`: 2/2; `D`: 3/1; `Q`: 4/0). For the
 /// tile→vector direction this field is `word<8:5>` (with `Zd = word<4:0>`); for
 /// the vector→tile direction it is `word<3:0>` (with `Zn = word<9:5>`).
-fn decode_mova(word: u32, out: &mut Instruction) {
+///
+/// For the tile→vector direction only, `word<9>` (which lies above the 5-bit
+/// `Zd`) selects the *zeroing* readout `MOVAZ` (`word<9> == 1`, FEAT_SME2) versus
+/// the non-zeroing predicated `MOVA` (`word<9> == 0`). `MOVAZ` has no governing
+/// predicate. In the vector→tile direction `word<9>` is part of `Zn`, so there is
+/// no `MOVAZ` there.
+fn decode_mova(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let q = bit(word, 16);
     let vertical = bit(word, 15) == 1;
     let rs = bits(word, 13, 2);
     let pg = bits(word, 10, 3);
+
+    // `word<16>` (`Q`) is the `.Q`/`.D` selector, but it is only meaningful for
+    // the 64-bit size `word<23:22> == 11` (`Q == 1` → `.Q`, `Q == 0` → `.D`). For
+    // every smaller element size `Q` is RES0 — a set bit is UNDEFINED in LLVM
+    // (e.g. `C0010000`, `C0410000`, `C0810000`).
+    if q == 1 && size != 0b11 {
+        return;
+    }
 
     // Element kind and the number of index immediate bits.
     // (arr, index-bit-width). Q is a special case of size==11 with Q==1.
@@ -677,15 +691,34 @@ fn decode_mova(word: u32, out: &mut Instruction) {
 
     if to_vector {
         // Z ← ZA tile slice: tile-slice field at word<8:5>, Zd = word<4:0>.
+        // `word<9>` selects the zeroing readout `MOVAZ` (1, FEAT_SME2, no
+        // predicate) vs the predicated `MOVA` (0).
         let zd = bits(word, 0, 5);
         let field = bits(word, 5, 4);
         let (tile, imm) = split_tile_field(field, imm_bits);
+        if bit(word, 9) == 1 {
+            // MOVAZ — requires FEAT_SME2; renders without a governing predicate.
+            // The `Pg` field `word<12:10>` is therefore RES0 (a set bit is
+            // UNDEFINED, e.g. `C0020600`/`C0020A00`/`C0021200`).
+            if !features.has(Feature::Sme2) || pg != 0 {
+                return;
+            }
+            out.set(Code::SmeMovazTileToZ);
+            out.push_operand(zreg(zd, arr));
+            out.push_operand(tile_slice(tile, vertical, arr, rs, imm));
+            return;
+        }
         out.set(Code::SmeMovaTileToZ);
         out.push_operand(zreg(zd, arr));
         out.push_operand(preg_m(pg));
         out.push_operand(tile_slice(tile, vertical, arr, rs, imm));
     } else {
         // ZA tile slice ← Z: tile-slice field at word<3:0>, Zn = word<9:5>.
+        // `word<4>` lies between the 4-bit `ZAd:imm` field and `Zn`; it is RES0,
+        // so a set bit is UNDEFINED (e.g. `C00000FF` vs the valid `C00000EF`).
+        if bit(word, 4) != 0 {
+            return;
+        }
         let zn = bits(word, 5, 5);
         let field = bits(word, 0, 4);
         let (tile, imm) = split_tile_field(field, imm_bits);

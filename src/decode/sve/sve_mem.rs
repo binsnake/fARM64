@@ -425,6 +425,17 @@ fn gather_mnem(msz: u32, signed: bool, ff: bool) -> Mnemonic {
 fn gather32_load_reserved(msz: u32, signed: bool) -> bool {
     msz == 3 || (msz == 2 && signed)
 }
+/// `true` if a 64-bit-element gather (`.d` destination, `0xC4`/`0xC5`) *signed*
+/// load of the `dword` size (`msz == 3`) is requested — a reserved combination
+/// (`LD1SD`/`LDFF1SD`/`LDNT1SD` do not exist: an 8-byte fetch already fills the
+/// 64-bit element, so there is no sign-extension to apply). LLVM leaves every
+/// such slot `<unknown>` across the scalar+vector (`uxtw`/`sxtw`/`lsl`/none),
+/// vector+immediate and non-temporal sub-forms (e.g. `C5AF14C1`, `C5D12DFD`).
+/// The unsigned `LD1D`/`LDFF1D`/`LDNT1D` (`msz == 3`, not signed) stay valid.
+#[inline]
+fn gather64_load_reserved(msz: u32, signed: bool) -> bool {
+    msz == 3 && signed
+}
 /// Scatter `ST1{b,h,w,d}` mnemonic by `msz`.
 fn st1_mnem(msz: u32) -> Mnemonic {
     match msz & 3 { 0 => Mnemonic::St1b, 1 => Mnemonic::St1h, 2 => Mnemonic::St1w, _ => Mnemonic::St1d }
@@ -1130,6 +1141,10 @@ fn decode_gather_64(word: u32, msz: u32, b22: u32, b21: u32, op: u32, pg: u32, r
     if op <= 3 {
         let ff = op == 1 || op == 3;
         let signed = op == 0 || op == 1;
+        // The signed `dword` form does not exist (`LD1SD`/`LDFF1SD`) → reserved.
+        if gather64_load_reserved(msz, signed) {
+            return;
+        }
         let m = gather_mnem(msz, signed, ff);
         let (ext, amt) = gmod(b22, false, b21 == 1, msz);
         ld(out, m, Form::G64, dst, zt, pg, m_xz(rn, zm, dst, ext, amt));
@@ -1144,6 +1159,11 @@ fn decode_gather_64(word: u32, msz: u32, b22: u32, b21: u32, op: u32, pg: u32, r
                 prf(out, prf_mnem(msz), Form::Vi, zt, pg, m_vi(rn, dst, imm));
             }
             4 | 6 => {
+                // `op == 4` is the signed `LDNT1S*`; the signed `dword`
+                // (`LDNT1SD`) does not exist → reserved.
+                if gather64_load_reserved(msz, op == 4) {
+                    return;
+                }
                 let m = ldnt1_mnem(msz, op == 4);
                 ld(out, m, Form::Vs, dst, zt, pg, m_vs(rn, dst, rm));
             }
@@ -1155,6 +1175,9 @@ fn decode_gather_64(word: u32, msz: u32, b22: u32, b21: u32, op: u32, pg: u32, r
         // Region 01: vector+imm gather op4-7.
         let ff = op == 5 || op == 7;
         let signed = op == 4 || op == 5;
+        if gather64_load_reserved(msz, signed) {
+            return;
+        }
         let m = gather_mnem(msz, signed, ff);
         let imm = (bits(word, 16, 5) as i32) * (1i32 << msz);
         ld(out, m, Form::Vi, dst, zt, pg, m_vi(rn, dst, imm));
@@ -1163,6 +1186,9 @@ fn decode_gather_64(word: u32, msz: u32, b22: u32, b21: u32, op: u32, pg: u32, r
     // Region 10/11 op4-7: 64-bit packed offset (plain b21==0 / lsl b21==1).
     let ff = op == 5 || op == 7;
     let signed = op == 4 || op == 5;
+    if gather64_load_reserved(msz, signed) {
+        return;
+    }
     let m = gather_mnem(msz, signed, ff);
     let (ext, amt) = gmod(0, true, b21 == 1, msz);
     ld(out, m, Form::G64, dst, zt, pg, m_xz(rn, zm, dst, ext, amt));

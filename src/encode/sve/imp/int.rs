@@ -200,6 +200,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let pg = p(insn, 1)?;
             let merging = matches!(code, SveCpyImmMerge);
             let (imm8, sh) = read_dup_imm(insn, 2)?;
+            // `LSL #8` (`sh == 1`) is reserved for the `.b` element size — the
+            // decoder leaves it UNDEFINED, so the encoder must refuse it too.
+            if size == 0b00 && sh == 1 {
+                return Err(EncodeError::InvalidImmediate);
+            }
             fld(0b00000101, 24)
                 | fld(size, 22)
                 | fld(0b01, 20)

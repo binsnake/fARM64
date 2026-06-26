@@ -43,6 +43,10 @@ pub(super) fn is_fp(code: Code) -> bool {
             | SveBfdot | SveBfdotIdx | SveBfmlalb | SveBfmlalt | SveBfmlalbIdx | SveBfmlaltIdx
             | SveFmlalb | SveFmlalt | SveFmlslb | SveFmlslt
             | SveFmlalbIdx | SveFmlaltIdx | SveFmlslbIdx | SveFmlsltIdx
+        // FP8 widening MLAL z-form indexed + BF16 indexed mul-add
+            | SveFmlalbFp8Idx | SveFmlaltFp8Idx | SveFmlallbbFp8Idx | SveFmlallbtFp8Idx
+            | SveFmlalltbFp8Idx | SveFmlallttFp8Idx
+            | SveBfmlaIdx | SveBfmlsIdx | SveBfmulIdx
         // 0x04 / 0x05 / 0x25 leaves
             | SveFabsZpz | SveFnegZpz | SveFexpa | SveFtssel | SveFcpy | SveFdup
         // sve2.1 quadword FP reductions
@@ -331,6 +335,65 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         }
         SveBfmlalbIdx | SveBfmlaltIdx | SveFmlalbIdx | SveFmlaltIdx | SveFmlslbIdx | SveFmlsltIdx => {
             enc_64_mlal_idx(insn, code)?
+        }
+        // ---- FP8 widening MLAL z-form, indexed (FEAT_SSVE_FP8FMA) ----
+        // FMLALB/T (to .h): <15:12>=0101, T=<23>; index ih(<20:19>):il(<11:10>).
+        SveFmlalbFp8Idx | SveFmlaltFp8Idx => {
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let idx = lane(insn, 2)?;
+            let t = if matches!(code, SveFmlaltFp8Idx) { 1 } else { 0 };
+            base64(1)
+                | fld(t, 23)
+                | fld((idx >> 2) & 3, 19)
+                | fld(zm & 7, 16)
+                | fld(0b0101, 12)
+                | fld(idx & 3, 10)
+                | fld(zn, 5)
+                | zda
+        }
+        // FMLALLBB/BT/TB/TT (to .s): <15:12>=1100, B/T pair in <23:22>.
+        SveFmlallbbFp8Idx | SveFmlallbtFp8Idx | SveFmlalltbFp8Idx | SveFmlallttFp8Idx => {
+            let bt = match code {
+                SveFmlallbbFp8Idx => 0b00,
+                SveFmlallbtFp8Idx => 0b01,
+                SveFmlalltbFp8Idx => 0b10,
+                _ => 0b11,
+            };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let idx = lane(insn, 2)?;
+            base64(1)
+                | fld(bt, 22)
+                | fld((idx >> 2) & 3, 19)
+                | fld(zm & 7, 16)
+                | fld(0b1100, 12)
+                | fld(idx & 3, 10)
+                | fld(zn, 5)
+                | zda
+        }
+        // ---- BF16 multiply-add / multiply, indexed (FEAT_SVE_B16B16) ----
+        // `<Zda>.h, <Zn>.h, <Zm>.h[i]`; <23>=0; index i3h(<22>):i2l(<20:19>);
+        // mnemonic in <15:10>: 000010 BFMLA, 000011 BFMLS, 001010 BFMUL.
+        SveBfmlaIdx | SveBfmlsIdx | SveBfmulIdx => {
+            let sub = match code {
+                SveBfmlaIdx => 0b000010,
+                SveBfmlsIdx => 0b000011,
+                _ => 0b001010,
+            };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let idx = lane(insn, 2)?;
+            base64(1)
+                | fld((idx >> 2) & 1, 22)
+                | fld(idx & 3, 19)
+                | fld(zm & 7, 16)
+                | fld(sub, 10)
+                | fld(zn, 5)
+                | zda
         }
         // ---- 0x04 FABS / FNEG ----
         SveFabsZpz | SveFnegZpz => {

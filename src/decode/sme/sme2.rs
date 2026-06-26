@@ -380,6 +380,9 @@ pub enum AluSh {
     TwoSingle,
     /// `{ Zd.. }, { Zn.. }` — 4-register `ZIP`/`UZP` (a vector group in and out).
     ZipGroup,
+    /// `{ Zd.. }, { Zn.. }, { Zm.. }` — three vector groups, no predicate
+    /// (SME2/SVE2 multi-vector `FMUL`).
+    GroupGroup3,
 }
 
 /// How a form's element-size suffix is recovered from the encoding.
@@ -554,6 +557,11 @@ fn build_alu(f: &AluForm, word: u32, out: &mut Instruction) {
             out.push_operand(alu_group(group_base(word, f.zd), f.vg, arr));
             out.push_operand(alu_group(group_base(word, f.zn), f.vg, arr));
         }
+        AluSh::GroupGroup3 => {
+            out.push_operand(alu_group(group_base(word, f.zd), f.vg, arr));
+            out.push_operand(alu_group(group_base(word, f.zn), f.vg, arr));
+            out.push_operand(alu_group(group_base(word, f.zm), f.vg, arr));
+        }
     }
 }
 
@@ -590,6 +598,11 @@ pub static SME2_ALU_FORMS: &[AluForm] = &[
     // bit16 selects the `.q` form.)
     A { mask: 0xff3efc63, val: 0xc136e000, code: Code::SmeZipMV4, shape: AluSh::ZipGroup, arr: AluArr::Zip4, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x0 },
     A { mask: 0xff3efc63, val: 0xc136e002, code: Code::SmeUzpMV4, shape: AluSh::ZipGroup, arr: AluArr::Zip4, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x0 },
+    // SME2/SVE2 multi-vector FMUL: { Zd }, { Zn }, { Zm } (three vector groups,
+    // no predicate). `<15:10> == 111001`, `<21> == 1`, `<16>` selects vgx2(0)/
+    // vgx4(1). `AluArr::Fp` rejects `.b` (size 00 is the BF16 BFMUL neighbour).
+    A { mask: 0xff21fc21, val: 0xc120e400, code: Code::SmeFmulMV2, shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3c0, zm: 0x1e0000 },
+    A { mask: 0xff23fc63, val: 0xc121e400, code: Code::SmeFmulMV4, shape: AluSh::GroupGroup3, arr: AluArr::Fp, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x1c0000 },
 ];
 
 // ===========================================================================

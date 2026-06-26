@@ -891,6 +891,25 @@ fn simd_three_reg_ext(word: u32, features: FeatureSet, out: &mut Instruction) ->
             }
             true
         }
+        0b101001 | 0b101011 if size == 0b10 && q == 1 => {
+            // FEAT_I8MM integer matrix multiply-accumulate (Q=1 only): opcode
+            // `word<15:12>==1010`, `word<10>==1`; the `B` bit `word<11>` is the
+            // `lo` middle bit (`101001`->B=0, `101011`->B=1). The mnemonic is
+            // selected by `(U=word<29>, B)`:
+            //   (0,0) SMMLA, (0,1) USMMLA, (1,0) UMMLA, (1,1) unallocated.
+            // All forms: Vd.4S, Vn.16B, Vm.16B.
+            if features.has(Feature::I8mm) {
+                let b = (lo >> 1) & 1; // word<11>
+                let code = match (u, b) {
+                    (0, 0) => Code::SmmlaVec,
+                    (0, _) => Code::UsmmlaVec,
+                    (1, 0) => Code::UmmlaVec,
+                    _ => return true, // (U=1, B=1) unallocated.
+                };
+                emit3(out, code, rd, VA::V4S, rn, VA::V16B, rm, VA::V16B);
+            }
+            true
+        }
         0b110001 if u == 0 && (size == 0b00 || size == 0b01) => {
             // FMLALLBB/BT/TB/TT: Vd.4S, Vn.16B, Vm.16B. First letter = Q,
             // second = size<0> (B=0/T=1).

@@ -1562,6 +1562,7 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Fmlall => "fmlall",
         Mnemonic::Bfmla => "bfmla",
         Mnemonic::Bfmls => "bfmls",
+        Mnemonic::Bfmul => "bfmul",
         Mnemonic::Bfmlal => "bfmlal",
         Mnemonic::Bfmlsl => "bfmlsl",
         Mnemonic::Ftmopa => "ftmopa",

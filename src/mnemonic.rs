@@ -1904,6 +1904,17 @@ codes! {
     SveFmlaltIdx => Fmlalt, Sve, "`FMLALT <Zda>.S, <Zn>.H, <Zm>.H[<imm>]` (SVE2).";
     SveFmlslbIdx => Fmlslb, Sve, "`FMLSLB <Zda>.S, <Zn>.H, <Zm>.H[<imm>]` (SVE2).";
     SveFmlsltIdx => Fmlslt, Sve, "`FMLSLT <Zda>.S, <Zn>.H, <Zm>.H[<imm>]` (SVE2).";
+    // FP8 widening multiply-add long, indexed z-form (FEAT_SSVE_FP8FMA / FEAT_FP8).
+    SveFmlalbFp8Idx => Fmlalb, Fp8, "`FMLALB <Zda>.H, <Zn>.B, <Zm>.B[<imm>]` (SVE FP8 widening MLAL bottom, FEAT_SSVE_FP8FMA).";
+    SveFmlaltFp8Idx => Fmlalt, Fp8, "`FMLALT <Zda>.H, <Zn>.B, <Zm>.B[<imm>]` (SVE FP8 widening MLAL top, FEAT_SSVE_FP8FMA).";
+    SveFmlallbbFp8Idx => Fmlallbb, Fp8, "`FMLALLBB <Zda>.S, <Zn>.B, <Zm>.B[<imm>]` (SVE FP8 widening x4 MLAL, FEAT_SSVE_FP8FMA).";
+    SveFmlallbtFp8Idx => Fmlallbt, Fp8, "`FMLALLBT <Zda>.S, <Zn>.B, <Zm>.B[<imm>]` (SVE FP8 widening x4 MLAL, FEAT_SSVE_FP8FMA).";
+    SveFmlalltbFp8Idx => Fmlalltb, Fp8, "`FMLALLTB <Zda>.S, <Zn>.B, <Zm>.B[<imm>]` (SVE FP8 widening x4 MLAL, FEAT_SSVE_FP8FMA).";
+    SveFmlallttFp8Idx => Fmlalltt, Fp8, "`FMLALLTT <Zda>.S, <Zn>.B, <Zm>.B[<imm>]` (SVE FP8 widening x4 MLAL, FEAT_SSVE_FP8FMA).";
+    // BFloat16 multiply-add / multiply, indexed (FEAT_SVE_B16B16).
+    SveBfmlaIdx => Bfmla, Bf16, "`BFMLA <Zda>.H, <Zn>.H, <Zm>.H[<imm>]` (SVE BF16, FEAT_SVE_B16B16).";
+    SveBfmlsIdx => Bfmls, Bf16, "`BFMLS <Zda>.H, <Zn>.H, <Zm>.H[<imm>]` (SVE BF16, FEAT_SVE_B16B16).";
+    SveBfmulIdx => Bfmul, Bf16, "`BFMUL <Zd>.H, <Zn>.H, <Zm>.H[<imm>]` (SVE BF16, FEAT_SVE_B16B16).";
     // === SVE / SVE2 memory (load / store / prefetch). ===
     SveLd1bImm => Ld1b, Sve, "`LD1B` (SVE scalar + imm (MUL VL)).";
     SveLd1bSs => Ld1b, Sve, "`LD1B` (SVE scalar + scalar).";
@@ -2515,6 +2526,10 @@ codes! {
     FmlallbtVec => Fmlallbt, Fp8, "`FMLALLBT <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
     FmlalltbVec => Fmlalltb, Fp8, "`FMLALLTB <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
     FmlallttVec => Fmlalltt, Fp8, "`FMLALLTT <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
+    // --- NEON Advanced-SIMD FEAT_I8MM integer matrix multiply-accumulate ---
+    SmmlaVec => Smmla, I8mm, "`SMMLA <Vd>.4S, <Vn>.16B, <Vm>.16B` (Advanced SIMD signed 8-bit integer matrix multiply-accumulate, FEAT_I8MM).";
+    UmmlaVec => Ummla, I8mm, "`UMMLA <Vd>.4S, <Vn>.16B, <Vm>.16B` (Advanced SIMD unsigned 8-bit integer matrix multiply-accumulate, FEAT_I8MM).";
+    UsmmlaVec => Usmmla, I8mm, "`USMMLA <Vd>.4S, <Vn>.16B, <Vm>.16B` (Advanced SIMD mixed-sign 8-bit integer matrix multiply-accumulate, FEAT_I8MM).";
     // --- NEON Advanced-SIMD FEAT_FAMINMAX / FEAT_FP8 / FEAT_LUT (FP8 family) ---
     FamaxVec => Famax, Faminmax, "`FAMAX <Vd>.<T>, <Vn>.<T>, <Vm>.<T>` (Advanced SIMD FP absolute maximum, FEAT_FAMINMAX).";
     FaminVec => Famin, Faminmax, "`FAMIN <Vd>.<T>, <Vn>.<T>, <Vm>.<T>` (Advanced SIMD FP absolute minimum, FEAT_FAMINMAX).";
@@ -2685,6 +2700,8 @@ codes! {
     SmeZipMV4 => Zip, Sme2, "`zip { z0.b - z3.b }, { z0.b - z3.b }` (SME2 multi-vector, vgx4).";
     SmeUzpMV2 => Uzp, Sme2, "`uzp { z0.b, z1.b }, z0.b, z0.b` (SME2 multi-vector, vgx2).";
     SmeUzpMV4 => Uzp, Sme2, "`uzp { z0.b - z3.b }, { z0.b - z3.b }` (SME2 multi-vector, vgx4).";
+    SmeFmulMV2 => Fmul, Sme2, "`fmul { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }` (SME2/SVE2 multi-vector, vgx2).";
+    SmeFmulMV4 => Fmul, Sme2, "`fmul { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }` (SME2/SVE2 multi-vector, vgx4).";
 
     // --- SME2 / SVE2.1 contiguous multi-vector load/store (predicate-as-counter) ---
     SmeLd1bMV => Ld1b, Sme2, "`ld1b { z0.b, z1.b }, pn8/z, [x0, x0]` (SME2 multi-vector).";
@@ -5675,6 +5692,8 @@ pub enum Mnemonic {
     Bfmla,
     /// `BFMLS` (SME2 multi-vector).
     Bfmls,
+    /// `BFMUL` (SVE2 BF16, FEAT_SVE_B16B16).
+    Bfmul,
     /// `BFMLAL` (SME2 multi-vector).
     Bfmlal,
     /// `BFMLSL` (SME2 multi-vector).

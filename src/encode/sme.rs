@@ -790,6 +790,10 @@ mod imp {
             AluSh::ZipGroup => {
                 word |= pdep(group_field(insn, 1, f.vg, arr, f.zn)?, f.zn);
             }
+            AluSh::GroupGroup3 => {
+                word |= pdep(group_field(insn, 1, f.vg, arr, f.zn)?, f.zn);
+                word |= pdep(group_field(insn, 2, f.vg, arr, f.zm)?, f.zm);
+            }
         }
         Ok(word)
     }

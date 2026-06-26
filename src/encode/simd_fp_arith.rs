@@ -567,6 +567,11 @@ mod simd_arith {
                 (0u32, size, q, 0b111101u32)
             }
             Fcvtn2Fp8 => (0, 0b00, 1, 0b111101),
+            // FEAT_I8MM integer matrix multiply-accumulate (Q=1, size=10).
+            //   SMMLA  lo=101001 U=0; UMMLA lo=101001 U=1; USMMLA lo=101011 U=0.
+            SmmlaVec => (0, 0b10, 1, 0b101001),
+            UmmlaVec => (1, 0b10, 1, 0b101001),
+            UsmmlaVec => (0, 0b10, 1, 0b101011),
             _ => return Ok(None),
         };
         let rm = reg_num(insn, 2)?;

@@ -997,6 +997,71 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
     let sub = bits(word, 10, 6);
     let opc = bits(word, 22, 2); // <23:22>
 
+    // ---- FEAT_SVE_B16B16 BF16 multiply-add / multiply, indexed ----
+    // `<Zda>.h, <Zn>.h, <Zm>.h[i]`. Zm restricted to z0..z7 (<18:16>), index =
+    // i3h(<22>):i2l(<20:19>) (3-bit), `<23>==0`, `<21>==1`. The mnemonic is
+    // chosen by `<15:10>`: 000010 BFMLA, 000011 BFMLS, 001010 BFMUL.
+    if bit(word, 23) == 0 {
+        let bf_code = match sub {
+            0b000010 => Some(Code::SveBfmlaIdx),
+            0b000011 => Some(Code::SveBfmlsIdx),
+            0b001010 => Some(Code::SveBfmulIdx),
+            _ => None,
+        };
+        if let Some(code) = bf_code {
+            if !features.has(Feature::Bf16) {
+                return;
+            }
+            let zm = bits(word, 16, 3);
+            let idx = (bit(word, 22) << 2) | bits(word, 19, 2);
+            out.set(code);
+            out.push_operand(zreg(zda, VA::Sh));
+            out.push_operand(zreg(zn, VA::Sh));
+            out.push_operand(zreg_idx(zm, VA::Sh, idx as u8));
+            return;
+        }
+    }
+
+    // ---- FEAT_SSVE_FP8FMA FP8 widening multiply-add long, indexed z-form ----
+    // The two index bits il live in <11:10>, so key on the opcode field <15:12>
+    // (not the full <15:10>, which carries il).
+    // FMLALB/FMLALT (to `.h`): `<15:12>==0101`, `<22>==0`, T=<23>, Zm z0..z7
+    //   (<18:16>), index = ih(<20:19>):il(<11:10>) (4-bit).
+    // FMLALLBB/BT/TB/TT (to `.s`): `<15:12>==1100`, B/T pair in <23:22>, same
+    //   Zm/index layout.
+    let op1512 = bits(word, 12, 4);
+    if op1512 == 0b0101 && bit(word, 22) == 0 {
+        if !features.has(Feature::Fp8) {
+            return;
+        }
+        let zm = bits(word, 16, 3);
+        let idx = (bits(word, 19, 2) << 2) | bits(word, 10, 2);
+        let code = if bit(word, 23) == 0 { Code::SveFmlalbFp8Idx } else { Code::SveFmlaltFp8Idx };
+        out.set(code);
+        out.push_operand(zreg(zda, VA::Sh));
+        out.push_operand(zreg(zn, VA::Sb));
+        out.push_operand(zreg_idx(zm, VA::Sb, idx as u8));
+        return;
+    }
+    if op1512 == 0b1100 {
+        if !features.has(Feature::Fp8) {
+            return;
+        }
+        let zm = bits(word, 16, 3);
+        let idx = (bits(word, 19, 2) << 2) | bits(word, 10, 2);
+        let code = match bits(word, 22, 2) {
+            0b00 => Code::SveFmlallbbFp8Idx,
+            0b01 => Code::SveFmlallbtFp8Idx,
+            0b10 => Code::SveFmlalltbFp8Idx,
+            _ => Code::SveFmlallttFp8Idx,
+        };
+        out.set(code);
+        out.push_operand(zreg(zda, VA::Ss));
+        out.push_operand(zreg(zn, VA::Sb));
+        out.push_operand(zreg_idx(zm, VA::Sb, idx as u8));
+        return;
+    }
+
     // BFDOT vector: <23:22>=01, <15:10>=100000.
     if opc == 0b01 && sub == 0b100000 {
         if !features.has(Feature::Bf16) {

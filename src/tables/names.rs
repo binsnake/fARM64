@@ -1746,6 +1746,29 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Ldapp => "ldapp",
         Mnemonic::Ldap => "ldap",
         Mnemonic::Stlp => "stlp",
+        // --- K4: FEAT_SVE_AES2 multi-vector + narrowing converts ---
+        Mnemonic::Pmlal => "pmlal",
+        Mnemonic::Aesemc => "aesemc",
+        Mnemonic::Aesdimc => "aesdimc",
+        Mnemonic::Sqcvtn => "sqcvtn",
+        Mnemonic::Uqcvtn => "uqcvtn",
+        Mnemonic::Sqcvtun => "sqcvtun",
+        // --- K4: FEAT_MOPS SETGO* option variants ---
+        Mnemonic::Setgop => "setgop",
+        Mnemonic::Setgopt => "setgopt",
+        Mnemonic::Setgopn => "setgopn",
+        Mnemonic::Setgoptn => "setgoptn",
+        Mnemonic::Setgom => "setgom",
+        Mnemonic::Setgomt => "setgomt",
+        Mnemonic::Setgomn => "setgomn",
+        Mnemonic::Setgomtn => "setgomtn",
+        Mnemonic::Setgoe => "setgoe",
+        Mnemonic::Setgoet => "setgoet",
+        Mnemonic::Setgoen => "setgoen",
+        Mnemonic::Setgoetn => "setgoetn",
+        // --- K4: TCHANGE ---
+        Mnemonic::Tchangef => "tchangef",
+        Mnemonic::Tchangeb => "tchangeb",
     }
 }
 

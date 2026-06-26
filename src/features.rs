@@ -172,6 +172,20 @@ pub enum Feature {
     /// (`ADDQP`) / add-subtract (`ADDSUBP`) unpredicated forms and the 2-way
     /// `UDOT`/`SDOT` (`.h <- .b`) dot products.
     Sve2p3,
+    /// SVE AES enhancements (`FEAT_SVE_AES2`): the multi-vector quadword AES
+    /// round forms `AESE`/`AESD`/`AESEMC`/`AESDIMC` (`{ Zdn.b, ... }, { ... },
+    /// Zm.q[i]`) and the polynomial multiply-long `PMULL`/`PMLAL` (`{ Zd.q,
+    /// Zd+1.q }, Zn.d, Zm.d`).
+    SveAes2,
+    /// Floating-point to/from integer conversion with differing register widths
+    /// (`FEAT_FPRCVT`): the scalar `FCVT{N,P,M,Z,A}{S,U}` and `SCVTF`/`UCVTF`
+    /// forms whose source and destination FP/SIMD register widths differ
+    /// (e.g. `FCVTMS <Sd>, <Hn>`, `SCVTF <Dd>, <Sn>`).
+    Fprcvt,
+    /// Translation-table change instructions (`TCHANGEF`/`TCHANGEB`): the
+    /// system-block `TCHANGE{F,B} <Xt>, <Xn>` (register) and `TCHANGE{F,B} <Xt>,
+    /// #<imm>` (immediate) forms.
+    Tchange,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

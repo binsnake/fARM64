@@ -148,10 +148,33 @@ fn mops_fields(code: Code) -> Option<(u32, u32, u32)> {
     })
 }
 
+/// `Code -> op2` for the FEAT_MOPS memory-set-with-tag *option* forms
+/// (`SETGO*`). These share `(family, op1) == (1, 6)` but use `word<11:10> == 00`
+/// (not `01`) and a fixed `word<20:16> == 11111` value field; only `[Xd]!, Xn!`
+/// are operands. `None` for any other code.
+fn setg_option_op2(code: Code) -> Option<u32> {
+    use Code::*;
+    Some(match code {
+        SetgopMops => 0,
+        SetgoptMops => 1,
+        SetgopnMops => 2,
+        SetgoptnMops => 3,
+        SetgomMops => 4,
+        SetgomtMops => 5,
+        SetgomnMops => 6,
+        SetgomtnMops => 7,
+        SetgoeMops => 8,
+        SetgoetMops => 9,
+        SetgoenMops => 10,
+        SetgoetnMops => 11,
+        _ => return None,
+    })
+}
+
 /// `true` if `code` is a FEAT_MOPS Memory Copy / Memory Set encoding.
 #[inline]
 pub fn is_mops(code: Code) -> bool {
-    mops_fields(code).is_some()
+    mops_fields(code).is_some() || setg_option_op2(code).is_some()
 }
 
 /// The 5-bit register number from a plain `Reg` operand.
@@ -187,6 +210,23 @@ fn mem_bang(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
 
 /// Encode a Memory Copy / Memory Set (`FEAT_MOPS`) instruction.
 pub fn encode(insn: &Instruction) -> R {
+    // SETG*-option forms: `[Xd]!, Xn!` only, `word<11:10>==00`, value field `xzr`.
+    if let Some(op2) = setg_option_op2(insn.code()) {
+        let rd = mem_bang(insn, 0)?;
+        let rs = reg_bang(insn, 1)?;
+        // word<11:10> == 00 (the option marker) distinguishes these from the
+        // value-register SETG forms (word<11:10> == 01).
+        let word = (0b00011 << 27)
+            | (1 << 26) // SETG family
+            | (0b01 << 24)
+            | (0b110 << 21) // op1 = 6
+            | (0b11111 << 16) // value field = xzr
+            | (op2 << 12)
+            | (rs << 5)
+            | rd;
+        return Ok(word);
+    }
+
     let (family, op1, op2) = mops_fields(insn.code()).ok_or(EncodeError::Unsupported)?;
 
     // Operand order differs between the copy and set families (see the decoder).

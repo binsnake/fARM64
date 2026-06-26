@@ -39,6 +39,7 @@ pub(super) fn is_fp(code: Code) -> bool {
         // 0x64
             | SveFcmlaZpzzz | SveFcadd | SveFaddpZpzz | SveFmaxnmpZpzz | SveFminnmpZpzz | SveFmaxpZpzz
             | SveFminpZpzz | SveFcvtnt | SveFcvtlt | SveFcvtxnt | SveBfcvtnt
+            | SveFcvtntZ | SveFcvtltZ | SveFcvtxntZ | SveBfcvtntZ
             | SveFmlaIdx | SveFmlsIdx | SveFmulIdx | SveFcmlaIdx | SveFmmla | SveBfmmla
             | SveBfdot | SveBfdotIdx | SveBfmlalb | SveBfmlalt | SveBfmlalbIdx | SveBfmlaltIdx
             | SveFmlalb | SveFmlalt | SveFmlslb | SveFmlslt
@@ -346,6 +347,8 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         }
         // ---- 0x64 narrow/long converts ----
         SveFcvtnt | SveFcvtlt | SveFcvtxnt | SveBfcvtnt => enc_64_narrow(insn, code)?,
+        // ---- K4: 0x64 narrow/long converts, zeroing (/z) ----
+        SveFcvtntZ | SveFcvtltZ | SveFcvtxntZ | SveBfcvtntZ => enc_64_narrow_z(insn, code)?,
         // ---- 0x64 indexed multiply-add / multiply ----
         SveFmlaIdx | SveFmlsIdx => {
             let is_fmls = matches!(code, SveFmlsIdx);
@@ -943,6 +946,28 @@ fn enc_64_narrow(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
         _ => return Err(EncodeError::InvalidOperand),
     };
     Ok(base64(0) | fld(sel, 16) | fld(0b101, 13) | fld(pg, 10) | fld(zn, 5) | zd)
+}
+
+/// Inverse of the SVE2.2 zeroing (`/z`) narrow/long converts. `<20:19>=00`,
+/// `<18:16>`(opc):`<23:22>`(size) select the operation; predicate is zeroing.
+fn enc_64_narrow_z(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
+    let da = arr_of(insn, 0)?;
+    let sa = arr_of(insn, 2)?;
+    let zd = z(insn, 0)?;
+    let pg = p(insn, 1)?;
+    let zn = z(insn, 2)?;
+    use VA::{Sd, Sh, Ss};
+    // (size<23:22>, opc<18:16>) for each (code, dst, src).
+    let (size, opc) = match (code, da, sa) {
+        (SveFcvtntZ, Sh, Ss) => (0b10, 0b000),
+        (SveFcvtntZ, Ss, Sd) => (0b11, 0b010),
+        (SveFcvtltZ, Ss, Sh) => (0b10, 0b001),
+        (SveFcvtltZ, Sd, Ss) => (0b11, 0b011),
+        (SveFcvtxntZ, Ss, Sd) => (0b00, 0b010),
+        (SveBfcvtntZ, Sh, Ss) => (0b10, 0b010),
+        _ => return Err(EncodeError::InvalidOperand),
+    };
+    Ok(base64(0) | fld(size, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10) | fld(zn, 5) | zd)
 }
 
 /// FMLA/FMLS by indexed element (0x64).

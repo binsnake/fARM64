@@ -82,6 +82,11 @@ pub(super) fn is_int(code: Code) -> bool {
         // FEAT_CPA madpt/mlapt/subp
             | SveAddqp | SveAddsubp | SveSdotHb | SveUdotHb | SveSqabsZ | SveSqnegZ
             | SveMadpt | SveMlapt | SveSubpPred
+        // K4: SVE2.2 URECPE/URSQRTE reciprocal estimate, zeroing
+            | SveUrecpeZ | SveUrsqrteZ
+        // K4: FEAT_SVE_AES2 multi-vector AES + PMULL/PMLAL, SVE2.1 narrowing converts
+            | SveAese2 | SveAesd2 | SveAesemc2 | SveAesdimc2 | SvePmull2 | SvePmlal2
+            | SveSqcvtn | SveUqcvtn | SveSqcvtun
     )
 }
 

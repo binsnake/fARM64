@@ -49,6 +49,10 @@ pub fn is_simd_fp(code: Code) -> bool {
         | FcvtzuScalarD32 | FcvtzuScalarD64 | FcvtzuScalarH32 | FcvtzuScalarH64
         | FcvtnsScalar | FcvtnuScalar | FcvtasScalar | FcvtauScalar | FcvtpsScalar
         | FcvtpuScalar | FcvtmsScalar | FcvtmuScalar | Fjcvtzs
+        // --- K4: FEAT_FPRCVT fp<->int convert, differing register widths ---
+        | FcvtnsFprcvt | FcvtnuFprcvt | FcvtpsFprcvt | FcvtpuFprcvt | FcvtmsFprcvt
+        | FcvtmuFprcvt | FcvtzsFprcvt | FcvtzuFprcvt | FcvtasFprcvt | FcvtauFprcvt
+        | ScvtfFprcvt | UcvtfFprcvt
         | FmovToGp32 | FmovFromGp32 | FmovToGp64 | FmovFromGp64 | FmovToGpH32 | FmovFromGpH32
         | FmovToGpH64 | FmovFromGpH64 | FmovTopToGp | FmovTopFromGp
         // --- scalar FP: dp1 ---

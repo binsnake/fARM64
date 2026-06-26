@@ -48,6 +48,10 @@ mod scalar_fp {
             | FcvtzuScalarD64 | FcvtzuScalarH32 | FcvtzuScalarH64 | FcvtnsScalar | FcvtnuScalar
             | FcvtasScalar | FcvtauScalar | FcvtpsScalar | FcvtpuScalar | FcvtmsScalar
             | FcvtmuScalar => enc_float2int(insn, code)?,
+            // --- K4: FEAT_FPRCVT fp<->int convert, differing register widths ---
+            FcvtnsFprcvt | FcvtnuFprcvt | FcvtpsFprcvt | FcvtpuFprcvt | FcvtmsFprcvt
+            | FcvtmuFprcvt | FcvtzsFprcvt | FcvtzuFprcvt | FcvtasFprcvt | FcvtauFprcvt
+            | ScvtfFprcvt | UcvtfFprcvt => enc_fprcvt(insn, code)?,
             Fjcvtzs => enc_fjcvtzs(insn)?,
             // --- FMOV general<->FP and top-half ---
             FmovToGp32 | FmovFromGp32 | FmovToGp64 | FmovFromGp64 | FmovToGpH32 | FmovFromGpH32
@@ -242,6 +246,58 @@ mod scalar_fp {
             }
         };
         let word = fp_base(p.ftype())
+            | (sf << 31)
+            | (rmode << 19)
+            | (opcode << 16)
+            | (rn << 5)
+            | rd;
+        Ok(word)
+    }
+
+    /// FEAT_FPRCVT scalar fp<->int convert with differing register widths.
+    /// `sf` selects the integer-holder precision (S=0/D=1); `ftype` the FP-value
+    /// precision. Inverse of `decode_fprcvt`.
+    fn enc_fprcvt(insn: &Instruction, code: Code) -> R {
+        use Code::*;
+        let (rmode, opcode, int_to_fp) = match code {
+            FcvtnsFprcvt => (0b01u32, 0b010u32, false),
+            FcvtnuFprcvt => (0b01, 0b011, false),
+            FcvtpsFprcvt => (0b10, 0b010, false),
+            FcvtpuFprcvt => (0b10, 0b011, false),
+            FcvtmsFprcvt => (0b10, 0b100, false),
+            FcvtmuFprcvt => (0b10, 0b101, false),
+            FcvtzsFprcvt => (0b10, 0b110, false),
+            FcvtzuFprcvt => (0b10, 0b111, false),
+            FcvtasFprcvt => (0b11, 0b010, false),
+            FcvtauFprcvt => (0b11, 0b011, false),
+            ScvtfFprcvt => (0b11, 0b100, true),
+            _ => (0b11, 0b101, true), // UcvtfFprcvt
+        };
+        // Recover the FP-value precision (`ftype`) and the integer-holder
+        // precision (`sf`). For FCVT* the dst is the int holder and the src is
+        // the FP value; for SCVTF/UCVTF it is the reverse.
+        let (fp_p, int_p, rd, rn) = if int_to_fp {
+            // <Vd(fp)>, <Vn(int)>
+            let fp_p = prec_of_scalar(insn, 0)?;
+            let int_p = prec_of_scalar(insn, 1)?;
+            (fp_p, int_p, fp_dst(insn, 0, fp_p)?, fp_src(insn, 1, int_p)?)
+        } else {
+            // <Vd(int)>, <Vn(fp)>
+            let int_p = prec_of_scalar(insn, 0)?;
+            let fp_p = prec_of_scalar(insn, 1)?;
+            (fp_p, int_p, fp_dst(insn, 0, int_p)?, fp_src(insn, 1, fp_p)?)
+        };
+        // The integer holder must be S (sf=0) or D (sf=1); H is not a valid
+        // integer-holder width. The two precisions must differ.
+        let sf = match int_p {
+            P::S => 0u32,
+            P::D => 1,
+            P::H => return Err(EncodeError::InvalidOperand),
+        };
+        if fp_p == int_p {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let word = fp_base(fp_p.ftype())
             | (sf << 31)
             | (rmode << 19)
             | (opcode << 16)

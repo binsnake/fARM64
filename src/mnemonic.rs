@@ -3064,6 +3064,80 @@ codes! {
     // `{ Zd0.h, Zd4.h, Zd8.h, Zd12.h }, { Zn.h, Zn+1.h }, { Zt, Zt+1 }[index]`.
     // FEAT_LUT.
     SmeLuti6 => Luti6, Lut, "`luti6 { z0.h, z4.h, z8.h, z12.h }, { z0.h, z1.h }, { z0, z1 }[0]` (SME2 multi-vector lookup).";
+
+    // --- K4: SVE2.2 narrow/long FP converts, ZEROING (/z) ---
+    // The `/z`-predicated analogues of SveFcvtnt/SveFcvtlt/SveFcvtxnt/SveBfcvtnt
+    // (`0x64`, `<21>=0`, `<20:19>=00`, `<15:13>=101`). FEAT_SVE2p2.
+    SveFcvtntZ => Fcvtnt, Sve2p2, "`FCVTNT <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.2 narrow top, zeroing).";
+    SveFcvtltZ => Fcvtlt, Sve2p2, "`FCVTLT <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.2 long top, zeroing).";
+    SveFcvtxntZ => Fcvtxnt, Sve2p2, "`FCVTXNT <Zd>.S, <Pg>/Z, <Zn>.D` (SVE2.2 narrow round-odd top, zeroing).";
+    SveBfcvtntZ => Bfcvtnt, Sve2p2, "`BFCVTNT <Zd>.H, <Pg>/Z, <Zn>.S` (SVE2.2 BF16 narrow top, zeroing).";
+
+    // --- K4: SVE2.2 URECPE/URSQRTE reciprocal estimate, ZEROING (/z) ---
+    // `<18:16>=010/011` (the `/m` forms use `000/001`). FEAT_SVE2p2.
+    SveUrecpeZ => Urecpe, Sve2p2, "`URECPE <Zd>.S, <Pg>/Z, <Zn>.S` (SVE2.2 unsigned reciprocal estimate, zeroing).";
+    SveUrsqrteZ => Ursqrte, Sve2p2, "`URSQRTE <Zd>.S, <Pg>/Z, <Zn>.S` (SVE2.2 unsigned reciprocal sqrt estimate, zeroing).";
+
+    // --- K4: FEAT_SVE_AES2 multi-vector quadword AES round ---
+    // `{ Zdn.b, .. }, { Zdn.b, .. }, Zm.q[i]` — a 2- or 4-register destructive
+    // group, indexed by a quadword element of Zm. <12:10>=01D (D=encrypt/decrypt),
+    // <16>=MC (mix-columns), <18>=quad, <20:19>=q-index.
+    SveAese2 => Aese, SveAes2, "`AESE { Zdn.b, .. }, { Zdn.b, .. }, Zm.q[i]` (FEAT_SVE_AES2 multi-vector encrypt).";
+    SveAesd2 => Aesd, SveAes2, "`AESD { Zdn.b, .. }, { Zdn.b, .. }, Zm.q[i]` (FEAT_SVE_AES2 multi-vector decrypt).";
+    SveAesemc2 => Aesemc, SveAes2, "`AESEMC { Zdn.b, .. }, { Zdn.b, .. }, Zm.q[i]` (FEAT_SVE_AES2 encrypt + mix-columns).";
+    SveAesdimc2 => Aesdimc, SveAes2, "`AESDIMC { Zdn.b, .. }, { Zdn.b, .. }, Zm.q[i]` (FEAT_SVE_AES2 decrypt + inv-mix-columns).";
+
+    // --- K4: FEAT_SVE_AES2 polynomial multiply-long, quadword (.q <- .d) ---
+    // `{ Zd.q, Zd+1.q }, Zn.d, Zm.d`. <12:10>=110 PMULL, 111 PMLAL.
+    SvePmull2 => Pmull, SveAes2, "`PMULL { Zd.q, Zd+1.q }, Zn.d, Zm.d` (FEAT_SVE_AES2 polynomial multiply-long).";
+    SvePmlal2 => Pmlal, SveAes2, "`PMLAL { Zd.q, Zd+1.q }, Zn.d, Zm.d` (FEAT_SVE_AES2 polynomial multiply-accumulate long).";
+
+    // --- K4: SVE2.1 multi-vector saturating narrowing converts (.h <- {.s,.s}) ---
+    // `Zd.h, { Zn.s, Zn+1.s }`. <15:13>=010, <20:16>=10001, <12:10> selects sign.
+    SveSqcvtn => Sqcvtn, Sve2p1, "`SQCVTN Zd.h, { Zn.s, Zn+1.s }` (SVE2.1 signed saturating narrow).";
+    SveUqcvtn => Uqcvtn, Sve2p1, "`UQCVTN Zd.h, { Zn.s, Zn+1.s }` (SVE2.1 unsigned saturating narrow).";
+    SveSqcvtun => Sqcvtun, Sve2p1, "`SQCVTUN Zd.h, { Zn.s, Zn+1.s }` (SVE2.1 signed-to-unsigned saturating narrow).";
+
+    // --- K4: FEAT_FPRCVT scalar FP<->int convert, differing register widths ---
+    // The FP/int holder register widths differ (e.g. `FCVTMS <Sd>, <Hn>`,
+    // `SCVTF <Dd>, <Sn>`). One code per operation; the operand widths carry the
+    // src/dst precisions, reconstructed at encode.
+    FcvtnsFprcvt => Fcvtns, Fprcvt, "`FCVTNS <Vd>, <Vn>` (FEAT_FPRCVT round-to-nearest, differing widths).";
+    FcvtnuFprcvt => Fcvtnu, Fprcvt, "`FCVTNU <Vd>, <Vn>` (FEAT_FPRCVT round-to-nearest unsigned).";
+    FcvtpsFprcvt => Fcvtps, Fprcvt, "`FCVTPS <Vd>, <Vn>` (FEAT_FPRCVT round toward +inf).";
+    FcvtpuFprcvt => Fcvtpu, Fprcvt, "`FCVTPU <Vd>, <Vn>` (FEAT_FPRCVT round toward +inf unsigned).";
+    FcvtmsFprcvt => Fcvtms, Fprcvt, "`FCVTMS <Vd>, <Vn>` (FEAT_FPRCVT round toward -inf).";
+    FcvtmuFprcvt => Fcvtmu, Fprcvt, "`FCVTMU <Vd>, <Vn>` (FEAT_FPRCVT round toward -inf unsigned).";
+    FcvtzsFprcvt => Fcvtzs, Fprcvt, "`FCVTZS <Vd>, <Vn>` (FEAT_FPRCVT round toward zero).";
+    FcvtzuFprcvt => Fcvtzu, Fprcvt, "`FCVTZU <Vd>, <Vn>` (FEAT_FPRCVT round toward zero unsigned).";
+    FcvtasFprcvt => Fcvtas, Fprcvt, "`FCVTAS <Vd>, <Vn>` (FEAT_FPRCVT round-to-nearest ties-away).";
+    FcvtauFprcvt => Fcvtau, Fprcvt, "`FCVTAU <Vd>, <Vn>` (FEAT_FPRCVT round-to-nearest ties-away unsigned).";
+    ScvtfFprcvt => Scvtf, Fprcvt, "`SCVTF <Vd>, <Vn>` (FEAT_FPRCVT signed int-to-FP, differing widths).";
+    UcvtfFprcvt => Ucvtf, Fprcvt, "`UCVTF <Vd>, <Vn>` (FEAT_FPRCVT unsigned int-to-FP, differing widths).";
+
+    // --- K4: FEAT_MOPS memory-set-with-tag, OPTION variants (SETGO*) ---
+    // `<11:10>=00` (vs `01` for the value-register SETG forms); the value source
+    // is an implementation-defined option, so only `[Xd]!, Xn!` are operands.
+    SetgopMops => Setgop, Mops, "`SETGOP [<Xd>]!, <Xn>!` (memory set with tag, option, prologue).";
+    SetgoptMops => Setgopt, Mops, "`SETGOPT [<Xd>]!, <Xn>!` (memory set with tag, option, prologue, unpriv).";
+    SetgopnMops => Setgopn, Mops, "`SETGOPN [<Xd>]!, <Xn>!` (memory set with tag, option, prologue, non-temporal).";
+    SetgoptnMops => Setgoptn, Mops, "`SETGOPTN [<Xd>]!, <Xn>!` (memory set with tag, option, prologue, unpriv+nt).";
+    SetgomMops => Setgom, Mops, "`SETGOM [<Xd>]!, <Xn>!` (memory set with tag, option, main).";
+    SetgomtMops => Setgomt, Mops, "`SETGOMT [<Xd>]!, <Xn>!` (memory set with tag, option, main, unpriv).";
+    SetgomnMops => Setgomn, Mops, "`SETGOMN [<Xd>]!, <Xn>!` (memory set with tag, option, main, non-temporal).";
+    SetgomtnMops => Setgomtn, Mops, "`SETGOMTN [<Xd>]!, <Xn>!` (memory set with tag, option, main, unpriv+nt).";
+    SetgoeMops => Setgoe, Mops, "`SETGOE [<Xd>]!, <Xn>!` (memory set with tag, option, epilogue).";
+    SetgoetMops => Setgoet, Mops, "`SETGOET [<Xd>]!, <Xn>!` (memory set with tag, option, epilogue, unpriv).";
+    SetgoenMops => Setgoen, Mops, "`SETGOEN [<Xd>]!, <Xn>!` (memory set with tag, option, epilogue, non-temporal).";
+    SetgoetnMops => Setgoetn, Mops, "`SETGOETN [<Xd>]!, <Xn>!` (memory set with tag, option, epilogue, unpriv+nt).";
+
+    // --- K4: TCHANGE translation-table change (system block 1101010110_00) ---
+    // `<18>` selects forward (0) / backward (1); `<20:19>` selects register (00,
+    // Xn=<9:5>) vs immediate (10, imm7=<11:5>). FEAT_TCHANGE.
+    TchangefReg => Tchangef, Tchange, "`TCHANGEF <Xt>, <Xn>` (translation-table change forward, register).";
+    TchangebReg => Tchangeb, Tchange, "`TCHANGEB <Xt>, <Xn>` (translation-table change backward, register).";
+    TchangefImm => Tchangef, Tchange, "`TCHANGEF <Xt>, #<imm>` (translation-table change forward, immediate).";
+    TchangebImm => Tchangeb, Tchange, "`TCHANGEB <Xt>, #<imm>` (translation-table change backward, immediate).";
 }
 
 impl Code {
@@ -6218,6 +6292,49 @@ pub enum Mnemonic {
     Ldap,
     /// `STLP` (FEAT_LRCPC3 ordered store pair).
     Stlp,
+    // --- K4: FEAT_SVE_AES2 multi-vector + multi-vector narrowing converts ---
+    /// `PMLAL` (FEAT_SVE_AES2 polynomial multiply-accumulate long, quadword).
+    Pmlal,
+    /// `AESEMC` (FEAT_SVE_AES2 AES encrypt + mix-columns, multi-vector).
+    Aesemc,
+    /// `AESDIMC` (FEAT_SVE_AES2 AES decrypt + inverse-mix-columns, multi-vector).
+    Aesdimc,
+    /// `SQCVTN` (SVE2 multi-vector signed saturating narrowing convert).
+    Sqcvtn,
+    /// `UQCVTN` (SVE2 multi-vector unsigned saturating narrowing convert).
+    Uqcvtn,
+    /// `SQCVTUN` (SVE2 multi-vector signed-to-unsigned saturating narrowing convert).
+    Sqcvtun,
+    // --- K4: FEAT_MOPS memory-set-with-tag option variants (SETGO*) ---
+    /// `SETGOP` (memory set with tag, option, prologue).
+    Setgop,
+    /// `SETGOPT` (memory set with tag, option, prologue, unprivileged at PE).
+    Setgopt,
+    /// `SETGOPN` (memory set with tag, option, prologue, non-temporal).
+    Setgopn,
+    /// `SETGOPTN` (memory set with tag, option, prologue, unpriv + non-temporal).
+    Setgoptn,
+    /// `SETGOM` (memory set with tag, option, main).
+    Setgom,
+    /// `SETGOMT` (memory set with tag, option, main, unprivileged).
+    Setgomt,
+    /// `SETGOMN` (memory set with tag, option, main, non-temporal).
+    Setgomn,
+    /// `SETGOMTN` (memory set with tag, option, main, unpriv + non-temporal).
+    Setgomtn,
+    /// `SETGOE` (memory set with tag, option, epilogue).
+    Setgoe,
+    /// `SETGOET` (memory set with tag, option, epilogue, unprivileged).
+    Setgoet,
+    /// `SETGOEN` (memory set with tag, option, epilogue, non-temporal).
+    Setgoen,
+    /// `SETGOETN` (memory set with tag, option, epilogue, unpriv + non-temporal).
+    Setgoetn,
+    // --- K4: TCHANGE translation-table change (register + immediate) ---
+    /// `TCHANGEF` (translation-table change, forward).
+    Tchangef,
+    /// `TCHANGEB` (translation-table change, backward).
+    Tchangeb,
 }
 
 impl Mnemonic {

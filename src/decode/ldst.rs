@@ -335,6 +335,23 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         return;
     }
 
+    // 4a') FEAT_MOPS memory-set-with-tag OPTION variants (`SETGO*`). Same major
+    //     as 4a but `word<11:10> == 0b00` and `word<26> == 1` (SETG family),
+    //     `op1 (word<23:21>) == 6`. Distinct from the `word<26> == 0` RCpc-unscaled
+    //     forms which also use `word<11:10> == 0b00`. Match precisely.
+    if bits(word, 30, 2) == 0b00
+        && bits(word, 27, 3) == 0b011
+        && bits(word, 24, 2) == 0b01
+        && bit(word, 26) == 1
+        && bits(word, 10, 2) == 0b00
+        && bits(word, 21, 3) == 0b110
+    {
+        if features.has(Feature::Mops) {
+            crate::decode::mops::decode_setg_option(word, out);
+        }
+        return;
+    }
+
     // 4b) Memory tagging + GP LDAPUR/STLUR + RCPC3 LDIAPP/STILP live under
     //     word<29:24> == 0b011001.
     if bits(word, 24, 6) == 0b011001 {

@@ -87,10 +87,46 @@ pub fn encode(insn: &Instruction) -> R {
         Mrrs | Msrr => enc_sysreg_pair(insn),
         // System: FEAT_D128 SYSP / TLBIP (system pair).
         Sysp => enc_sysp(insn),
+        // K4: TCHANGE translation-table change (register / immediate).
+        TchangefReg | TchangebReg | TchangefImm | TchangebImm => enc_tchange(insn),
         // Reserved: UDF.
         Udf => enc_udf(insn),
         _ => Err(EncodeError::Unsupported),
     }
+}
+
+/// `TCHANGE{F,B} <Xt>, <Xn>` / `TCHANGE{F,B} <Xt>, #<imm>`. Inverse of
+/// `decode_tchange`. Base `word<31:22> == 1101010110`, `word<16> == 0`,
+/// `CRn == 0`; `word<18>` = forward(0)/backward(1); `word<20:19>` = register(00)
+/// / immediate(10).
+fn enc_tchange(insn: &Instruction) -> R {
+    use Code::*;
+    let base = 0b11_0101_0110_u32 << 22; // word<31:22> = 1101010110
+    let rt = reg_num(insn, 0)?;
+    let backward = matches!(insn.code(), TchangebReg | TchangebImm);
+    let b18 = if backward { 1u32 } else { 0 };
+    let is_reg = matches!(insn.code(), TchangefReg | TchangebReg);
+    let mut word = if is_reg {
+        let xn = reg_num(insn, 1)?;
+        // op0 (word<20:19>) == 00 for the register form.
+        base | (b18 << 18) | (xn << 5) | rt
+    } else {
+        // immediate form: imm7 = word<11:5>.
+        let imm = imm_u(insn, 1)?;
+        if imm > 0x7f {
+            return Err(EncodeError::InvalidImmediate);
+        }
+        base | (0b10 << 19) | (b18 << 18) | ((imm as u32) << 5) | rt
+    };
+    // Optional trailing `, nb` (no-barrier) modifier sets word<17>.
+    if let Operand::SysOp(tok) = insn.op(2) {
+        if tok.name() == "nb" {
+            word |= 1 << 17;
+        } else {
+            return Err(EncodeError::InvalidOperand);
+        }
+    }
+    Ok(word)
 }
 
 // ---------------------------------------------------------------------------

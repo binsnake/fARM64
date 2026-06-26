@@ -94,6 +94,11 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         decode_system_pair(word, features, out);
         return;
     }
+    // TCHANGE translation-table change block: `word<31:22> == 11_0101_0110`.
+    if bits(word, 22, 10) == 0b11_0101_0110 {
+        decode_tchange(word, features, out);
+        return;
+    }
 
     // Conditional branch (immediate): word<31:25> == 0101010.
     if b25_31 == 0b0101010 {
@@ -544,6 +549,51 @@ fn push_optional_imm(out: &mut Instruction, imm16: u32) {
 // ---------------------------------------------------------------------------
 // System: hints, barriers, MSR(imm)/PSTATE, MSR/MRS(reg), SYS/SYSL.
 // ---------------------------------------------------------------------------
+
+/// TCHANGE translation-table change block (`word<31:22> == 1101010110`).
+///
+/// `TCHANGE{F,B} <Xt>, <Xn>{, nb}` (register) and `TCHANGE{F,B} <Xt>, #<imm>{,
+/// nb}` (immediate). Layout: `L (word<21>) == 0`, `op0 (word<20:19>)` selects
+/// register (`00`, `Xn = word<9:5>`) vs immediate (`10`, `imm7 = word<11:5>`);
+/// `word<18>` selects forward (0) / backward (1); `word<17>` selects the `nb`
+/// (no-barrier) modifier; `word<16> == 0` and `CRn (word<15:12>) == 0`. For the
+/// register form the high `CRm` bits (`word<11:10>`) must be 0. `Xt = word<4:0>`.
+#[inline]
+fn decode_tchange(word: u32, features: FeatureSet, out: &mut Instruction) {
+    if !features.has(Feature::Tchange) {
+        return;
+    }
+    // Fixed structural bits: L==0, op1 LSB (word<16>)==0, CRn==0.
+    if bit(word, 21) != 0 || bit(word, 16) != 0 || bits(word, 12, 4) != 0 {
+        return;
+    }
+    let backward = bit(word, 18) == 1;
+    let nb = bit(word, 17) == 1; // no-barrier modifier (trailing `, nb`).
+    let rt = bits(word, 0, 5);
+    match bits(word, 19, 2) {
+        0b00 => {
+            // Register form: `Xn = word<9:5>`; the upper `CRm` bits must be 0.
+            if bits(word, 10, 2) != 0 {
+                return;
+            }
+            let xn = bits(word, 5, 5);
+            out.set(if backward { Code::TchangebReg } else { Code::TchangefReg });
+            out.push_operand(xreg(false, rt));
+            out.push_operand(xreg(false, xn));
+        }
+        0b10 => {
+            // Immediate form: `imm7 = word<11:5>`.
+            let imm = bits(word, 5, 7);
+            out.set(if backward { Code::TchangebImm } else { Code::TchangefImm });
+            out.push_operand(xreg(false, rt));
+            out.push_operand(Operand::ImmUnsigned(imm as u64));
+        }
+        _ => return,
+    }
+    if nb {
+        out.push_operand(Operand::SysOp(crate::sysop::SysToken::of("nb")));
+    }
+}
 
 /// System-instruction block (ARM ARM C4.1.3): `word<31:22> == 1101010100`.
 /// Fields: `L` (`word<21>`), `op0` (`word<20:19>`), `op1` (`word<18:16>`),

@@ -223,6 +223,15 @@ pub fn decode_float2int(word: u32, features: FeatureSet, out: &mut Instruction) 
     }
     let w = width_of(sf);
 
+    // FEAT_FPRCVT: scalar FP<->int conversions whose FP and integer-holding
+    // register widths differ. Encoded here in the float<->int slot but with both
+    // operands as scalar-FP registers; the `sf` bit selects the *integer-holder*
+    // precision (0=S, 1=D) and `ftype` the *FP-value* precision. The two must
+    // differ (same-width pairs are UNALLOCATED — they use the legacy encodings).
+    if decode_fprcvt(rmode, opcode, sf, p, rn, rd, features, out) {
+        return;
+    }
+
     // FMOV general<->FP: opcode 6/7 with rmode==00.
     if rmode == 0b00 && (opcode == 0b110 || opcode == 0b111) {
         return fmov_general(word, p, sf, w, opcode, rn, rd, out);
@@ -259,6 +268,79 @@ pub fn decode_float2int(word: u32, features: FeatureSet, out: &mut Instruction) 
         out.push_operand(gpr(w, rd));
         out.push_operand(fp_reg(p, rn));
     }
+}
+
+/// The scalar-FP precision of the integer-holding register for an `sf` bit
+/// (`0` => S/32, `1` => D/64).
+#[inline]
+fn int_holder_prec(sf: u32) -> Prec {
+    if sf & 1 == 1 {
+        Prec::D
+    } else {
+        Prec::S
+    }
+}
+
+/// FEAT_FPRCVT scalar FP<->int convert with differing register widths. `p` is
+/// the `ftype`-derived FP-value precision; `sf` selects the integer-holder
+/// precision (`int_holder_prec`). Returns `true` (and fills `out`) when the
+/// `(rmode, opcode)` is one of the FPRCVT operations *and* the two precisions
+/// differ; otherwise leaves `out` untouched and returns `false`.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn decode_fprcvt(
+    rmode: u32,
+    opcode: u32,
+    sf: u32,
+    p: Prec,
+    rn: u32,
+    rd: u32,
+    features: FeatureSet,
+    out: &mut Instruction,
+) -> bool {
+    // (rmode, opcode) -> (code, is int->fp). FP-to-int operations write the
+    // rounded integer into an FP/SIMD register; SCVTF/UCVTF read it.
+    let (code, int_to_fp) = match (rmode, opcode) {
+        (0b01, 0b010) => (Code::FcvtnsFprcvt, false),
+        (0b01, 0b011) => (Code::FcvtnuFprcvt, false),
+        (0b10, 0b010) => (Code::FcvtpsFprcvt, false),
+        (0b10, 0b011) => (Code::FcvtpuFprcvt, false),
+        (0b10, 0b100) => (Code::FcvtmsFprcvt, false),
+        (0b10, 0b101) => (Code::FcvtmuFprcvt, false),
+        (0b10, 0b110) => (Code::FcvtzsFprcvt, false),
+        (0b10, 0b111) => (Code::FcvtzuFprcvt, false),
+        (0b11, 0b010) => (Code::FcvtasFprcvt, false),
+        (0b11, 0b011) => (Code::FcvtauFprcvt, false),
+        (0b11, 0b100) => (Code::ScvtfFprcvt, true),
+        (0b11, 0b101) => (Code::UcvtfFprcvt, true),
+        _ => return false,
+    };
+    if !features.has(Feature::Fprcvt) {
+        return false;
+    }
+    let int_p = int_holder_prec(sf); // only ever S or D.
+    // The FP value precision and the integer-holder precision must differ
+    // (same-width pairs are UNALLOCATED in this slot).
+    if p == int_p {
+        return false;
+    }
+    // FP16 forms (the FP value being H) require FEAT_FP16. (The caller already
+    // gates `p == H` on FEAT_FP16 before reaching here, but re-check for safety
+    // since this helper is otherwise self-contained.)
+    if p == Prec::H && !features.has(Feature::Fp16) {
+        return false;
+    }
+    out.set(code);
+    if int_to_fp {
+        // SCVTF/UCVTF <Vd(fp=p)>, <Vn(int=int_p)>.
+        out.push_operand(fp_reg(p, rd));
+        out.push_operand(fp_reg(int_p, rn));
+    } else {
+        // FCVT* <Vd(int=int_p)>, <Vn(fp=p)>.
+        out.push_operand(fp_reg(int_p, rd));
+        out.push_operand(fp_reg(p, rn));
+    }
+    true
 }
 
 /// FMOV between a general-purpose register and a scalar FP register (opcode 6/7,

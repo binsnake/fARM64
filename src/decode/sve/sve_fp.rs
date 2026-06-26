@@ -887,6 +887,44 @@ fn decode_64_narrow_convert(word: u32, features: FeatureSet, out: &mut Instructi
         }
         _ => {}
     }
+
+    // SVE2.2 zeroing (`/z`) analogues: same family but `<20:19>=00` and the
+    // governing predicate is zeroing. Opcode = `<23:22>`(size) : `<18:16>`(opc).
+    // (The `/m` forms above sit at `<20:19>=01`; these never alias them.)
+    if bits(word, 19, 2) != 0 {
+        return; // `<20:19>` must be 00 for this group (avoid over-decode).
+    }
+    if !features.has(Feature::Sve2p2) {
+        return;
+    }
+    macro_rules! convz {
+        ($code:expr, $da:expr, $sa:expr) => {{
+            out.set($code);
+            out.push_operand(zreg(zd, $da));
+            out.push_operand(preg_q(pg, PredQual::Zeroing));
+            out.push_operand(zreg(zn, $sa));
+            return;
+        }};
+    }
+    let size_opc = (bits(word, 22, 2) << 3) | bits(word, 16, 3);
+    match size_opc {
+        // FCVTNT (narrow top): s->h and d->s.
+        0b10_000 => convz!(Code::SveFcvtntZ, VA::Sh, VA::Ss), // s -> h
+        0b11_010 => convz!(Code::SveFcvtntZ, VA::Ss, VA::Sd), // d -> s
+        // FCVTLT (long top): h->s and s->d.
+        0b10_001 => convz!(Code::SveFcvtltZ, VA::Ss, VA::Sh), // h -> s
+        0b11_011 => convz!(Code::SveFcvtltZ, VA::Sd, VA::Ss), // s -> d
+        // FCVTXNT (narrow round-to-odd top): d->s.
+        0b00_010 => convz!(Code::SveFcvtxntZ, VA::Ss, VA::Sd),
+        // BFCVTNT (BF16 narrow top): s->bf16(h).
+        0b10_010 => {
+            if !features.has(Feature::Bf16) {
+                return;
+            }
+            convz!(Code::SveBfcvtntZ, VA::Sh, VA::Ss);
+        }
+        _ => {}
+    }
 }
 
 /// SVE2.1 FP unary predicated convert/round, ZEROING `/z` (`0x64`, `<21>=0`,

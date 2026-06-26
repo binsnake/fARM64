@@ -241,3 +241,49 @@ pub fn decode(word: u32, out: &mut Instruction) {
         out.push_operand(reg_bang(rs));
     }
 }
+
+/// Decode a FEAT_MOPS memory-set-with-tag *option* form (`SETGO*`).
+///
+/// These share the SETG major (`word<26> == 1`, `op1 (word<23:21>) == 6`) but use
+/// `word<11:10> == 0b00` instead of `0b01`: the value-source register is replaced
+/// by an implementation-defined option, so only `[Xd]!, Xn!` are operands
+/// (`Rd`=dst at `word<4:0>`, `Rn`=size at `word<9:5>`, both with writeback). The
+/// value field `word<20:16>` must be `11111` (`xzr`); other values are
+/// UNALLOCATED. The stage/hint is selected by `op2 (word<15:12>)`, exactly as the
+/// SETG value-register forms.
+///
+/// Called from [`crate::decode::ldst`] for the matching signature. Leaves `out`
+/// invalid for unallocated `op2`, a non-`xzr` value field, or a register-
+/// distinctness violation (`Rd == 31`, `Rd == Rs`).
+#[inline]
+pub fn decode_setg_option(word: u32, out: &mut Instruction) {
+    // The value-source field must be `xzr` (the option replaces it).
+    if bits(word, 16, 5) != 0b11111 {
+        return;
+    }
+    let op2 = bits(word, 12, 4);
+    let rs = bits(word, 5, 5); // size / count
+    let rd = bits(word, 0, 5); // dst
+    let code = match op2 {
+        0 => Code::SetgopMops,
+        1 => Code::SetgoptMops,
+        2 => Code::SetgopnMops,
+        3 => Code::SetgoptnMops,
+        4 => Code::SetgomMops,
+        5 => Code::SetgomtMops,
+        6 => Code::SetgomnMops,
+        7 => Code::SetgomtnMops,
+        8 => Code::SetgoeMops,
+        9 => Code::SetgoetMops,
+        10 => Code::SetgoenMops,
+        11 => Code::SetgoetnMops,
+        _ => return,
+    };
+    // Distinctness: dst must not be `31` and must differ from the size register.
+    if rd == 31 || rd == rs {
+        return;
+    }
+    out.set(code);
+    out.push_operand(mem_bang(rd));
+    out.push_operand(reg_bang(rs));
+}

@@ -219,6 +219,18 @@ fn enc_sve2(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeError> 
                 | fld(zn, 5)
                 | zd
         }
+        // ---- K4: SVE2.2 URECPE/URSQRTE zeroing (0x44, <15:13>=101, <18:17>=01) ----
+        SveUrecpeZ | SveUrsqrteZ => {
+            // `.s` only (size=10); <19>=0, <18:17>=01 (zeroing), <16>=op.
+            let zd = z(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let zn = z(insn, 2)?;
+            let op = if matches!(code, SveUrsqrteZ) { 1 } else { 0 };
+            base44(0) | fld(0b10, 22) | fld(0b01, 17) | fld(op, 16) | fld(0b101, 13)
+                | fld(pg, 10)
+                | fld(zn, 5)
+                | zd
+        }
         // ---- i3: FEAT_CPA MADPT/MLAPT (0x44, <21>=0, size=11, <15:10>) ----
         SveMadpt => {
             // <15:10>=110110; operands print as Zdn(<4:0>), Zm(<20:16>), Za(<9:5>).
@@ -245,6 +257,53 @@ fn enc_sve2(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeError> 
             base44(0) | fld(size, 22) | fld(0b010, 19) | fld(0b101, 13) | fld(pg, 10) | fld(zm, 5)
                 | zdn
         }
+        // ---- K4: FEAT_SVE_AES2 multi-vector quadword AES round ----
+        // `{ Zdn.b, .. }, { Zdn.b, .. }, Zm.q[i]`. The destructive group base is
+        // `<4:0>`; the indexed Zm is `<9:5>`; quad-vs-pair is `<18>`, index is
+        // `<20:19>`, MC is `<16>`, encrypt/decrypt is `<10>`.
+        SveAese2 | SveAesd2 | SveAesemc2 | SveAesdimc2 => {
+            let (zdn, count) = group_first(insn, 0)?;
+            let (zm, idx) = idx_q(insn, 2)?;
+            let quad = match count {
+                2 => 0,
+                4 => 1,
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            let (mc, dec) = match code {
+                SveAese2 => (0, 0),
+                SveAesd2 => (0, 1),
+                SveAesemc2 => (1, 0),
+                _ => (1, 1),
+            };
+            // <20:19>=idx, <18>=quad, <17>=1, <16>=mc, <15:13>=111, <12:11>=01,
+            // <10>=dec.
+            base45(1) | fld(idx, 19) | fld(quad, 18) | fld(1, 17) | fld(mc, 16) | fld(0b111, 13)
+                | fld(0b01, 11)
+                | fld(dec, 10)
+                | fld(zm, 5)
+                | zdn
+        }
+        // ---- K4: FEAT_SVE_AES2 polynomial multiply-long, quadword (.q <- .d) ----
+        // `{ Zd.q, Zd+1.q }, Zn.d, Zm.d`. <15:13>=111, <12:10>=110 PMULL / 111 PMLAL.
+        SvePmull2 | SvePmlal2 => {
+            let (zd, _count) = group_first(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let op = if matches!(code, SvePmull2) { 0b110 } else { 0b111 };
+            base45(1) | fld(zm, 16) | fld(0b111, 13) | fld(op, 10) | fld(zn, 5) | zd
+        }
+        // ---- K4: SVE2.1 multi-vector saturating narrowing converts ----
+        // `Zd.h, { Zn.s, Zn+1.s }`. <15:13>=010, <20:16>=10001, <12:10> sign.
+        SveSqcvtn | SveUqcvtn | SveSqcvtun => {
+            let zd = z(insn, 0)?;
+            let (zn, _count) = group_first(insn, 1)?;
+            let op = match code {
+                SveSqcvtn => 0b000,
+                SveUqcvtn => 0b010,
+                _ => 0b100,
+            };
+            base45(1) | fld(0b10001, 16) | fld(0b010, 13) | fld(op, 10) | fld(zn, 5) | zd
+        }
         _ => return Ok(None),
     };
     Ok(Some(w))
@@ -260,6 +319,25 @@ fn base44(b21: u32) -> u32 {
 #[inline]
 fn base45(b21: u32) -> u32 {
     fld(0b01000101, 24) | fld(b21, 21)
+}
+
+/// The first register number and member count of an [`Operand::SveVecGroup`] at
+/// operand `n`. Used by the FEAT_SVE_AES2 multi-vector group operands.
+#[inline]
+fn group_first(insn: &Instruction, n: usize) -> Result<(u32, u8), EncodeError> {
+    match insn.op(n) {
+        Operand::SveVecGroup { first, count, .. } => Ok((first.number() as u32, count)),
+        _ => Err(EncodeError::InvalidOperand),
+    }
+}
+
+/// The register number and quadword lane index of an indexed `Z.q[i]` operand.
+#[inline]
+fn idx_q(insn: &Instruction, n: usize) -> Result<(u32, u32), EncodeError> {
+    match insn.op(n) {
+        Operand::Reg { reg, lane: Some(l), .. } => Ok((reg.number() as u32, l as u32)),
+        _ => Err(EncodeError::InvalidOperand),
+    }
 }
 
 /// The by-element index layout for an SVE2 same-size indexed form, derived from

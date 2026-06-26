@@ -221,6 +221,8 @@ fn is_branch_sys(code: Code) -> bool {
             | Tstart | Ttest
         // System: FEAT_D128 pair forms (MRRS/MSRR/SYSP/TLBIP).
             | Mrrs | Msrr | Sysp
+        // K4: TCHANGE translation-table change (register / immediate).
+            | TchangefReg | TchangebReg | TchangefImm | TchangebImm
         // Reserved: UDF.
             | Udf
     )

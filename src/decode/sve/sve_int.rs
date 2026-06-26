@@ -2129,6 +2129,20 @@ fn decode_44_pred(word: u32, features: FeatureSet, out: &mut Instruction) {
                 out.push_operand(zreg(zdn, a));
                 out.push_operand(preg_q(pg, PredQual::Merging));
                 out.push_operand(zreg(zn, a));
+            } else if bit(word, 19) == 0 && bits(word, 17, 2) == 0b01 {
+                // URECPE (`<16>=0`) / URSQRTE (`<16>=1`) zeroing (`/z`, FEAT_SVE2p2):
+                // `.s` only. The `<18:17>=01` slot is the zeroing analogue of the
+                // `<18:17>=00` merging forms above.
+                if size != 2 {
+                    return;
+                }
+                if !features.has(Feature::Sve2p2) {
+                    return;
+                }
+                out.set(if bit(word, 16) == 0 { Code::SveUrecpeZ } else { Code::SveUrsqrteZ });
+                out.push_operand(zreg(zdn, a));
+                out.push_operand(preg_q(pg, PredQual::Zeroing));
+                out.push_operand(zreg(zn, a));
             }
         }
         _ => {}
@@ -2512,7 +2526,15 @@ fn decode_44_sqrdml_idx(word: u32, out: &mut Instruction) {
 /// op:S:U:T (B/T = bottom/top). Source elements widen 2x: size 01->.b->.h,
 /// 10->.h->.s, 11->.s->.d.
 #[inline]
-fn decode_45(word: u32, out: &mut Instruction) {
+fn decode_45(word: u32, features: FeatureSet, out: &mut Instruction) {
+    // K4: FEAT_SVE_AES2 multi-vector quadword AES + PMULL/PMLAL (`<15:13>=111`)
+    // and the SVE2.1 multi-vector saturating narrowing converts (`<15:13>=010`,
+    // `<20:16>=10001`). Tried first; declines (leaves Invalid) for every other
+    // encoding in this top byte, so the legacy paths below are unaffected.
+    decode_45_aes2(word, features, out);
+    if !out.is_invalid() {
+        return;
+    }
     // RAX1 (`<15:11>=11110`, `<10>=1`, `<23:22>=00`, `<21>=1`): `RAX1 <Zd>.D,
     // <Zn>.D, <Zm>.D`.
     if bits(word, 11, 5) == 0b11110 && bit(word, 10) == 1 && bits(word, 21, 3) == 0b001 {
@@ -2581,6 +2603,111 @@ fn decode_45(word: u32, out: &mut Instruction) {
     out.push_operand(zreg(zd, da));
     out.push_operand(zreg(zn, sa));
     out.push_operand(zreg(zm, sa));
+}
+
+/// A consecutive SVE multi-vector register group `{ Zfirst.<T>, ... }`. Two-reg
+/// groups render as a comma list, four-reg groups as a `Zfirst - Zlast` range
+/// (matching LLVM's rendering for the AES2 multi-vector lists).
+#[inline]
+fn zgroup(first: u32, count: u8, a: VA) -> Operand {
+    Operand::SveVecGroup {
+        first: Z[(first & 0x1f) as usize],
+        count,
+        arr: Some(a),
+        range: count == 4,
+        stride: 1,
+        lane: None,
+    }
+}
+
+/// FEAT_SVE_AES2 multi-vector quadword AES round + PMULL/PMLAL (top byte 0x45,
+/// `<15:13>=111`, `<12:11>=01` for AES / `11` for the polynomial multiplies) and
+/// the SVE2.1 multi-vector saturating narrowing converts (`<15:13>=010`,
+/// `<20:16>=10001`). Leaves `out` invalid (declines) for every other encoding,
+/// including the legacy single-vector AES/SM4/RAX1 that share this top byte.
+#[inline]
+fn decode_45_aes2(word: u32, features: FeatureSet, out: &mut Instruction) {
+    // All forms here require `<23:22>=00` and `<21>=1`.
+    if bits(word, 22, 2) != 0 || bit(word, 21) != 1 {
+        return;
+    }
+    let zm = bits(word, 16, 5);
+    let zn = bits(word, 5, 5);
+    let zd = bits(word, 0, 5);
+
+    // ---- `<15:13>=111`: FEAT_SVE_AES2 multi-vector AES + PMULL/PMLAL ----
+    if bits(word, 13, 3) == 0b111 {
+        if !features.has(Feature::SveAes2) {
+            return;
+        }
+        match bits(word, 10, 3) {
+            // PMULL (110) / PMLAL (111): `{ Zd.q, Zd+1.q }, Zn.d, Zm.d`. Zd is a
+            // 2-register `.q` group with an even base; Zm is the full <20:16>.
+            0b110 | 0b111 => {
+                if zd & 1 != 0 {
+                    return; // pair base must be even.
+                }
+                out.set(if bit(word, 10) == 0 { Code::SvePmull2 } else { Code::SvePmlal2 });
+                out.push_operand(zgroup(zd, 2, VA::Sq));
+                out.push_operand(zreg(zn, VA::Sd));
+                out.push_operand(zreg(zm, VA::Sd));
+            }
+            // AESE/AESD (010/011): `<16>`=0 (no mix-columns). AESEMC/AESDIMC have
+            // `<16>=1`. `<10>`=D (encrypt/decrypt). `<18>`=quad (1) vs pair (0).
+            // `<20:19>`=quadword index. `<17>` must be 1 (the `<17>=0` slots are
+            // reserved). Destructive group is `<4:0>`.
+            0b010 | 0b011 => {
+                if bit(word, 17) != 1 {
+                    return;
+                }
+                let dec = bit(word, 10); // 0=encrypt, 1=decrypt
+                let mc = bit(word, 16); // mix-columns
+                let quad = bit(word, 18) == 1;
+                let count: u8 = if quad { 4 } else { 2 };
+                // Base register alignment: pair even, quad multiple-of-4.
+                let mask = if quad { 0b11 } else { 0b1 };
+                if zd & mask != 0 {
+                    return;
+                }
+                let idx = bits(word, 19, 2) as u8; // quadword index
+                let code = match (mc, dec) {
+                    (0, 0) => Code::SveAese2,
+                    (0, 1) => Code::SveAesd2,
+                    (1, 0) => Code::SveAesemc2,
+                    _ => Code::SveAesdimc2,
+                };
+                out.set(code);
+                out.push_operand(zgroup(zd, count, VA::Sb));
+                out.push_operand(zgroup(zd, count, VA::Sb));
+                // The indexed quadword source Zm sits in `<9:5>` (not `<20:16>`,
+                // which carries the opcode/quad/index fields here).
+                out.push_operand(zreg_idx(zn, VA::Sq, idx));
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // ---- `<15:13>=010`, `<20:16>=10001`: multi-vector narrowing converts ----
+    // `Zd.h, { Zn.s, Zn+1.s }`. <12:10> selects sign: 000=SQCVTN, 010=UQCVTN,
+    // 100=SQCVTUN. Source is a 2-register `.s` group with an even base.
+    if bits(word, 13, 3) == 0b010 && bits(word, 16, 5) == 0b10001 {
+        if !features.has(Feature::Sve2p1) {
+            return;
+        }
+        if zn & 1 != 0 {
+            return; // source pair base must be even.
+        }
+        let code = match bits(word, 10, 3) {
+            0b000 => Code::SveSqcvtn,
+            0b010 => Code::SveUqcvtn,
+            0b100 => Code::SveSqcvtun,
+            _ => return,
+        };
+        out.set(code);
+        out.push_operand(zreg(zd, VA::Sh));
+        out.push_operand(zgroup(zn, 2, VA::Ss));
+    }
 }
 
 /// SVE2 bit-permute (BEXT/BDEP/BGRP), interleaving-EOR (EORBT/EORTB), histogram
@@ -3100,7 +3227,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         0x24 => decode_24(word, out),
         // 0x44 / 0x45: SVE2 integer multiply-add / DOT / widening (top byte 010).
         0x44 => decode_44(word, features, out),
-        0x45 => decode_45(word, out),
+        0x45 => decode_45(word, features, out),
         _ => {}
     }
 }

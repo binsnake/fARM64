@@ -104,4 +104,6 @@ pub(crate) static SYSOP_NAMES: &[&str] = &[
     "aside1", "vaae1", "vale1", "vaale1", "ipas2e1is", "ipas2le1is", "alle2is", "vae2is", "alle1is",
     "vale2is", "vmalls12e1is", "ipas2e1", "ipas2le1", "alle2", "vae2", "alle1", "vale2",
     "vmalls12e1", "alle3is", "vae3is", "vale3is", "alle3", "vae3", "vale3",
+    // K4: TCHANGE `nb` (no-barrier) modifier keyword.
+    "nb",
 ];

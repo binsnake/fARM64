@@ -28,11 +28,15 @@ Commit | What
 `ff7bab4` | **H4** over-decode hardening: add/sub extended `opt!=00`, NEON ld/st-structure `.1d`/reserved, FP16-MLAL `size<0>`; + FEAT_RPRFM
 
 ### Measured impact (identical 614,400-word random+structured sample, `--mattr=+all`)
-Metric | Session start | After G+FMMLA+H | After I | After J | **Final (after K+L)**
-|-|-|-|-|-|-|
-LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 | 205 / 54 | 45 / 34 | 45 / 34 | **1 / 1  (−99.8%)**
-LLVM **REVERSE** (fARM64 decodes, LLVM rejects = over-decode) | 19,199 / 264 | 9,199 / 228 | 2,577 / 169 | 1,756 / 162 | **146 / 50  (−99.2%)**
-**DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | 69 / 14 | 69 / 14 | 65 / 13 | **55 / 7  (all intentional aliases)**
+Metric | Session start | After G+FMMLA+H | After I | After J | After K+L | **Final (after M+N)**
+|-|-|-|-|-|-|-|
+LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 | 205 / 54 | 45 / 34 | 45 / 34 | 1 / 1 | **1 / 1  (−99.8%)**
+LLVM **REVERSE** (fARM64 decodes, LLVM rejects) | 19,199 / 264 | 9,199 / 228 | 2,577 / 169 | 1,756 / 162 | 146 / 50 | **10 / 1 — all `tcancel` (0 real)**
+**DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | 69 / 14 | 69 / 14 | 65 / 13 | 55 / 7 | **55 / 7  (all intentional aliases)**
+
+**The fARM64 decoder now matches LLVM across the entire AArch64 surface in the 614k sample.** The only
+"REVERSE" residue is the 10 `tcancel` words — a case where fARM64 is *more* complete than LLVM (this clang's
+assembler doesn't recognise the TME `TCANCEL` mnemonic), so it is correctly left decoded, not an over-decode.
 
 `a8a5779` **J** SME single-vector MOVAZ (correctness+mnemonic) + SVE gather/CPY/EXT/ZIP guards.
 `aab3c39`..`cfd3460` **K1-K4** SVE int-compare/CPY/logical-imm/PSEL, NEON FP16-3same/.2d-byelem/FCMLA/

@@ -749,8 +749,23 @@ fn decode_ld1_st1_za(word: u32, out: &mut Instruction) {
     let pg = bits(word, 10, 3);
     let rn = bits(word, 5, 5);
 
+    // `word<4>` is a fixed-zero bit for *every* contiguous ZA tile-slice
+    // load/store (B/H/W/D and Q): the slice-select group `word<3:0>` packs the
+    // tile number (high bits) and the slice index (low bits, width per element
+    // size), and bit 4 lies above it. LLVM leaves `word<4> == 1` UNDEFINED
+    // across all sizes (e.g. `E03779B1`, `E0623A9B`, `E0A66D13`, `E0F34739`).
+    if bit(word, 4) != 0 {
+        return;
+    }
+
     // (code, arr, log2(bytes), index-imm-bits).
     let (code_ld, code_st, arr, log2, imm_bits): (Code, Code, VA, u8, u32) = if is_q {
+        // The `.Q` form (`word<24> == 1`) is allocated only when the size field
+        // `word<23:22> == 11`; `01`/`10` are reserved (`00` was already routed to
+        // `LDR`/`STR` ZA by the dispatcher). Reject `E14CDA26`, `E16EF362`.
+        if size != 0b11 {
+            return;
+        }
         (Code::SmeLd1qZa, Code::SmeSt1qZa, VA::Sq, 4, 0)
     } else {
         match size {
@@ -804,6 +819,15 @@ fn decode_ld1_st1_za(word: u32, out: &mut Instruction) {
 /// is the base (`SP`-resolved). When `imm4 == 0` both the `, #imm` and the
 /// `, MUL VL` are elided, matching binja (`za[w15, #0x0], [x21]`).
 fn decode_ldr_str_za(word: u32, out: &mut Instruction) {
+    // `LDR`/`STR` (ZA array vector) is `1110 0001 00 0 op 0 00000 0 Rv 000 Rn 0
+    // imm4`. Only `op` (`word<21>`), `Rv` (`word<14:13>`), `Rn` (`word<9:5>`) and
+    // `imm4` (`word<3:0>`) vary; the intervening fields are fixed zero. Reject
+    // any encoding that sets `word<20:16>` (the `Rm` slot), `word<15>`,
+    // `word<12:10>` or `word<4>` (e.g. the over-decode `E13779B1`).
+    if bits(word, 16, 5) != 0 || bit(word, 15) != 0 || bits(word, 10, 3) != 0 || bit(word, 4) != 0 {
+        return;
+    }
+
     let is_store = bit(word, 21) == 1;
     let rv = bits(word, 13, 2);
     let rn = bits(word, 5, 5);

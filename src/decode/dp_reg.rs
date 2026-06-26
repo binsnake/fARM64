@@ -300,6 +300,12 @@ fn decode_addsub_extended(word: u32, out: &mut Instruction) {
     let rn = bits(word, 5, 5);
     let rd = bits(word, 0, 5);
 
+    // `opt` (word<23:22>) must be 00; any other value is UNALLOCATED. The
+    // architecture fixes these two bits to zero for the add/subtract
+    // (extended register) class and reserves the rest.
+    if bits(word, 22, 2) != 0 {
+        return;
+    }
     // imm3 > 4 is UNALLOCATED.
     if imm3 > 4 {
         return;

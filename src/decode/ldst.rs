@@ -192,6 +192,27 @@ fn prefetch_op(rt: u32) -> Operand {
     Operand::SysOp(SysToken::of(name))
 }
 
+/// The range-prefetch operand for a 6-bit `rprfop` field (`RPRFM`). Only four
+/// values are named: `pldkeep`(0)/`pstkeep`(1)/`pldstrm`(4)/`pststrm`(5) — i.e.
+/// `imm6<5:3>==000 && imm6<1>==0`, with `imm6<0>` selecting `pld`/`pst` and
+/// `imm6<2>` the `keep`/`strm` policy. Everything else renders as a raw `#imm`,
+/// matching LLVM/Binary Ninja.
+#[inline]
+fn rprfop_op(imm6: u32) -> Operand {
+    let imm6 = imm6 & 0x3f;
+    // Named only when bits<5:3>==0 and bit1==0 (no level component).
+    if (imm6 & 0b111010) == 0 {
+        let name = match (imm6 & 0b100, imm6 & 1) {
+            (0, 0) => "pldkeep",
+            (0, _) => "pstkeep",
+            (_, 0) => "pldstrm",
+            (_, _) => "pststrm",
+        };
+        return Operand::SysOp(SysToken::of(name));
+    }
+    Operand::ImmUnsigned(imm6 as u64)
+}
+
 /// The SVE prefetch operand for a 4-bit `prfop` field (`PRFB`/`PRFH`/`PRFW`/
 /// `PRFD`). SVE prefetch has no `pli` (instruction-prefetch) type: bit 3 selects
 /// `pld`(0)/`pst`(1), bits<2:1> the target (`l1`/`l2`/`l3`/reserved) and bit 0
@@ -358,7 +379,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
             //   00 -> atomic memory op (LSE) [op3=1, op4=00]
             //   01 -> LDAPR/STLR-ish (RCpc register-... actually LDAPR) -> handled?
             match bits(word, 10, 2) {
-                0b10 => decode_reg_offset(word, out),
+                0b10 => decode_reg_offset(word, features, out),
                 0b00 => decode_atomic(word, features, out),
                 0b01 => decode_pac(word, features, out),
                 _ => decode_pac(word, features, out),
@@ -847,7 +868,7 @@ fn decode_reg_unpriv(word: u32, out: &mut Instruction) {
 /// `size 111 V 00 opc 1 Rm option(15:13) S(12) 10 Rn Rt`.
 /// The `option` field is the extend type; the shift amount is `S ? scale : 0`.
 #[inline]
-fn decode_reg_offset(word: u32, out: &mut Instruction) {
+fn decode_reg_offset(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 30, 2);
     let v = bit(word, 26);
     let opc = bits(word, 22, 2);
@@ -859,6 +880,24 @@ fn decode_reg_offset(word: u32, out: &mut Instruction) {
 
     // option<1> must be set (only uxtw/uxtx/sxtw/sxtx — i.e. 010/011/110/111).
     if (option & 0b010) == 0 {
+        return;
+    }
+
+    // RPRFM (FEAT_RPRFM) carves out a sub-slot of the `PRFM (register offset)`
+    // encoding (`size==11`, `V==0`, `opc==10`): it is selected when `Rt<4:3>==11`
+    // (i.e. `Rt` in `24..=31`) — the `prfop` values the ordinary PRFM does not
+    // allocate. Plain PRFM keeps `Rt<4:3>!=11`. The op spelling is a 6-bit
+    // `rprfop` `imm6 = option<2> : option<0> : S : Rt<2:0>`; the index is `Xm`;
+    // the base carries no displacement.
+    if size == 0b11 && v == 0 && opc == 0b10 && (rt >> 3) == 0b11 {
+        if !features.has(Feature::Rprfm) {
+            return;
+        }
+        let imm6 = (((option >> 2) & 1) << 5) | ((option & 1) << 4) | (s << 3) | (rt & 0b111);
+        out.set(Code::RprfmReg);
+        out.push_operand(rprfop_op(imm6));
+        out.push_operand(gp(false, RegWidth::X64, rm));
+        out.push_operand(mem_off(rn, 0));
         return;
     }
 

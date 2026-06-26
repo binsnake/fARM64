@@ -2989,6 +2989,9 @@ codes! {
     // --- SVE LASTP / FIRSTP extract predicate-as-counter (H3) ---
     SveLastp => Lastp, Sve2p1, "`LASTP <Xd>, <Pg>, <Pn>.<T>` (SVE2.1 extract last-active predicate-as-counter).";
     SveFirstp => Firstp, Sve2p1, "`FIRSTP <Xd>, <Pg>, <Pn>.<T>` (SVE2.1 extract first-active predicate-as-counter).";
+
+    // --- FEAT_RPRFM range prefetch (H4) ---
+    RprfmReg => Rprfm, Rprfm, "`RPRFM <rprfop>, <Xm>, [<Xn|SP>]` (range prefetch memory).";
 }
 
 impl Code {
@@ -6123,6 +6126,9 @@ pub enum Mnemonic {
     Lastp,
     /// `FIRSTP` (SVE extract predicate-as-counter of the first active element).
     Firstp,
+    // --- FEAT_RPRFM range prefetch (H4) ---
+    /// `RPRFM` (range prefetch memory).
+    Rprfm,
 }
 
 impl Mnemonic {

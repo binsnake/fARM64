@@ -486,6 +486,12 @@ fn fp_three_same(
         if scalar {
             return;
         }
+        // `size<0>` (word<22>) is a fixed-zero bit for the FP16 widening
+        // MLAL/MLSL forms (only `size<1>` selects FMLAL vs FMLSL); `size<0>==1`
+        // is UNALLOCATED.
+        if bit(size, 0) != 0 {
+            return;
+        }
         let ta = if q == 1 { VA::V4S } else { VA::V2S };
         let tb = if q == 1 { VA::V4H } else { VA::V2H };
         out.set(code);
@@ -2085,8 +2091,11 @@ fn decode_by_element(word: u32, scalar: bool, features: FeatureSet, out: &mut In
         }
         ByEl::Fmlal(code) => {
             // FMLAL/FMLSL/FMLAL2/FMLSL2 by element: Vd.<2s/4s>, Vn.<2h/4h>,
-            // Vm.h[i]; the index uses the H:L:M half-precision form.
-            if scalar {
+            // Vm.h[i]; the index uses the H:L:M half-precision form. These
+            // FP16-widening forms are encoded with `size==10` only — every
+            // other `size` value in this opcode slot is a different instruction
+            // (FDOT/FMLALB/FMLALL*) or UNALLOCATED, so reject it here.
+            if scalar || size != 0b10 {
                 return;
             }
             let (ta, tb) = if q == 1 { (VA::V4S, VA::V4H) } else { (VA::V2S, VA::V2H) };

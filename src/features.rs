@@ -156,6 +156,10 @@ pub enum Feature {
     /// `BFMAXNM`/`BFMINNM` (`.h`) forms and the `BFCLAMP` (`.h`) three-source
     /// clamp — all sharing the `size==00` slot of the FP arithmetic encodings.
     SveB16b16,
+    /// Range prefetch memory (`FEAT_RPRFM`): the `RPRFM <rprfop>, <Xm>,
+    /// [<Xn|SP>]` range-prefetch hint, encoded in the `PRFM (register offset)`
+    /// slot (`size==11`, `opc==10`) with `option<1>==1` and `word<11:10>==10`.
+    Rprfm,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

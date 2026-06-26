@@ -36,6 +36,7 @@ pub fn is_ldst(code: Code) -> bool {
     if matches!(
         code,
         LdrLit32 | LdrLit64 | LdrswLit | PrfmLit | LdrLitFp32 | LdrLitFp64 | LdrLitFp128
+            | RprfmReg
             | Ldaprb | Ldaprh | Ldapr32 | Ldapr64
             | LdraaOff | LdraaPre | LdrabOff | LdrabPre
             | Ld64b | St64b | St64bv | St64bv0
@@ -75,6 +76,9 @@ pub fn encode(insn: &Instruction) -> R {
     use Code::*;
     let code = insn.code();
     match code {
+        // --- FEAT_RPRFM range prefetch. ---
+        RprfmReg => enc_rprfm(insn),
+
         // --- Load register (literal). ---
         LdrLit32 | LdrLit64 | LdrswLit | PrfmLit | LdrLitFp32 | LdrLitFp64 | LdrLitFp128 => {
             enc_literal(insn)
@@ -198,6 +202,63 @@ fn prefetch_rt(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
         Operand::SysOp(tok) => prefetch_field_of(tok).ok_or(EncodeError::InvalidOperand),
         _ => Err(EncodeError::InvalidOperand),
     }
+}
+
+/// Recover the 6-bit `rprfop` field of a range-prefetch operand (the named
+/// keyword or a raw `#imm` fallback), inverting [`crate::decode::ldst::rprfop_op`].
+#[inline]
+fn rprfop_field(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
+    match insn.op(n) {
+        Operand::ImmUnsigned(v) => {
+            if v > 0x3f {
+                return Err(EncodeError::InvalidImmediate);
+            }
+            Ok(v as u32)
+        }
+        Operand::SysOp(tok) => {
+            // The named subset is `imm6<5:3>==0 && imm6<1>==0`, with bit0 the
+            // pld/pst type and bit2 the keep/strm policy.
+            let v = match tok.name() {
+                "pldkeep" => 0b000000,
+                "pstkeep" => 0b000001,
+                "pldstrm" => 0b000100,
+                "pststrm" => 0b000101,
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            Ok(v)
+        }
+        _ => Err(EncodeError::InvalidOperand),
+    }
+}
+
+/// Encode `RPRFM <rprfop>, <Xm>, [<Xn|SP>]` (FEAT_RPRFM). The slot is the PRFM
+/// register-offset encoding (`size==11`, `V==0`, `opc==10`, `word<11:10>==10`)
+/// with `imm6 = option<2> : option<0> : S : Rt<2:0>` and a forced `option<1>==1`.
+fn enc_rprfm(insn: &Instruction) -> R {
+    let imm6 = rprfop_field(insn, 0)?;
+    let rm = reg_num(insn, 1)?;
+    let (rn, off, mode) = mem_imm(insn, 2)?;
+    if off != 0 || mode != MemIndexMode::Offset {
+        return Err(EncodeError::InvalidOperand);
+    }
+    // Distribute imm6 across option<2>, option<0>, S, Rt<2:0>. `option<1>` is
+    // fixed to 1; Rt<4:3> are fixed to 11 (matching the architectural form).
+    let option = (((imm6 >> 5) & 1) << 2) | (1 << 1) | ((imm6 >> 4) & 1);
+    let s = (imm6 >> 3) & 1;
+    let rt = 0b11000 | (imm6 & 0b111);
+    // Fixed bits: size==11 (word<31:30>), V==0 (word<26>), opc==10
+    // (word<23:22>), word<21>==1, word<11:10>==10. (word<22> and word<10> are
+    // zero and so contribute nothing to the OR.)
+    let word = (0b11111000u32 << 24)
+        | (1 << 23)
+        | (1 << 21)
+        | (rm << 16)
+        | (option << 13)
+        | (s << 12)
+        | (1 << 11)
+        | (rn << 5)
+        | rt;
+    Ok(word)
 }
 
 /// Map a prefetch keyword token back to its 5-bit `Rt` field

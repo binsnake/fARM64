@@ -1737,6 +1737,7 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Bfmlslt => "bfmlslt",
         Mnemonic::Lastp => "lastp",
         Mnemonic::Firstp => "firstp",
+        Mnemonic::Rprfm => "rprfm",
     }
 }
 

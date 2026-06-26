@@ -85,6 +85,8 @@ pub(crate) static SYSOP_NAMES: &[&str] = &[
     "pldl1keep", "pldl1strm", "pldl2keep", "pldl2strm", "pldl3keep", "pldl3strm", "plil1keep",
     "plil1strm", "plil2keep", "plil2strm", "plil3keep", "plil3strm", "pstl1keep", "pstl1strm",
     "pstl2keep", "pstl2strm", "pstl3keep", "pstl3strm",
+    // RPRFM range-prefetch operations (<type><policy>, no level component).
+    "pldkeep", "pstkeep", "pldstrm", "pststrm",
     // PSTATE fields.
     "spsel", "daifset", "daifclr", "uao", "pan", "dit", "ssbs", "tco", "allint", "svcrsm", "svcrza",
     "svcrsmza",

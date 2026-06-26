@@ -177,24 +177,39 @@ fn decode_multiple(word: u32, out: &mut Instruction) {
     let rn = bits(word, 5, 5);
     let rt = bits(word, 0, 5);
 
+    // word<21> is a fixed-zero bit in this class (both the no-offset and
+    // post-index encodings); any `1` here is UNALLOCATED.
+    if bit(word, 21) != 0 {
+        return;
+    }
     // For the non-post-indexed form, bits<20:16> (the `Rm` slot) must be zero.
     if !post && rm != 0 {
         return;
     }
 
     // opcode<3:0> -> (Code carrier, mnemonic, register count). The structure
-    // count comes straight from the ARM ARM C4.1.96 "opcode" column.
+    // count comes straight from the ARM ARM C4.1.96 "opcode" column. The bool
+    // tracks whether this is a genuine multi-structure form (LD2/LD3/LD4 and
+    // their ST siblings) — those forbid the 64-bit element with Q==0 (the
+    // `.1d` arrangement), which is reserved (only `.2d`, Q==1, is allocated).
     let load = l == 1;
-    let (code, mnem, nregs) = match opcode {
-        0b0000 => mk_mult(load, 4, Mnemonic::Ld4, Mnemonic::St4, Code::Ld4Multiple, Code::St4Multiple),
-        0b0010 => mk_mult(load, 4, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple),
-        0b0100 => mk_mult(load, 3, Mnemonic::Ld3, Mnemonic::St3, Code::Ld3Multiple, Code::St3Multiple),
-        0b0110 => mk_mult(load, 3, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple),
-        0b0111 => mk_mult(load, 1, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple),
-        0b1000 => mk_mult(load, 2, Mnemonic::Ld2, Mnemonic::St2, Code::Ld2Multiple, Code::St2Multiple),
-        0b1010 => mk_mult(load, 2, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple),
+    let (code, mnem, nregs, multi_struct) = match opcode {
+        0b0000 => mk_mult(load, 4, Mnemonic::Ld4, Mnemonic::St4, Code::Ld4Multiple, Code::St4Multiple, true),
+        0b0010 => mk_mult(load, 4, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple, false),
+        0b0100 => mk_mult(load, 3, Mnemonic::Ld3, Mnemonic::St3, Code::Ld3Multiple, Code::St3Multiple, true),
+        0b0110 => mk_mult(load, 3, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple, false),
+        0b0111 => mk_mult(load, 1, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple, false),
+        0b1000 => mk_mult(load, 2, Mnemonic::Ld2, Mnemonic::St2, Code::Ld2Multiple, Code::St2Multiple, true),
+        0b1010 => mk_mult(load, 2, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple, false),
         _ => return, // unallocated opcode
     };
+
+    // The `.1d` (size==11, Q==0) arrangement is reserved for the genuine
+    // multi-structure forms (LD2/LD3/LD4/ST2/ST3/ST4); only the LD1/ST1 forms
+    // allow a 64-bit element with Q==0.
+    if multi_struct && size == 0b11 && q == 0 {
+        return;
+    }
 
     let arr = arr_mult(size, q);
     // Transferred bytes = registers * (16 if Q else 8).
@@ -207,8 +222,10 @@ fn decode_multiple(word: u32, out: &mut Instruction) {
     push_addr(out, post, rm, rn, total);
 }
 
-/// Helper selecting the `(Code, Mnemonic, nregs)` triple for a multiple-structures
-/// form by load/store direction.
+/// Helper selecting the `(Code, Mnemonic, nregs, multi_struct)` tuple for a
+/// multiple-structures form by load/store direction. `multi_struct` flags the
+/// genuine LD2/LD3/LD4 (and ST2/ST3/ST4) forms, which forbid the `.1d`
+/// arrangement (size==11, Q==0).
 #[inline]
 fn mk_mult(
     load: bool,
@@ -217,11 +234,12 @@ fn mk_mult(
     st_mn: Mnemonic,
     ld_code: Code,
     st_code: Code,
-) -> (Code, Mnemonic, u8) {
+    multi_struct: bool,
+) -> (Code, Mnemonic, u8, bool) {
     if load {
-        (ld_code, ld_mn, nregs)
+        (ld_code, ld_mn, nregs, multi_struct)
     } else {
-        (st_code, st_mn, nregs)
+        (st_code, st_mn, nregs, multi_struct)
     }
 }
 
@@ -252,9 +270,19 @@ fn decode_single(word: u32, out: &mut Instruction) {
     let scale = opcode >> 1; // opcode<2:1>
     let load = l == 1;
 
+    // For the non-post-indexed form, the `Rm` field (word<20:16>) must be zero.
+    if !post && rm != 0 {
+        return;
+    }
+
     if scale == 0b11 {
         // Replicate: LD1R/LD2R/LD3R/LD4R (load only; store is unallocated).
         if !load {
+            return;
+        }
+        // `S` (word<12>) is a fixed-zero bit for the replicate forms; any `1`
+        // here is UNALLOCATED (LD*R take the full arrangement, no lane index).
+        if s != 0 {
             return;
         }
         decode_replicate(word, post, rm, rn, rt, size, q, nregs, out);
@@ -274,11 +302,17 @@ fn decode_single(word: u32, out: &mut Instruction) {
             (VectorArrangement::V4H, (q << 2) | (s << 1) | (size >> 1), 2)
         }
         _ => {
-            // scale == 0b10: S when size<0>==0, D when size<0>==1.
+            // scale == 0b10: S when size<0>==0, D when size<0>==1. In both
+            // cases `size<1>` (word<11>) is fixed-zero — the lane index never
+            // consumes it — so `size<1>==1` is UNALLOCATED.
+            if size >> 1 != 0 {
+                return;
+            }
             if size & 1 == 0 {
                 (VectorArrangement::V2S, (q << 1) | s, 4)
             } else {
-                // D: S must be 0.
+                // D: the index is `Q` only, so `S` (word<12>) is fixed-zero
+                // (`size<1>` was already checked above); `S==1` is UNALLOCATED.
                 if s != 0 {
                     return;
                 }

@@ -667,6 +667,15 @@ fn decode_pmov(word: u32, out: &mut Instruction) {
         _ => return,
     };
     let idx = (t & ((1 << pos) - 1)) as u8;
+    // In the to-vector direction (`D=<16>=1`, `PMOV <Zd>{[index]}, <Pn>.<T>`) the
+    // source is a predicate `Pn`, addressed by only the 4 bits `<8:5>`; `word<9>`
+    // is then a fixed `0`. `<9>=1` would name a non-existent predicate ≥16 →
+    // UNDEFINED (e.g. `05ED3AF7` over-decoded as `pmov z23[6],p7.d`, `<unknown>`
+    // in LLVM, vs the valid `05ED38F7`). The from-vector direction (`D=0`) uses
+    // the full 5-bit `Zn` field, so this only applies when `<16>=1`.
+    if bit(word, 16) == 1 && bit(word, 9) == 1 {
+        return;
+    }
     let n5 = bits(word, 5, 5);
     let d5 = bits(word, 0, 5);
     out.set(Code::SvePmov);
@@ -1053,8 +1062,12 @@ fn decode_shift_unpred(word: u32, out: &mut Instruction) {
 #[inline]
 fn decode_adr_movprfx(word: u32, out: &mut Instruction) {
     let op2210 = bits(word, 10, 3);
-    // MOVPRFX (unpredicated): `<23:22>=00`, `<12:10>=111`.
-    if bits(word, 22, 2) == 0b00 && op2210 == 0b111 {
+    // MOVPRFX (unpredicated): `<23:22>=00`, `<20:16>=00000`, `<12:10>=111`. The
+    // `<20:16>` field is a fixed `00000`; any other value is reserved →
+    // UNDEFINED (verified by an LLVM `<20:16>` sweep — e.g. `0425BFA0`
+    // over-decoded as `movprfx z0,z29`, `<unknown>` in LLVM, vs the valid
+    // `0420BFA0` with `<20:16>=00000`).
+    if bits(word, 22, 2) == 0b00 && bits(word, 16, 5) == 0b00000 && op2210 == 0b111 {
         out.set(Code::SveMovprfxZz);
         out.push_operand(plain_z(bits(word, 0, 5)));
         out.push_operand(plain_z(bits(word, 5, 5)));
@@ -1543,6 +1556,14 @@ fn decode_int_imm(word: u32, out: &mut Instruction) {
     match bits(word, 19, 2) {
         // Arithmetic immediate, unsigned imm8 with optional `lsl #8`.
         0b00 => {
+            // The `lsl #8` shift (`sh==1`) widens the imm8 past a byte, so it is
+            // reserved for the `.b` element size (`size==00`): an 8-bit element
+            // cannot hold a shifted-by-8 value → UNDEFINED (e.g. `2521E415`
+            // over-decoded as `sub z21.b,z21.b,#0x2000`, `<unknown>` in LLVM,
+            // whereas `.h`/`.s`/`.d` accept the shift). Mirrors `decode_cpy_imm`.
+            if size == 0b00 && sh == 1 {
+                return;
+            }
             let code = match bits(word, 16, 3) {
                 0b000 => Code::SveAddZi,
                 0b001 => Code::SveSubZi,
@@ -1593,6 +1614,14 @@ fn decode_int_imm(word: u32, out: &mut Instruction) {
         _ => {
             if bit(word, 16) == 1 {
                 // FMOV (fdup): not an integer op.
+                return;
+            }
+            // The DUP-immediate encoding fixes `<18:17> = 00`; any other value is
+            // reserved → UNDEFINED (verified by an LLVM bit-18/17 sweep — e.g.
+            // `25BCD880` over-decoded as `mov z0.s,#-60`, `<unknown>` in LLVM, vs
+            // the valid `25B8D880`). The FMOV (`<16>=1`) twin already rejects the
+            // same reserved bits in `decode_fdup_25`.
+            if bits(word, 17, 2) != 0 {
                 return;
             }
             // DUP immediate, rendered as the MOV alias. imm8 is signed; the

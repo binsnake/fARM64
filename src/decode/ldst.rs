@@ -1609,8 +1609,14 @@ fn decode_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
     //   ST64BV  opc=011            -> ST64BV  <Xs>, <Xt>, [<Xn|SP>]
     //   ST64BV0 opc=010            -> ST64BV0 <Xs>, <Xt>, [<Xn|SP>]
     if size == 3 && o3 == 1 && a == 0 && r == 0 {
+        // The 64-byte data register `Xt` names a consecutive 8-register group, so
+        // it must be even and in `[x0, x22]`; an odd or `>22` `Rt` is reserved →
+        // UNDEFINED (e.g. `F83DA0BA` over-decoded as `st64bv0 …,x26,…`, `<unknown>`
+        // in LLVM, vs valid `Rt` such as `F83AA0A0` with `Xt=x0`). This applies to
+        // the whole family (LD64B/ST64B/ST64BV/ST64BV0).
+        let rt_ok = (rt & 1) == 0 && rt <= 22;
         match (opc, rs) {
-            (0b101, 0b11111) | (0b001, 0b11111) => {
+            (0b101, 0b11111) | (0b001, 0b11111) if rt_ok => {
                 if !features.has(Feature::Ls64) {
                     return;
                 }
@@ -1619,7 +1625,7 @@ fn decode_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
                 out.push_operand(mem_off(rn, 0));
                 return;
             }
-            (0b011, _) | (0b010, _) => {
+            (0b011, _) | (0b010, _) if rt_ok => {
                 if !features.has(Feature::Ls64) {
                     return;
                 }
@@ -2467,6 +2473,12 @@ fn decode_the_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
         // only) and FEAT_THE RCW pair ops (RCWCLRP/RCWSWPP/RCWSETP, size 00;
         // RCWSCLRP/RCWSSWPP/RCWSSETP, size 01). All print `Rt, Rs, [Xn|SP]`.
         _ => {
+            // The pair-op size field (word<31:30>) only allocates 00 (RCW* /
+            // LSE128) and 01 (RCWS*); sizes 10/11 are UNDEFINED (ARM ARM), so
+            // reject them rather than aliasing them onto the size-00 RCW forms.
+            if sz > 1 {
+                return;
+            }
             // Resolve (code, feature) for this (size, o3, opc, ordering).
             let resolved: Option<(Code, Feature)> = if o3 == 0 {
                 // LSE128 LDCLRP / LDSETP — size 00 only.

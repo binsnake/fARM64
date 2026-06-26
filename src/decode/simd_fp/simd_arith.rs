@@ -1676,12 +1676,29 @@ fn fp16_two_reg_misc(word: u32, scalar: bool, features: FeatureSet, out: &mut In
     if !features.has(Feature::Fp16) {
         return;
     }
+    // The FP16 two-reg-misc slot fixes `word<22> == 1` (the `<23:22>` field is the
+    // SP/DP class marker, `01`/`11` for FP16); `word<22> == 0` is the single/double
+    // family's slot and is reserved here → UNDEFINED (e.g. `0E39AA68` over-decoded
+    // as `fcvtns v8.4h`, `<unknown>` in LLVM, vs the valid `0E79AA68`).
+    if bit(word, 22) == 0 {
+        return;
+    }
     let q = bit(word, 30);
     let u = bit(word, 29);
     let a = bit(word, 23);
     let opcode = bits(word, 12, 5);
     let rn = bits(word, 5, 5);
     let rd = bits(word, 0, 5);
+
+    // The integer-output rounding (`FRINT32Z`/`FRINT64Z`/`FRINT32X`/`FRINT64X`,
+    // opcode `1111x` with `a==0`) and reciprocal-estimate (`URECPE`/`URSQRTE`,
+    // opcode `11100` with `a==1`) ops have NO half-precision form: the shared
+    // `fp_misc_code` table still maps them (they are valid at single/double), so
+    // exclude them here → UNDEFINED (verified by an LLVM opcode sweep — e.g.
+    // `0E39FABD frint64z v.4h`/`2E39FABD frint64x v.4h` are `<unknown>`).
+    if (a == 0 && (opcode == 0b11110 || opcode == 0b11111)) || (a == 1 && opcode == 0b11100) {
+        return;
+    }
 
     // Scalar-only half-precision FRECPX (op 11111, a==1, U==0).
     if scalar && u == 0 && a == 1 && opcode == 0b11111 {

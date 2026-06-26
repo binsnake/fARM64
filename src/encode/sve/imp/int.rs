@@ -39,7 +39,7 @@ pub(super) fn is_int(code: Code) -> bool {
             | SveAdrSxtw | SveAdrUxtw | SveAdrSameScaled | SveMovprfxZz | SveMovprfxZpz
         // inc/dec
             | SveIncDecVector | SveIncDecScalar | SveSqIncDecScalarSx | SveCntElem
-            | SveIncDecPVector | SveIncDecPScalar | SveSqIncDecPScalarSx | SveCntp
+            | SveIncDecPVector | SveIncDecPScalar | SveSqIncDecPScalarSx | SveCntp | SveCntpCount
         // predicated binary / unary / reductions / mla
             | SveAddZpzz | SveSubZpzz | SveSubrZpzz | SveSmaxZpzz | SveUmaxZpzz | SveSminZpzz
             | SveUminZpzz | SveSabdZpzz | SveUabdZpzz | SveMulZpzz | SveSmulhZpzz | SveUmulhZpzz
@@ -87,6 +87,8 @@ pub(super) fn is_int(code: Code) -> bool {
         // K4: FEAT_SVE_AES2 multi-vector AES + PMULL/PMLAL, SVE2.1 narrowing converts
             | SveAese2 | SveAesd2 | SveAesemc2 | SveAesdimc2 | SvePmull2 | SvePmlal2
             | SveSqcvtn | SveUqcvtn | SveSqcvtun
+        // L1: SVE2.1 multi-vector narrowing shift right by immediate
+            | SveShiftNarrowMulti
     )
 }
 
@@ -397,6 +399,30 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let pg = p(insn, 1)?;
             let pn = p(insn, 2)?;
             fld(0b00100101, 24) | fld(size, 22) | fld(0b10, 20) | fld(0b10, 14) | fld(pg, 10)
+                | fld(pn, 5)
+                | rd
+        }
+        // ---- SVE2.1 CNTP (predicate-as-counter) (0x25, <15:11>=10000, <9>=1) ----
+        // `CNTP <Xd>, <PNn>.<T>, VLx{2,4}`. PN<8:5>, <10>=VLx-mul, <9>=1 fixed.
+        SveCntpCount => {
+            let rd = g(insn, 0)?;
+            let (pn, a) = match insn.op(1) {
+                // CNTP's predicate-as-counter uses the full 4-bit PN field
+                // (`pn0`..`pn15`), unlike the WHILE forms (`pn8`..`pn15`).
+                Operand::PredCounter { reg, arr: Some(a), .. } => (reg.number() as u32, a),
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            if pn > 15 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            let size = arr_size(a)?;
+            let vl = match insn.op(2) {
+                Operand::VlMul(2) => 0,
+                Operand::VlMul(4) => 1,
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            fld(0b00100101, 24) | fld(size, 22) | fld(1, 21) | fld(0b100, 13) | fld(vl, 10)
+                | fld(1, 9)
                 | fld(pn, 5)
                 | rd
         }

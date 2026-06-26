@@ -1769,6 +1769,10 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         // --- K4: TCHANGE ---
         Mnemonic::Tchangef => "tchangef",
         Mnemonic::Tchangeb => "tchangeb",
+        // --- L1: SVE2.2 FP8/BF16 converts + BFloat16 scale ---
+        Mnemonic::Bf2cvt => "bf2cvt",
+        Mnemonic::Scvtflt => "scvtflt",
+        Mnemonic::Bfscale => "bfscale",
     }
 }
 

@@ -334,9 +334,14 @@ fn decode_05(word: u32, out: &mut Instruction) {
                 out.set(Code::SveInsrVec);
                 out.push_operand(zreg(zd, arr(size)));
                 out.push_operand(scalar_fp(bits(word, 5, 5), size));
-            } else if bits(word, 10, 3) == 0b000 {
+            } else if bit(word, 21) == 1 && bits(word, 10, 3) == 0b000 {
                 // DUP indexed: `MOV <Zd>.<T>, <Zn>.<T>[idx]`. tsz = imm2:tsz
                 // = <23:22>:<20:16>. The element size is the lowest set bit of tsz.
+                // `<21>` is a fixed `1` for this encoding (and the idx==0 scalar
+                // broadcast `MOV <Zd>.<T>, <V><n>` that shares it); `<21>=0` is
+                // reserved → UNDEFINED (verified by an LLVM bit-21 sweep — e.g.
+                // `05CB21BB` over-decoded as `mov z27.b,z13.b[53]`, `<unknown>` in
+                // LLVM, vs the valid `05EB21BB` with `<21>=1`).
                 decode_dup_indexed(word, out);
             } else if bit(word, 21) == 1 && bits(word, 10, 3) == 0b001 {
                 // SVE2.1 128-bit-segment forms: DUPQ (<23:22>=00) and EXTQ
@@ -945,7 +950,13 @@ fn decode_index_addvl(word: u32, features: FeatureSet, out: &mut Instruction) {
                     out.push_operand(Operand::ImmSignedDec(imm6));
                 }
                 0b10 => {
-                    // RDVL <Xd>, #imm6 (Rn field is fixed 11111).
+                    // RDVL <Xd>, #imm6. The `Rn` field (`<20:16>`) is fixed `11111`;
+                    // any other value is reserved → UNDEFINED (verified vs LLVM:
+                    // `04BC5304` over-decoded as `rdvl x4,#0x18` with `Rn=11100`,
+                    // `<unknown>`, vs the canonical `04BF5304` with `Rn=11111`).
+                    if rn != 0b11111 {
+                        return;
+                    }
                     out.set(Code::SveRdvl);
                     out.push_operand(gpr(rd, RegWidth::X64));
                     out.push_operand(Operand::ImmSignedDec(imm6));
@@ -1142,6 +1153,17 @@ fn decode_incdec_vec(word: u32, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     if size == 0 {
         return; // byte vector INC/DEC does not exist.
+    }
+    // `<12>` is a fixed `0` for the whole INC/DEC-vector family (`<15:12>=1100`);
+    // for the non-saturating forms (`<20>=1`) `<11>` is also fixed `0` (only the
+    // saturating forms use `<11>=D`). A set reserved bit is UNDEFINED — verified
+    // vs LLVM: `04F7DDCE` over-decoded as `decd z14.d,#0xe,mul#8` (`<unknown>`) sets
+    // `<11>` that the canonical `04F7C5CE` clears.
+    if bit(word, 12) != 0 {
+        return;
+    }
+    if bit(word, 20) == 1 && bit(word, 11) != 0 {
+        return;
     }
     let a = arr_hsd(size);
     let imm4 = bits(word, 16, 4) + 1;
@@ -1372,7 +1394,7 @@ fn decode_24(word: u32, out: &mut Instruction) {
 // ===========================================================================
 
 #[inline]
-fn decode_25(word: u32, out: &mut Instruction) {
+fn decode_25(word: u32, features: FeatureSet, out: &mut Instruction) {
     let sel = bits(word, 13, 3); // word<15:13>
 
     // CNTP `<Xd>, <Pg>, <Pn>.<T>` skeleton: `<21:20>=10`, `<19:16>=0000`,
@@ -1423,6 +1445,16 @@ fn decode_25(word: u32, out: &mut Instruction) {
             if bit(word, 21) == 0 {
                 // Signed-immediate compare eq/ne.
                 decode_cmp_imm_signed(word, out);
+            } else if bits(word, 16, 5) == 0b00000
+                && bits(word, 11, 5) == 0b10000
+                && bit(word, 9) == 1
+            {
+                // SVE2.1 CNTP (predicate-as-counter): `<20:16>=00000`,
+                // `<15:11>=10000`, `<10>=VLx-mul`, `<9>=1`, PN=<8:5>.
+                // `CNTP <Xd>, <PNn>.<T>, VLx{2,4}`.
+                if features.has(Feature::Sve2p1) {
+                    decode_cntp_count(word, out);
+                }
             } else if bits(word, 12, 4) == 0b1000 {
                 // INC/DEC-by-predicate-count has the fixed nibble `<15:12>==1000`.
                 // The FFR / predicate-misc ops sharing `<15:13>==100` (SETFFR /
@@ -1526,8 +1558,14 @@ fn decode_int_imm(word: u32, out: &mut Instruction) {
             out.push_operand(zreg(zdn, a));
             push_imm8_shift(out, imm8, sh);
         }
-        // Min/max immediate. <18:17>=00 -> MAX, 01 -> MIN; U=<16>.
+        // Min/max immediate. <18:17>=00 -> MAX, 01 -> MIN; U=<16>. `<13>` is a
+        // fixed `0` here (no `lsl #8` shift, unlike the `00` arithmetic class);
+        // `<13>=1` is reserved → UNDEFINED (verified vs LLVM: `256AE249`
+        // over-decoded as `smin z9.h,z9.h,#0x12`, `<unknown>`, vs `256AC249`).
         0b01 => {
+            if sh != 0 {
+                return;
+            }
             let u = bit(word, 16);
             match bits(word, 17, 2) {
                 0b00 => out.set(if u == 0 { Code::SveSmaxZi } else { Code::SveUmaxZi }),
@@ -1538,9 +1576,11 @@ fn decode_int_imm(word: u32, out: &mut Instruction) {
             out.push_operand(zreg(zdn, a));
             out.push_operand(minmax_imm(imm8, u == 0));
         }
-        // MUL by immediate (signed imm8).
+        // MUL by immediate (signed imm8). `<13>` is a fixed `0` (no shift);
+        // `<13>=1` is reserved → UNDEFINED (verified vs LLVM: `2570E249` is
+        // `<unknown>` vs the canonical `2570C249`).
         0b10 => {
-            if bits(word, 16, 3) != 0b000 {
+            if bits(word, 16, 3) != 0b000 || sh != 0 {
                 return;
             }
             out.set(Code::SveMulZi);
@@ -1622,6 +1662,21 @@ fn decode_cntp(word: u32, out: &mut Instruction) {
     out.push_operand(preg_sz(pn, a));
 }
 
+/// SVE2.1 CNTP (predicate-as-counter): `CNTP <Xd>, <PNn>.<T>, VLx{2,4}` (top byte
+/// 0x25, `<15:11>=10000`, `<9>=1`). The element size is `<23:22>`, the
+/// predicate-as-counter `PN = 8 + <8:5>` (top bit fixed `1`), and `<10>` selects
+/// the VLx2 (0) / VLx4 (1) multiplier.
+#[inline]
+fn decode_cntp_count(word: u32, out: &mut Instruction) {
+    let a = arr(bits(word, 22, 2));
+    let pn = bits(word, 5, 4); // PN<3:0>, with <8>=1 already giving 8..15.
+    let rd = bits(word, 0, 5);
+    out.set(Code::SveCntpCount);
+    out.push_operand(gpr(rd, RegWidth::X64));
+    out.push_operand(Operand::PredCounter { reg: P[(pn & 0xf) as usize], zeroing: false, arr: Some(a) });
+    out.push_operand(Operand::VlMul(if bit(word, 10) == 1 { 4 } else { 2 }));
+}
+
 /// INC/DEC by predicate count (`<15:13>=100`, top byte 0x25): the scalar and
 /// vector forms (`INCP`/`DECP`/`SQINCP`/`SQDECP`/`UQINCP`/`UQDECP`). The op is in
 /// `word<18:16>`: 000=SQINCP, 001=UQINCP, 010=SQDECP, 011=UQDECP, 100=INCP,
@@ -1635,6 +1690,19 @@ fn decode_incdec_pred(word: u32, out: &mut Instruction) {
     let rdn = bits(word, 0, 5);
     let is_vector = bit(word, 11) == 0;
     let opc = bits(word, 16, 3); // word<18:16>
+
+    // Fixed encoding bits for the whole INCP/DECP/{SQ,UQ}{INC,DEC}P family:
+    // `<20>=0`, `<19>=1`, `<9>=0`. Any other value is reserved → UNDEFINED
+    // (verified vs LLVM, e.g. `25FC8F2A` over-decoded as `incp x10,p9.d` —
+    // `<unknown>` — sets `<20>` and `<9>` that LLVM's canonical `25EC892A` clears).
+    if bit(word, 20) != 0 || bit(word, 19) != 1 || bit(word, 9) != 0 {
+        return;
+    }
+    // `<10>` is the `sf` selector *only* for the saturating scalar forms; for the
+    // vector forms (`<11>=0`) and for plain INCP/DECP it is a fixed `0`.
+    if (is_vector || opc == 0b100 || opc == 0b101) && bit(word, 10) != 0 {
+        return;
+    }
 
     // Plain INCP / DECP.
     if opc == 0b100 || opc == 0b101 {
@@ -1891,7 +1959,13 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
                 out.push_operand(zreg(zn, VA::Sh));
                 out.push_operand(zreg(zm, VA::Sh));
             } else {
-                // Indexed form (`<23:22>=10`): i2=<20:19>, Zm=<18:16>.
+                // Indexed form requires `<23:22>=10`: i2=<20:19>, Zm=<18:16>.
+                // `<22>=1` (i.e. `<23:22>=11`) is reserved → UNDEFINED (verified vs
+                // LLVM: `44D6CF8A` over-decoded as `udot z10.s,z28.h,z6.h[2]`,
+                // `<unknown>`, vs the canonical `4496CF8A` with `<23:22>=10`).
+                if bit(word, 22) != 0 {
+                    return;
+                }
                 out.set(if u == 0 { Code::SveSdotHIdx } else { Code::SveUdotHIdx });
                 out.set_mnemonic(if u == 0 { Mnemonic::Sdot } else { Mnemonic::Udot });
                 let idx = bits(word, 19, 2);
@@ -2548,7 +2622,7 @@ fn decode_45(word: u32, features: FeatureSet, out: &mut Instruction) {
     }
     // SVE2 bit-shift accumulate / insert / shift-long-immediate and the
     // narrowing-shift / saturating-extract-narrow forms also live in 0x45.
-    decode_45_shift(word, out);
+    decode_45_shift(word, features, out);
     if !out.is_invalid() {
         return;
     }
@@ -2825,8 +2899,11 @@ fn decode_45_misc(word: u32, out: &mut Instruction) {
         out.push_operand(zreg(zm, a));
         return;
     }
-    // HISTSEG (`<15:10>=101000`): `<Zd>.B, <Zn>.B, <Zm>.B`.
-    if bits(word, 10, 6) == 0b101000 {
+    // HISTSEG (`<15:10>=101000`): `<Zd>.B, <Zn>.B, <Zm>.B`. `.b` only — `size`
+    // (`<23:22>`) is a fixed `00`; a non-zero size is reserved → UNDEFINED
+    // (verified vs LLVM: `45ABA3EB`/`456BA3EB`/`45EBA3EB` are `<unknown>`, only
+    // `452BA3EB` with `size=00` decodes).
+    if bits(word, 10, 6) == 0b101000 && size == 0 {
         out.set(Code::SveHistseg);
         out.set_mnemonic(Mnemonic::Histseg);
         out.push_operand(zreg(zd, VA::Sb));
@@ -2861,7 +2938,7 @@ fn decode_45_misc(word: u32, out: &mut Instruction) {
 /// Shift-amount fields: `tszh:tszl:imm3` (`<23:22>:<20:19>:<18:16>` for the
 /// `<21>=0` forms; `<22>:<20:19>:<18:16>` for the narrowing `<21>=1` forms).
 #[inline]
-fn decode_45_shift(word: u32, out: &mut Instruction) {
+fn decode_45_shift(word: u32, features: FeatureSet, out: &mut Instruction) {
     let imm3 = bits(word, 16, 3);
     let zn = bits(word, 5, 5);
     let zd = bits(word, 0, 5);
@@ -2933,8 +3010,14 @@ fn decode_45_shift(word: u32, out: &mut Instruction) {
         }
         return;
     }
-    // `<21>=1`: narrowing-shift-right (`<15:13>=000`) and saturating-extract-narrow
-    // (`<18:13>=000010`). tsz for narrowing: `<22>:<20:19>`.
+    // `<21>=1`, `<23>=1`: the SVE2.1 *multi-vector* narrowing shift right
+    // (`SQSHRN`/`SQRSHRN`/`UQSHRN`/`UQRSHRN`/`SQSHRUN`/`SQRSHRUN`), a 2-vector
+    // group source one element wider than the destination. The single-vector
+    // forms below all have `<23>=0`; `<23>=1` selects this distinct family.
+    if bit(word, 23) != 0 {
+        decode_45_shift_narrow_multi(word, features, out);
+        return;
+    }
     let tszn = (bit(word, 22) << 2) | bits(word, 19, 2);
     // Saturating extract narrow: `<18:13>=000010`, no immediate.
     if bits(word, 13, 6) == 0b000010 {
@@ -3006,6 +3089,54 @@ fn decode_45_shift(word: u32, out: &mut Instruction) {
     }
 }
 
+/// SVE2.1 multi-vector narrowing shift right by immediate (top byte 0x45,
+/// `<21>=1`, `<23>=1`): `op <Zd>.<Tb>, { <Zn>.<T>, <Zn+1>.<T> }, #shift`.
+///
+/// `<15:14>=00` and `<10>=0` are fixed; `<13:11>` selects the op
+/// (`000`=SQSHRN, `001`=SQRSHRUN, `010`=UQSHRN, `100`=SQSHRUN, `101`=SQRSHRN,
+/// `111`=UQRSHRN). The dest element size and shift amount come from the same
+/// `tsz = <22>:<20:19>` / `right_shift_amount` encoding as the single-vector
+/// forms (only `.b<-.h` and `.h<-.s` exist); the source pair base `<5>` (`Zn`)
+/// must be even. Any other field combination is reserved → UNDEFINED.
+#[inline]
+fn decode_45_shift_narrow_multi(word: u32, features: FeatureSet, out: &mut Instruction) {
+    if !features.has(Feature::Sve2p1) {
+        return;
+    }
+    // Fixed encoding bits: `<15:14>=00`, `<10>=0`.
+    if bits(word, 14, 2) != 0 || bit(word, 10) != 0 {
+        return;
+    }
+    let imm3 = bits(word, 16, 3);
+    let tszn = (bit(word, 22) << 2) | bits(word, 19, 2);
+    let Some((da, amt)) = right_shift_amount(tszn, imm3) else { return };
+    // Only the `.b<-.h` and `.h<-.s` destinations exist for the multi-vector form.
+    let sa = match da {
+        VA::Sb => VA::Sh,
+        VA::Sh => VA::Ss,
+        _ => return,
+    };
+    let mnem = match bits(word, 11, 3) {
+        0b000 => Mnemonic::Sqshrn,
+        0b001 => Mnemonic::Sqrshrun,
+        0b010 => Mnemonic::Uqshrn,
+        0b100 => Mnemonic::Sqshrun,
+        0b101 => Mnemonic::Sqrshrn,
+        0b111 => Mnemonic::Uqrshrn,
+        _ => return,
+    };
+    let zn = bits(word, 5, 5);
+    if zn & 1 != 0 {
+        return; // source pair base must be even.
+    }
+    let zd = bits(word, 0, 5);
+    out.set(Code::SveShiftNarrowMulti);
+    out.set_mnemonic(mnem);
+    out.push_operand(zreg(zd, da));
+    out.push_operand(zgroup(zn, 2, sa));
+    out.push_operand(Operand::ImmUnsigned(amt as u64));
+}
+
 /// SVE2 integer add/subtract long/wide, high-narrowing, ABAL, bottom-top long,
 /// and ADC/SBC long (top byte 0x45). Returns leaving `out` invalid for the
 /// multiply-long opcodes (handled by the caller). Dispatch on `<15:13>`:
@@ -3029,6 +3160,13 @@ fn decode_45_addsub(word: u32, out: &mut Instruction) {
         0b000 | 0b001 if bit(word, 21) == 0 => {
             let Some((da, sa)) = widen2(size) else { return };
             let abd = bit(word, 13) == 1; // <15:13>=001 -> ABDL.
+            // {S,U}ABDL{B,T} fix `<12>=1` (the bit is the add/sub `S` selector only
+            // for the `000` add/sub-long forms). `<15:13>=001` with `<12>=0` is
+            // reserved → UNDEFINED (verified vs LLVM: `45CE27DC` over-decoded as
+            // `sabdlt z28.d,z30.s,z14.s`, `<unknown>`, vs valid `45CE37DC`).
+            if abd && bit(word, 12) == 0 {
+                return;
+            }
             let s = bit(word, 12);
             let u = bit(word, 11);
             let mnem = if abd {
@@ -3223,7 +3361,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         0x05 => decode_05(word, out),
         // 0x25: SVE integer immediate (add/sub/min/max/mul) + INC/DEC by pred,
         //       compare-with-imm, predicate counts (top byte 001).
-        0x25 => decode_25(word, out),
+        0x25 => decode_25(word, features, out),
         0x24 => decode_24(word, out),
         // 0x44 / 0x45: SVE2 integer multiply-add / DOT / widening (top byte 010).
         0x44 => decode_44(word, features, out),

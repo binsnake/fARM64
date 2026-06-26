@@ -61,6 +61,8 @@ pub(super) fn is_fp(code: Code) -> bool {
             | SveBfaddZzz | SveBfsubZzz | SveBfmulZzz
             | SveBfaddZpzz | SveBfsubZpzz | SveBfmulZpzz | SveBfmaxnmZpzz | SveBfminnmZpzz
             | SveBfmaxZpzz | SveBfminZpzz | SveBfmlaZpzzz | SveBfmlsZpzzz | SveBfclamp
+        // L1: SVE2.2 BFloat16 scale + FP8/int down-converts
+            | SveBfscale | SveBf2cvt | SveScvtflt
         // H3: FCLAMP + FDOT + FP8 vector MLAL/MMLA + BFMMLA.h + BFMLSL
             | SveFclamp
             | SveFdotShVec | SveFdotShIdx | SveFdotHbVec | SveFdotHbIdx | SveFdotSbVec | SveFdotSbIdx
@@ -473,7 +475,7 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         }
         // Predicated binary `<Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H`.
         SveBfaddZpzz | SveBfsubZpzz | SveBfmulZpzz | SveBfmaxnmZpzz | SveBfminnmZpzz | SveBfmaxZpzz
-        | SveBfminZpzz => {
+        | SveBfminZpzz | SveBfscale => {
             let opc = match code {
                 SveBfaddZpzz => 0b00000,
                 SveBfsubZpzz => 0b00001,
@@ -481,12 +483,25 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 SveBfmaxnmZpzz => 0b00100,
                 SveBfminnmZpzz => 0b00101,
                 SveBfmaxZpzz => 0b00110,
+                SveBfscale => 0b01001,
                 _ => 0b00111,
             };
             let zdn = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zm = z(insn, 3)?;
             base65(0) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zm, 5) | zdn
+        }
+        // ---- L1: SVE2.2 FP8/int down-convert `Zd.h, Zn.b` ----
+        // BF2CVT (size=00, <20:16>=01000, <12:10>=111),
+        // SCVTFLT (size=01, <20:16>=01100, <12:10>=110).
+        SveBf2cvt | SveScvtflt => {
+            let zd = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let (size, opc, op210) = match code {
+                SveBf2cvt => (0u32, 0b01000u32, 0b111u32),
+                _ => (1, 0b01100, 0b110),
+            };
+            base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b001, 13) | fld(op210, 10) | fld(zn, 5) | zd
         }
         // Predicated multiply-add `<Zda>.H, <Pg>/M, <Zn>.H, <Zm>.H`.
         SveBfmlaZpzzz | SveBfmlsZpzzz => {

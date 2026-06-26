@@ -3098,6 +3098,21 @@ codes! {
     SveUqcvtn => Uqcvtn, Sve2p1, "`UQCVTN Zd.h, { Zn.s, Zn+1.s }` (SVE2.1 unsigned saturating narrow).";
     SveSqcvtun => Sqcvtun, Sve2p1, "`SQCVTUN Zd.h, { Zn.s, Zn+1.s }` (SVE2.1 signed-to-unsigned saturating narrow).";
 
+    // --- L1: SVE2.1 multi-vector narrowing shift right by immediate ---
+    // `Zd.<Tb>, { Zn.<T>, Zn+1.<T> }, #shift`. <23>=1, <15:14>=00, <10>=0;
+    // <13:11> selects the op, tsz=`<22>:<20:19>` the element size + shift amount.
+    SveShiftNarrowMulti => Sqshrn, Sve2p1, "`SQSHRN Zd.b, { Zn.h, Zn+1.h }, #shift` (SVE2.1 multi-vector narrowing shift).";
+
+    // --- L1: SVE2.1 CNTP (predicate-as-counter) ---
+    // `CNTP <Xd>, <PNn>.<T>, VLx{2,4}`. <21>=1, <20:16>=00000, <15:13>=100,
+    // <12:11>=00, <10>=VLx-mul, <9>=1, PN=<8:5>.
+    SveCntpCount => Cntp, Sve2p1, "`CNTP <Xd>, <PNn>.<T>, VLx{2,4}` (SVE2.1 count predicate-as-counter).";
+
+    // --- L1: SVE2.2 FP8/BF16 converts (0x65, <21>=0, <15:13>=001) + BF16 scale ---
+    SveBf2cvt => Bf2cvt, Fp8, "`BF2CVT Zd.h, Zn.b` (SVE2 FP8 to BF16 convert).";
+    SveScvtflt => Scvtflt, Fp8, "`SCVTFLT Zd.h, Zn.b` (SVE2 signed int low-to-top widening FP convert).";
+    SveBfscale => Bfscale, SveB16b16, "`BFSCALE Zd.h, Pg/m, Zd.h, Zm.h` (SVE2 BFloat16 scale, predicated).";
+
     // --- K4: FEAT_FPRCVT scalar FP<->int convert, differing register widths ---
     // The FP/int holder register widths differ (e.g. `FCVTMS <Sd>, <Hn>`,
     // `SCVTF <Dd>, <Sn>`). One code per operation; the operand widths carry the
@@ -6335,6 +6350,13 @@ pub enum Mnemonic {
     Tchangef,
     /// `TCHANGEB` (translation-table change, backward).
     Tchangeb,
+    // --- L1: SVE2.2 FP8/BF16 converts + BFloat16 scale ---
+    /// `BF2CVT` (SVE2 FP8 to BF16 convert, even/bottom).
+    Bf2cvt,
+    /// `SCVTFLT` (SVE2 signed int to FP, low-to-top widening convert).
+    Scvtflt,
+    /// `BFSCALE` (SVE2 BFloat16 scale, predicated).
+    Bfscale,
 }
 
 impl Mnemonic {

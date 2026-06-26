@@ -304,6 +304,33 @@ fn enc_sve2(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeError> 
             };
             base45(1) | fld(0b10001, 16) | fld(0b010, 13) | fld(op, 10) | fld(zn, 5) | zd
         }
+        // ---- L1: SVE2.1 multi-vector narrowing shift right by immediate ----
+        // `Zd.<Tb>, { Zn.<T>, Zn+1.<T> }, #shift`. <23>=1, <15:14>=00, <10>=0;
+        // <13:11>=op, tsz/imm3 from the *destination* (narrow) element + shift.
+        SveShiftNarrowMulti => {
+            let zd = z(insn, 0)?;
+            let da = arr_of(insn, 0)?;
+            let (zn, _count) = group_first(insn, 1)?;
+            let amount = imm(insn, 2)? as u32;
+            let (tszn, imm3) = enc_right_shift(da, amount)?;
+            let op = match insn.mnemonic() {
+                Mnemonic::Sqshrn => 0b000,
+                Mnemonic::Sqrshrun => 0b001,
+                Mnemonic::Uqshrn => 0b010,
+                Mnemonic::Sqshrun => 0b100,
+                Mnemonic::Sqrshrn => 0b101,
+                Mnemonic::Uqrshrn => 0b111,
+                _ => return Ok(None),
+            };
+            base45(1)
+                | fld(1, 23)
+                | fld(tszn >> 2, 22)
+                | fld(tszn & 3, 19)
+                | fld(imm3, 16)
+                | fld(op, 11)
+                | fld(zn, 5)
+                | zd
+        }
         _ => return Ok(None),
     };
     Ok(Some(w))

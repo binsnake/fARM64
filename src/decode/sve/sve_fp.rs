@@ -206,7 +206,7 @@ fn decode_65(word: u32, features: FeatureSet, out: &mut Instruction) {
         // <15:13>==0xx, otherwise predicated unary/binary/compare.
         match sel {
             0b000 => decode_65_unpred_arith(word, features, out),
-            0b001 => decode_65_unary_misc(word, out),
+            0b001 => decode_65_unary_misc(word, features, out),
             0b010 | 0b011 => decode_65_compare(word, out),
             0b100 => decode_65_pred_binary(word, features, out),
             0b101 => decode_65_pred_unary(word, features, out),
@@ -275,8 +275,28 @@ fn decode_65_unpred_arith(word: u32, features: FeatureSet, out: &mut Instruction
 ///   `<12:10>=000`) and the strictly-ordered `FADDA` (`<20:16>=11000`);
 /// * `FRECPE`/`FRSQRTE` (`<20:16>=01110/01111`, `<12:10>=100`).
 #[inline]
-fn decode_65_unary_misc(word: u32, out: &mut Instruction) {
+fn decode_65_unary_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
+    // SVE2.2 FP8/int down-convert `Zd.h, Zn.b` (FEAT_FP8). These occupy the
+    // `<20:19>=01` sub-block of this `<15:13>=001` slot, with `<12:10>` selecting
+    // the variant. `BF2CVT` (size==00, `<20:16>=01000`, `<12:10>=111`) and
+    // `SCVTFLT` (size==01, `<20:16>=01100`, `<12:10>=110`).
+    if features.has(Feature::Fp8) {
+        let zn = bits(word, 5, 5);
+        let zd = bits(word, 0, 5);
+        if size == 0 && bits(word, 16, 5) == 0b01000 && bits(word, 10, 3) == 0b111 {
+            out.set(Code::SveBf2cvt);
+            out.push_operand(zreg(zd, VA::Sh));
+            out.push_operand(zreg(zn, VA::Sb));
+            return;
+        }
+        if size == 1 && bits(word, 16, 5) == 0b01100 && bits(word, 10, 3) == 0b110 {
+            out.set(Code::SveScvtflt);
+            out.push_operand(zreg(zd, VA::Sh));
+            out.push_operand(zreg(zn, VA::Sb));
+            return;
+        }
+    }
     if size == 0 {
         return;
     }
@@ -383,6 +403,9 @@ fn decode_65_pred_binary(word: u32, features: FeatureSet, out: &mut Instruction)
             0b00101 => Code::SveBfminnmZpzz,
             0b00110 => Code::SveBfmaxZpzz,
             0b00111 => Code::SveBfminZpzz,
+            // SVE2.2 BFloat16 scale (`<20:16>=01001`): `BFSCALE Zdn.h, Pg/m,
+            // Zdn.h, Zm.h`, the bf16 sibling of the `size!=0` FSCALE.
+            0b01001 => Code::SveBfscale,
             _ => return,
         };
         out.set(code);

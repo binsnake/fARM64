@@ -547,6 +547,30 @@ fn fp_three_same(
     }
 
     if scalar {
+        // The "Advanced SIMD scalar three same" single/double FP class (`0x5E`/
+        // `0x7E`, `size<1:0>` = `o1:sz`) allocates only the same subset as the
+        // FP16 scalar class: the add/sub/min/max/pairwise/FMLA-style ops are
+        // vector-only. Valid `(U, o1, opcode)` ∈ { FMULX(0,0,11011),
+        // FCMEQ(0,0,11100), FRECPS(0,0,11111), FRSQRTS(0,1,11111),
+        // FCMGE(1,0,11100), FACGE(1,0,11101), FABD(1,1,11010), FCMGT(1,1,11100),
+        // FACGT(1,1,11101) }; everything else is reserved → UNDEFINED. (Verified
+        // by an LLVM U/o1/sz/opcode sweep over `0x5E`/`0x7E`: e.g. `5E2CD6DA`
+        // fARM64 `fadd s22,…` → `<unknown>`.)
+        let scalar_ok = matches!(
+            (u, o1, opcode),
+            (0, 0, 0b11011) // FMULX
+                | (0, 0, 0b11100) // FCMEQ
+                | (0, 0, 0b11111) // FRECPS
+                | (0, 1, 0b11111) // FRSQRTS
+                | (1, 0, 0b11100) // FCMGE
+                | (1, 0, 0b11101) // FACGE
+                | (1, 1, 0b11010) // FABD
+                | (1, 1, 0b11100) // FCMGT
+                | (1, 1, 0b11101) // FACGT
+        );
+        if !scalar_ok {
+            return;
+        }
         let eb: u16 = if bit(size, 0) == 1 { 64 } else { 32 };
         out.set(code);
         out.push_operand(sca(rd, eb));
@@ -683,6 +707,18 @@ fn fp16_three_same(word: u32, scalar: bool, features: FeatureSet, out: &mut Inst
     if !features.has(Feature::Fp16) {
         return;
     }
+    // The "Advanced SIMD three same (FP16)" format fixes `word<23:21> = a:1:0`
+    // (`a = word<23>` is the group bit, `word<22> = 1` and `word<21> = 0` are
+    // constants of the class). `word<21>==0` is already guaranteed by the caller;
+    // `word<22>` must be `1`. A `word<22>==0` word (`a:0` → size `00`/`10`) is NOT
+    // an FP16 three-same instruction — `size==00` is the copy family (handled by
+    // `simd_data`) and `size==10` is architecturally UNDEFINED. Reject it here so
+    // `0E850EE1` etc. (fARM64 `fmls v1.4h,…`, LLVM UNDEFINED) become Invalid.
+    // (Verified by an LLVM bit-22 sweep across all U/a/opcode/Q: every reachable
+    // `word<22>==0` word — `a==1`, `size==10` — is `<unknown>`.)
+    if bit(word, 22) == 0 {
+        return;
+    }
     let q = bit(word, 30);
     let u = bit(word, 29);
     let a = bit(word, 23); // size<1>
@@ -733,6 +769,30 @@ fn fp16_three_same(word: u32, scalar: bool, features: FeatureSet, out: &mut Inst
         _ => {}
     }
     if scalar {
+        // The "Advanced SIMD scalar three same FP16" class (`0x5E`/`0x7E`)
+        // allocates only a *subset* of the vector FP16 opcodes — the add/sub/
+        // min/max/pairwise/FMLA-style ops have no scalar form. The scalar slot is
+        // valid only for `(U, a, opcode)` ∈ { FMULX(0,0,011), FCMEQ(0,0,100),
+        // FRECPS(0,0,111), FRSQRTS(0,1,111), FCMGE(1,0,100), FACGE(1,0,101),
+        // FABD(1,1,010), FCMGT(1,1,100), FACGT(1,1,101) }; every other reachable
+        // opcode is reserved → UNDEFINED. (Verified by an LLVM U/a/opcode sweep
+        // over `0x5E`/`0x7E`: e.g. `5E560750` fARM64 `fmaxnm h16,…` → `<unknown>`,
+        // `5E5F347A`/`5E2CD6DA`/`7E560750` likewise.)
+        let scalar_ok = matches!(
+            (u, a, opcode),
+            (0, 0, 0b011) // FMULX
+                | (0, 0, 0b100) // FCMEQ
+                | (0, 0, 0b111) // FRECPS
+                | (0, 1, 0b111) // FRSQRTS
+                | (1, 0, 0b100) // FCMGE
+                | (1, 0, 0b101) // FACGE
+                | (1, 1, 0b010) // FABD
+                | (1, 1, 0b100) // FCMGT
+                | (1, 1, 0b101) // FACGT
+        );
+        if !scalar_ok {
+            return;
+        }
         out.set(code);
         out.push_operand(sca(rd, 16));
         out.push_operand(sca(rn, 16));
@@ -2031,6 +2091,16 @@ fn decode_by_element(word: u32, scalar: bool, features: FeatureSet, out: &mut In
             if size == 0b01 {
                 return; // unallocated FP-by-element precision.
             }
+            // For the `.2d` / `d` (size==11, double-precision) by-element FP forms
+            // the index is `H` alone (a `.2d` vector has only two lanes), so the
+            // `L` bit (`word<21>`) is a fixed `0`; a `word<21>==1` word is reserved
+            // → UNDEFINED. (For `.s`, `L` is a genuine index bit, so only the
+            // double case is guarded.) Verified by an LLVM bit-21 sweep across
+            // FMLA/FMLS/FMUL/FMULX, scalar and vector: every `size==11, L==1` word
+            // is `<unknown>` (e.g. `4FE7996A` fARM64 `fmul v10.2d,…,v7.d[1]`).
+            if size == 0b11 && bit(word, 21) != 0 {
+                return;
+            }
             // single/double.
             if scalar {
                 let eb: u16 = if size == 0b11 { 64 } else { 32 };
@@ -2151,7 +2221,16 @@ fn by_element_fcmla(word: u32, scalar: bool, features: FeatureSet, out: &mut Ins
             if !features.has(Feature::Fp16) {
                 return;
             }
-            // FCMLA `.h`: index = H:L (complex pairs), Vm is 5-bit (bits<20:16>).
+            // FCMLA `.h`: index addresses complex *pairs*, so the index width
+            // tracks the lane count — `.8h` (Q==1) has 4 pairs (index H:L), but
+            // `.4h` (Q==0) has only 2 pairs (index L, with `H = word<11>` a fixed
+            // `0`). A `Q==0, H==1` word is reserved → UNDEFINED. (Verified by an
+            // LLVM H sweep: every `size==01, Q==0, H==1` word is `<unknown>`, e.g.
+            // `2F623A9B` fARM64 `fcmla v27.4h,…,v2.h[3],#0x5a`.)
+            if q == 0 && h != 0 {
+                return;
+            }
+            // Vm is 5-bit (bits<20:16>).
             let vm = bits(word, 16, 5);
             (arr_fp16(q), VA::Sh, vm, ((h << 1) | l) as u8)
         }
@@ -2159,7 +2238,14 @@ fn by_element_fcmla(word: u32, scalar: bool, features: FeatureSet, out: &mut Ins
             if q == 0 {
                 return; // FCMLA .2s by element is not allocated.
             }
-            // FCMLA `.s`: index = H, Vm is 5-bit.
+            // FCMLA `.s`: index = H alone (a `.4s` vector holds 2 complex pairs),
+            // so the `L` bit (`word<21>`) is a fixed `0`; a `word<21>==1` word is
+            // reserved → UNDEFINED. (Verified by an LLVM L sweep: every `size==10,
+            // Q==1, L==1` word is `<unknown>`, e.g. `6FA2329B`.)
+            if l != 0 {
+                return;
+            }
+            // Vm is 5-bit.
             let vm = bits(word, 16, 5);
             (VA::V4S, VA::Ss, vm, h as u8)
         }

@@ -28,11 +28,14 @@ Commit | What
 `ff7bab4` | **H4** over-decode hardening: add/sub extended `opt!=00`, NEON ld/st-structure `.1d`/reserved, FP16-MLAL `size<0>`; + FEAT_RPRFM
 
 ### Measured impact (identical 614,400-word random+structured sample, `--mattr=+all`)
-Metric | Session start | After G+FMMLA+H | **Final (after I)**
-|-|-|-|-|
-LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 | 205 / 54 | **45 / 34  (−93%)**
-LLVM **REVERSE** (fARM64 decodes, LLVM rejects = over-decode) | 19,199 / 264 | 9,199 / 228 | **2,577 / 169  (−87%)**
-**DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | 69 / 14 | **69 / 14  (−96%)**
+Metric | Session start | After G+FMMLA+H | After I | **Final (after J)**
+|-|-|-|-|-|
+LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 | 205 / 54 | 45 / 34 | **45 / 34  (−93%)**
+LLVM **REVERSE** (fARM64 decodes, LLVM rejects = over-decode) | 19,199 / 264 | 9,199 / 228 | 2,577 / 169 | **1,756 / 162  (−91%)**
+**DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | 69 / 14 | 69 / 14 | **65 / 13  (−96%)**
+
+`a8a5779` **J** SME single-vector MOVAZ (correctness+mnemonic) + SVE 64-bit-gather signed-dword,
+CPY-imm `.b` LSL#8, EXT-imm, ZIP/UZP/TRN leaf reserved guards.
 
 Plus the **I-batch** (over-decode + remaining-gap closure):
 Commit | What

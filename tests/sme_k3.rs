@@ -189,7 +189,8 @@ fn fmul_multi_single_examples() {
 
 #[test]
 fn fmul_multi_single_reserved() {
-    reserved(0xC120E800); // size 00 (.b) is the BF16 BFMUL neighbour
+    // `C120E800` (size 00) is the BF16 `BFMUL` neighbour — decoded by the L3 batch
+    // (`tests/sme_l3.rs::bfmul`), so it is no longer reserved here.
     reserved(0xC1A1E820); // word<5> RES0
     reserved(0xC1A1E802); // vgx4 word<1> RES0 (dest base multiple of 4)
     reserved(0xC1A1E840); // vgx4 word<6> RES0 (first-source base multiple of 4)

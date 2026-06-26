@@ -106,8 +106,25 @@ mod imp {
             // SME2 LUT (ZT0) + ZA tile move (G3).
                 | SmeLuti2Zt | SmeLuti4Zt
                 | SmeMovaMultiZToTile | SmeMovaMultiTileToZ | SmeMovazMultiTileToZ
-            // SME2 multi-vector LUTI6 (K3).
-                | SmeLuti6
+            // SME2 multi-vector LUTI6 (K3) + consecutive-dest LUTI6 (L3).
+                | SmeLuti6 | SmeLuti6Consec
+            // L3: SME2 multi × single in-place ALU.
+                | SmeAddMVS2 | SmeAddMVS4 | SmeSmaxMVS2 | SmeSmaxMVS4 | SmeUmaxMVS2 | SmeUmaxMVS4
+                | SmeSminMVS2 | SmeSminMVS4 | SmeUminMVS2 | SmeUminMVS4
+                | SmeSrshlMVS2 | SmeSrshlMVS4 | SmeUrshlMVS2 | SmeUrshlMVS4
+                | SmeSqdmulhMVS2 | SmeSqdmulhMVS4
+                | SmeFmaxMVS2 | SmeFmaxMVS4 | SmeFminMVS2 | SmeFminMVS4
+                | SmeFmaxnmMVS2 | SmeFmaxnmMVS4 | SmeFminnmMVS2 | SmeFminnmMVS4
+                | SmeFscaleMVS2 | SmeFscaleMVS4
+                | SmeBfmaxMVS2 | SmeBfmaxMVS4 | SmeBfminMVS2 | SmeBfminMVS4
+                | SmeBfmaxnmMVS2 | SmeBfmaxnmMVS4 | SmeBfminnmMVS2 | SmeBfminnmMVS4
+                | SmeBfscaleMVS2 | SmeBfscaleMVS4
+            // L3: SME2 multi-vector unpack + saturating extract-narrow.
+                | SmeSunpk | SmeUunpk
+                | SmeSqcvt | SmeUqcvt | SmeSqcvtu
+                | SmeSqcvtnNarrow | SmeUqcvtnNarrow | SmeSqcvtunNarrow
+            // L3: SME2 2-vector saturating rounding shift-right-narrow.
+                | SmeSqrshrV2 | SmeUqrshrV2 | SmeSqrshruV2
         ) {
             return true;
         }
@@ -147,7 +164,20 @@ mod imp {
                 enc_narrow_shift(insn)
             }
             SmeLuti2Zt | SmeLuti4Zt => enc_luti_zt(insn),
-            SmeLuti6 => enc_luti6(insn),
+            SmeLuti6 | SmeLuti6Consec => enc_luti6(insn),
+            SmeAddMVS2 | SmeAddMVS4 | SmeSmaxMVS2 | SmeSmaxMVS4 | SmeUmaxMVS2 | SmeUmaxMVS4
+            | SmeSminMVS2 | SmeSminMVS4 | SmeUminMVS2 | SmeUminMVS4 | SmeSrshlMVS2 | SmeSrshlMVS4
+            | SmeUrshlMVS2 | SmeUrshlMVS4 | SmeSqdmulhMVS2 | SmeSqdmulhMVS4 | SmeFmaxMVS2
+            | SmeFmaxMVS4 | SmeFminMVS2 | SmeFminMVS4 | SmeFmaxnmMVS2 | SmeFmaxnmMVS4
+            | SmeFminnmMVS2 | SmeFminnmMVS4 | SmeFscaleMVS2 | SmeFscaleMVS4 | SmeBfmaxMVS2
+            | SmeBfmaxMVS4 | SmeBfminMVS2 | SmeBfminMVS4 | SmeBfmaxnmMVS2 | SmeBfmaxnmMVS4
+            | SmeBfminnmMVS2 | SmeBfminnmMVS4 | SmeBfscaleMVS2 | SmeBfscaleMVS4 => {
+                enc_mvs_alu(insn)
+            }
+            SmeSunpk | SmeUunpk => enc_unpk(insn),
+            SmeSqcvt | SmeUqcvt | SmeSqcvtu | SmeSqcvtnNarrow | SmeUqcvtnNarrow
+            | SmeSqcvtunNarrow => enc_cvt_narrow(insn),
+            SmeSqrshrV2 | SmeUqrshrV2 | SmeSqrshruV2 => enc_narrow_shift2(insn),
             SmeMovaMultiZToTile | SmeMovaMultiTileToZ | SmeMovazMultiTileToZ => {
                 enc_za_tile_move(insn)
             }
@@ -1212,21 +1242,38 @@ mod imp {
     /// `decode::sme::sme2::decode_luti6`. Operands:
     /// `[ {Zd,Zd+4,Zd+8,Zd+12}.h, {Zn,Zn+1}.h, {Zt,Zt+1}[index] ]`.
     fn enc_luti6(insn: &Instruction) -> R {
-        // Operand 0: 4-register strided destination group (stride 4), `.h`. The
-        // base is in `{0..3, 16..19}` and is split as `word<4>` (high) and
-        // `word<1:0>` (low).
-        let zd = match insn.op(0) {
-            Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sh), stride: 4, .. }
-                if first.class() == RegClass::Sve =>
-            {
-                first.number() as u32
+        let consec = insn.code() == Code::SmeLuti6Consec;
+        // Operand 0: the destination group, `.h`. The stride-4 form is a 4-register
+        // strided group (base in `{0..3, 16..19}`, split as `word<4>` high /
+        // `word<1:0>` low); the consecutive form is a 4-register consecutive group
+        // (base multiple of 4, packed directly in `word<4:0>`).
+        let (zd_field, slot) = if consec {
+            let zd = match insn.op(0) {
+                Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sh), stride: 1, .. }
+                    if first.class() == RegClass::Sve =>
+                {
+                    first.number() as u32
+                }
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            if (zd & 0x3) != 0 {
+                return Err(EncodeError::InvalidOperand);
             }
-            _ => return Err(EncodeError::InvalidOperand),
+            (zd, 0xc120_f400u32) // word<15:10> == 111101
+        } else {
+            let zd = match insn.op(0) {
+                Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sh), stride: 4, .. }
+                    if first.class() == RegClass::Sve =>
+                {
+                    first.number() as u32
+                }
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            if (zd & 0x0c) != 0 || zd > 19 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            (((zd >> 4) << 4) | (zd & 0x3), 0xc120_fc00u32) // word<15:10> == 111111
         };
-        if (zd & 0x0c) != 0 || zd > 19 {
-            return Err(EncodeError::InvalidOperand);
-        }
-        let zd_field = ((zd >> 4) << 4) | (zd & 0x3);
         // Operand 1: 2-register consecutive source group, `.h`. Base is `word<9:5>`.
         let zn = match insn.op(1) {
             Operand::SveVecGroup { first, count: 2, arr: Some(VA::Sh), stride: 1, .. }
@@ -1253,7 +1300,245 @@ mod imp {
         if index > 1 {
             return Err(EncodeError::InvalidOperand);
         }
-        let word = 0xc120_fc00 | (index << 22) | (table << 16) | (zn << 5) | zd_field;
+        let word = slot | (index << 22) | (table << 16) | (zn << 5) | zd_field;
+        Ok(word)
+    }
+
+    /// Encode the SME2 multi-vector × single-vector in-place ALU family, inverse
+    /// of `decode::sme::sme2::decode_mvs_alu`. Operands:
+    /// `[ { Zdn }, { Zdn }, Zm ]`.
+    fn enc_mvs_alu(insn: &Instruction) -> R {
+        use Code::*;
+        // (table, sub<9:5>, word<0>, vg).
+        let (table, sub, b0, vg): (u32, u32, u32, u8) = match insn.code() {
+            SmeSmaxMVS2 => (0, 0, 0, 2),
+            SmeSmaxMVS4 => (0, 0, 0, 4),
+            SmeUmaxMVS2 => (0, 0, 1, 2),
+            SmeUmaxMVS4 => (0, 0, 1, 4),
+            SmeSminMVS2 => (0, 1, 0, 2),
+            SmeSminMVS4 => (0, 1, 0, 4),
+            SmeUminMVS2 => (0, 1, 1, 2),
+            SmeUminMVS4 => (0, 1, 1, 4),
+            SmeFmaxMVS2 | SmeBfmaxMVS2 => (0, 8, 0, 2),
+            SmeFmaxMVS4 | SmeBfmaxMVS4 => (0, 8, 0, 4),
+            SmeFminMVS2 | SmeBfminMVS2 => (0, 8, 1, 2),
+            SmeFminMVS4 | SmeBfminMVS4 => (0, 8, 1, 4),
+            SmeFmaxnmMVS2 | SmeBfmaxnmMVS2 => (0, 9, 0, 2),
+            SmeFmaxnmMVS4 | SmeBfmaxnmMVS4 => (0, 9, 0, 4),
+            SmeFminnmMVS2 | SmeBfminnmMVS2 => (0, 9, 1, 2),
+            SmeFminnmMVS4 | SmeBfminnmMVS4 => (0, 9, 1, 4),
+            SmeFscaleMVS2 | SmeBfscaleMVS2 => (0, 12, 0, 2),
+            SmeFscaleMVS4 | SmeBfscaleMVS4 => (0, 12, 0, 4),
+            SmeSrshlMVS2 => (0, 17, 0, 2),
+            SmeSrshlMVS4 => (0, 17, 0, 4),
+            SmeUrshlMVS2 => (0, 17, 1, 2),
+            SmeUrshlMVS4 => (0, 17, 1, 4),
+            SmeAddMVS2 => (0, 24, 0, 2),
+            SmeAddMVS4 => (0, 24, 0, 4),
+            SmeSqdmulhMVS2 => (1, 0, 0, 2),
+            SmeSqdmulhMVS4 => (1, 0, 0, 4),
+            _ => return Err(EncodeError::Unsupported),
+        };
+        // The destination/first-source group arrangement gives the size field; for
+        // the BF16 `bf*` codes the rendered `.h` maps back to the `00` size.
+        let arr = match insn.op(0) {
+            Operand::SveVecGroup { arr: Some(a), .. } => a,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        let is_bf = matches!(
+            insn.code(),
+            SmeBfmaxMVS2 | SmeBfmaxMVS4 | SmeBfminMVS2 | SmeBfminMVS4 | SmeBfmaxnmMVS2
+                | SmeBfmaxnmMVS4 | SmeBfminnmMVS2 | SmeBfminnmMVS4 | SmeBfscaleMVS2 | SmeBfscaleMVS4
+        );
+        let size: u32 = if is_bf {
+            if arr != VA::Sh {
+                return Err(EncodeError::InvalidOperand);
+            }
+            0
+        } else {
+            match arr {
+                VA::Sb => 0,
+                VA::Sh => 1,
+                VA::Ss => 2,
+                VA::Sd => 3,
+                _ => return Err(EncodeError::InvalidOperand),
+            }
+        };
+        // The destination and first source are the same group; require they match.
+        let zdn = match insn.op(0) {
+            Operand::SveVecGroup { first, count, stride: 1, .. }
+                if count == vg && first.class() == RegClass::Sve =>
+            {
+                first.number() as u32
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        match insn.op(1) {
+            Operand::SveVecGroup { first, count, stride: 1, .. }
+                if count == vg && first.number() as u32 == zdn => {}
+            _ => return Err(EncodeError::InvalidOperand),
+        }
+        // vgx2 base in `word<4:1>` (stride 2), vgx4 in `word<4:2>` (stride 4).
+        let (group_field, vgbit) = if vg == 2 {
+            if zdn % 2 != 0 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            ((zdn / 2) << 1, 0)
+        } else {
+            if zdn % 4 != 0 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            ((zdn / 4) << 2, 1u32 << 11)
+        };
+        // The single multiplier `Zm` (a `z0..z15` register) at `word<19:16>`.
+        let zm = z_single(insn, 2, arr)?;
+        if zm > 15 {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let word = 0xc120_a000
+            | (size << 22)
+            | vgbit
+            | (table << 10)
+            | (sub << 5)
+            | (zm << 16)
+            | group_field
+            | b0;
+        Ok(word)
+    }
+
+    /// Encode the SME2 multi-vector unpack `SUNPK`/`UUNPK`, inverse of
+    /// `decode::sme::sme2::decode_unpk`. The vgx2 form is `[ { Zd, Zd+1 }.<T>,
+    /// Zn.<Tsrc> ]`; the vgx4 form is `[ { Zd - Zd+3 }.<T>, { Zn, Zn+1 }.<Tsrc> ]`.
+    fn enc_unpk(insn: &Instruction) -> R {
+        let unsigned = u32::from(insn.code() == Code::SmeUunpk);
+        // Operand 0: the destination group, `.h`/`.s`/`.d` (count 2 → vgx2, 4 →
+        // vgx4).
+        let (zd, dst, count) = match insn.op(0) {
+            Operand::SveVecGroup { first, count, arr: Some(a), stride: 1, .. }
+                if (count == 2 || count == 4) && first.class() == RegClass::Sve =>
+            {
+                (first.number() as u32, a, count)
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Destination element selects the size field and the source element.
+        let (size, src) = match dst {
+            VA::Sh => (1u32, VA::Sb),
+            VA::Ss => (2, VA::Sh),
+            VA::Sd => (3, VA::Ss),
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        if count == 2 {
+            // vgx2: 2-register dest (base `word<4:1>`), single source `word<9:5>`.
+            if zd % 2 != 0 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            let zn = z_single(insn, 1, src)?;
+            Ok(0xc125_e000 | (size << 22) | ((zd / 2) << 1) | (zn << 5) | unsigned)
+        } else {
+            // vgx4 (`word<20> == 1`): 4-register dest (base `word<4:2>`), 2-register
+            // source group (base `word<9:6>`).
+            if zd % 4 != 0 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            let zn = group_field(insn, 1, 2, src, 0x3c0)?;
+            Ok(0xc135_e000 | (size << 22) | ((zd / 4) << 2) | (zn << 6) | unsigned)
+        }
+    }
+
+    /// Encode the SME2 multi-vector saturating extract-narrow family, inverse of
+    /// `decode::sme::sme2::decode_cvt_narrow`. The 4-register-source form is
+    /// `[ Zd.<th>, { Zn..Zn+3 }.<ts> ]`; the 2-register-source form (only
+    /// `SQCVT`/`UQCVT`/`SQCVTU`, `.h`/`.s`) is `[ Zd.h, { Zn, Zn+1 }.s ]`. The
+    /// source group count disambiguates the two encodings for the shared `Code`s.
+    fn enc_cvt_narrow(insn: &Instruction) -> R {
+        use Code::*;
+        // Operand 0: single destination `Zd.<b|h>`.
+        let (zd, dst) = match insn.op(0) {
+            Operand::Reg { reg, arr: Some(a), lane: None, .. } if reg.class() == RegClass::Sve => {
+                (reg.number() as u32, a)
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Source group count (2 or 4) selects the encoding.
+        let src_count = match insn.op(1) {
+            Operand::SveVecGroup { count, .. } => count,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        if src_count == 2 {
+            // 2-register source form: `.h` dest, `.s` source. Only `SQCVT`/`UQCVT`
+            // (`word<22> == 0`, `word<5>`) and `SQCVTU` (`word<22> == 1`).
+            if dst != VA::Sh {
+                return Err(EncodeError::InvalidOperand);
+            }
+            let (size22, usel) = match insn.code() {
+                SmeSqcvt => (0u32, 0u32),
+                SmeUqcvt => (0, 1),
+                SmeSqcvtu => (1, 0),
+                _ => return Err(EncodeError::Unsupported),
+            };
+            let zn = group_field(insn, 1, 2, VA::Ss, 0x3c0)?;
+            return Ok(0xc123_e000 | (size22 << 22) | (zn << 6) | (usel << 5) | zd);
+        }
+        // 4-register source form. (word<6:5>, signed→unsigned family?).
+        let (op, su): (u32, bool) = match insn.code() {
+            SmeSqcvt => (0, false),
+            SmeUqcvt => (1, false),
+            SmeSqcvtnNarrow => (2, false),
+            SmeUqcvtnNarrow => (3, false),
+            SmeSqcvtu => (0, true),
+            SmeSqcvtunNarrow => (2, true),
+            _ => return Err(EncodeError::Unsupported),
+        };
+        // The destination element selects `word<23>` and the source element; the
+        // signed→unsigned family sets `word<22>`.
+        let (hi, src) = match dst {
+            VA::Sb => (0u32, VA::Ss),
+            VA::Sh => (1, VA::Sd),
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        let zn = group_field(insn, 1, 4, src, 0x380)?;
+        let size = (hi << 1) | u32::from(su);
+        let word = 0xc133_e000 | (size << 22) | (zn << 7) | (op << 5) | zd;
+        Ok(word)
+    }
+
+    /// Encode the SME2 multi-vector 2-vector saturating rounding shift-right-narrow,
+    /// inverse of `decode::sme::sme2::decode_narrow_shift2`. Operands:
+    /// `[ Zd.h, { Zn, Zn+1 }.s, #shift ]`.
+    fn enc_narrow_shift2(insn: &Instruction) -> R {
+        use Code::*;
+        let (uresult, uinput) = match insn.code() {
+            SmeSqrshrV2 => (0u32, 0u32),
+            SmeUqrshrV2 => (0, 1),
+            _ /* SmeSqrshruV2 */ => (1, 0),
+        };
+        // Operand 0: single destination `Zd.h`.
+        let zd = match insn.op(0) {
+            Operand::Reg { reg, arr: Some(VA::Sh), lane: None, .. }
+                if reg.class() == RegClass::Sve =>
+            {
+                reg.number() as u32
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Operand 2: `#shift` in `1..=16` → `word<19:16> = 16 - shift`.
+        let shift = match insn.op(2) {
+            Operand::ShiftAmount(s) => s as u32,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        if !(1..=16).contains(&shift) {
+            return Err(EncodeError::InvalidImmediate);
+        }
+        let imm4 = 16 - shift;
+        // Operand 1: the 2-register consecutive source group `.s`, base `word<9:6>`.
+        let zn = group_field(insn, 1, 2, VA::Ss, 0x3c0)?;
+        let word = 0xc1e0_d400
+            | (uresult << 20)
+            | (imm4 << 16)
+            | (zn << 6)
+            | (uinput << 5)
+            | zd;
         Ok(word)
     }
 

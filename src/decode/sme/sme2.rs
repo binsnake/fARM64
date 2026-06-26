@@ -301,14 +301,320 @@ pub fn decode_tmopa(word: u32, out: &mut Instruction) {
 /// tried first with a strict size validation that rejects the neighbours.
 pub fn decode_mul(word: u32, features: FeatureSet, out: &mut Instruction) {
     if decode_luti6(word, features, out) {
-        // matched the SME2 multi-vector LUTI6 (FEAT_LUT)
+        // matched the SME2 multi-vector LUTI6 (FEAT_LUT), stride-4 or consecutive
     } else if decode_narrow_shift(word, out) {
-        // matched the shift-right-narrow family
+        // matched the shift-right-narrow family (4-vector source)
+    } else if decode_narrow_shift2(word, out) {
+        // matched the shift-right-narrow family (2-vector source)
+    } else if decode_mvs_alu(word, features, out) {
+        // matched the multi-vector × single-vector in-place ALU family
+    } else if decode_unpk(word, out) {
+        // matched the multi-vector UUNPK/SUNPK
+    } else if decode_cvt_narrow(word, out) {
+        // matched the multi-vector saturating extract-narrow family
     } else if let Some(f) = lookup(word) {
         build(f, word, out);
     } else if let Some(f) = alu_lookup(word) {
+        // The L3 BF16 `BFMUL` rows are the `size == 00` case of the FMUL slot and
+        // require FEAT_SME_B16B16 (matching the function-decoded `bf*` multi×single
+        // ALU forms).
+        if matches!(
+            f.code,
+            Code::SmeBfmulMV2 | Code::SmeBfmulMV4 | Code::SmeBfmulMVS2 | Code::SmeBfmulMVS4
+        ) && !features.has(Feature::SmeB16b16)
+        {
+            return;
+        }
         build_alu(f, word, out);
     }
+}
+
+/// Decode the SME2 multi-vector × single-vector **in-place** ALU family:
+/// `<op> { Zdn..Zdn+vg-1 }, { Zdn..Zdn+vg-1 }, Zm`.
+///
+/// Slot key: `word<31:24> == 0xC1`, `word<15:11> == 10100` (`word<10>` selects the
+/// `sqdmulh` sub-table from the `smax`/... sub-table). `word<11>` selects
+/// vgx2(0)/vgx4(1); the destination/first-source share the group field
+/// `word<4:1>` (vgx2, stride 2) / `word<4:2>` (vgx4, stride 4). The single
+/// multiplier `Zm = word<19:16>` (`z0..z15`). The sub-opcode is `word<9:5>` and
+/// `word<0>` selects signed/unsigned (or max/min). Element size is `word<23:22>`
+/// (`.b` re-types the floating-point ops to their BF16 `bf*` siblings).
+///
+/// Returns `true` (and fills `out`) on a match, `false` otherwise.
+fn decode_mvs_alu(word: u32, features: FeatureSet, out: &mut Instruction) -> bool {
+    // Slot: `word<31:24> == 0xC1`, `word<21> == 1`, `word<20> == 0`,
+    // `word<15:12> == 1010` (`word<11>` is the vgx2/vgx4 selector and `word<10>`
+    // the sub-table selector, both decoded below). The single multiplier `Zm` is a
+    // `z0..z15` register (`word<19:16>`), so `word<20>` is RES0; both `word<21>`
+    // and `word<20>` are part of the key (not masked away) to avoid over-decoding
+    // the reserved `word<21> == 0` / `word<20> == 1` slots.
+    if word & 0xff30_f000 != 0xc120_a000 {
+        return false;
+    }
+    let vg: u8 = if bit(word, 11) == 0 { 2 } else { 4 };
+    // Destination/first-source group: vgx2 base `word<4:1>` (stride 2), vgx4 base
+    // `word<4:2>` (stride 4). `word<0>` is the signed/unsigned (or max/min)
+    // selector for the ops that have one, so the only RES0 low bit is `word<1>`
+    // (set for vgx4, where the base starts at `word<2>`).
+    let (zdn, lo_reserved) = if vg == 2 {
+        (bits(word, 1, 4) * 2, 0)
+    } else {
+        (bits(word, 2, 3) * 4, bit(word, 1))
+    };
+    let table = bit(word, 10);
+    let sub = bits(word, 5, 5);
+    let b0 = bit(word, 0);
+    let size = bits(word, 22, 2);
+    let zm = bits(word, 16, 4);
+
+    // (Code, element-arrangement policy). The integer ops take all four sizes; the
+    // `f*`/`bf*` ops take `.h`/`.s`/`.d` (and the `.b == BF16` re-type).
+    enum Pol {
+        Int,
+        Fp,
+    }
+    let (code, pol): (Code, Pol) = if table == 1 {
+        // Sub-table 1: only `SQDMULH` (sub 0, integer, no `word<0>` selector).
+        if sub != 0 || b0 != 0 {
+            return false;
+        }
+        (if vg == 2 { Code::SmeSqdmulhMVS2 } else { Code::SmeSqdmulhMVS4 }, Pol::Int)
+    } else {
+        match sub {
+            0 => (
+                match (b0, vg) {
+                    (0, 2) => Code::SmeSmaxMVS2,
+                    (0, _) => Code::SmeSmaxMVS4,
+                    (_, 2) => Code::SmeUmaxMVS2,
+                    (_, _) => Code::SmeUmaxMVS4,
+                },
+                Pol::Int,
+            ),
+            1 => (
+                match (b0, vg) {
+                    (0, 2) => Code::SmeSminMVS2,
+                    (0, _) => Code::SmeSminMVS4,
+                    (_, 2) => Code::SmeUminMVS2,
+                    (_, _) => Code::SmeUminMVS4,
+                },
+                Pol::Int,
+            ),
+            8 => (
+                match (b0, vg) {
+                    (0, 2) => Code::SmeFmaxMVS2,
+                    (0, _) => Code::SmeFmaxMVS4,
+                    (_, 2) => Code::SmeFminMVS2,
+                    (_, _) => Code::SmeFminMVS4,
+                },
+                Pol::Fp,
+            ),
+            9 => (
+                match (b0, vg) {
+                    (0, 2) => Code::SmeFmaxnmMVS2,
+                    (0, _) => Code::SmeFmaxnmMVS4,
+                    (_, 2) => Code::SmeFminnmMVS2,
+                    (_, _) => Code::SmeFminnmMVS4,
+                },
+                Pol::Fp,
+            ),
+            12 => {
+                // FSCALE has no `word<0>` selector.
+                if b0 != 0 {
+                    return false;
+                }
+                (if vg == 2 { Code::SmeFscaleMVS2 } else { Code::SmeFscaleMVS4 }, Pol::Fp)
+            }
+            17 => (
+                match (b0, vg) {
+                    (0, 2) => Code::SmeSrshlMVS2,
+                    (0, _) => Code::SmeSrshlMVS4,
+                    (_, 2) => Code::SmeUrshlMVS2,
+                    (_, _) => Code::SmeUrshlMVS4,
+                },
+                Pol::Int,
+            ),
+            24 => {
+                // ADD has no `word<0>` selector.
+                if b0 != 0 {
+                    return false;
+                }
+                (if vg == 2 { Code::SmeAddMVS2 } else { Code::SmeAddMVS4 }, Pol::Int)
+            }
+            _ => return false,
+        }
+    };
+
+    // The low bits of the group field (above the encodable base) are RES0.
+    if lo_reserved != 0 {
+        return false;
+    }
+
+    // Recover the element arrangement (and, for the `.b` floating-point case, the
+    // BF16 re-typed `bf*` code).
+    let (arr, code) = match pol {
+        Pol::Int => (size_to_va(size), code),
+        Pol::Fp => match size {
+            0 => {
+                // BF16 re-type (FEAT_SME_B16B16): `.b` size renders `.h`.
+                if !features.has(Feature::SmeB16b16) {
+                    return false;
+                }
+                let bf = match code {
+                    Code::SmeFmaxMVS2 => Code::SmeBfmaxMVS2,
+                    Code::SmeFmaxMVS4 => Code::SmeBfmaxMVS4,
+                    Code::SmeFminMVS2 => Code::SmeBfminMVS2,
+                    Code::SmeFminMVS4 => Code::SmeBfminMVS4,
+                    Code::SmeFmaxnmMVS2 => Code::SmeBfmaxnmMVS2,
+                    Code::SmeFmaxnmMVS4 => Code::SmeBfmaxnmMVS4,
+                    Code::SmeFminnmMVS2 => Code::SmeBfminnmMVS2,
+                    Code::SmeFminnmMVS4 => Code::SmeBfminnmMVS4,
+                    Code::SmeFscaleMVS2 => Code::SmeBfscaleMVS2,
+                    Code::SmeFscaleMVS4 => Code::SmeBfscaleMVS4,
+                    _ => return false,
+                };
+                (VA::Sh, bf)
+            }
+            1 => (VA::Sh, code),
+            2 => (VA::Ss, code),
+            _ => (VA::Sd, code),
+        },
+    };
+
+    if !features.has(Feature::Sme2) {
+        return false;
+    }
+
+    out.set(code);
+    out.push_operand(alu_group(zdn, vg, arr));
+    out.push_operand(alu_group(zdn, vg, arr));
+    out.push_operand(zsrc(zm, arr));
+    true
+}
+
+/// Decode the SME2 multi-vector unpack `UUNPK`/`SUNPK`, two-count or four-count.
+/// The source element is half the destination element; `word<0>` selects
+/// `SUNPK`(0)/`UUNPK`(1); size `word<23:22>` selects `.h`/`.s`/`.d` (`00`
+/// unallocated). FEAT_SME2.
+///
+/// * vgx2 (`word<20:16> == 00101`): `{ Zd, Zd+1 }.<T>, Zn.<Tsrc>` — a 2-register
+///   destination group (base `word<4:1>`, stride 2) and a single source `Zn =
+///   word<9:5>`.
+/// * vgx4 (`word<20:16> == 10101`): `{ Zd - Zd+3 }.<T>, { Zn, Zn+1 }.<Tsrc>` — a
+///   4-register destination group (base `word<4:2>`, stride 4; `word<1>` RES0,
+///   `word<0>` is the opcode) and a 2-register source group (base `word<9:6>`,
+///   stride 2; `word<5>` RES0).
+fn decode_unpk(word: u32, out: &mut Instruction) -> bool {
+    // `word<21> == 1`, `word<19:16> == 0101`, `word<15:10> == 111000`. `word<20>`
+    // is the vgx2(0)/vgx4(4) count selector, decoded below.
+    if word & 0xff2f_fc00 != 0xc125_e000 {
+        return false;
+    }
+    let (dst, src) = match bits(word, 22, 2) {
+        0b01 => (VA::Sh, VA::Sb),
+        0b10 => (VA::Ss, VA::Sh),
+        0b11 => (VA::Sd, VA::Ss),
+        _ => return false,
+    };
+    let unsigned = bit(word, 0) == 1;
+    let code = if unsigned { Code::SmeUunpk } else { Code::SmeSunpk };
+    if bit(word, 20) == 0 {
+        // vgx2: 2-register destination group, single source.
+        let zd = bits(word, 1, 4) * 2;
+        let zn = bits(word, 5, 5);
+        out.set(code);
+        out.push_operand(alu_group(zd, 2, dst));
+        out.push_operand(zsrc(zn, src));
+    } else {
+        // vgx4: 4-register destination group, 2-register source group. The dest
+        // base is `word<4:2>` (stride 4); `word<1>` and `word<5>` are RES0
+        // (`word<0>` is the `sunpk`/`uunpk` selector).
+        if bit(word, 1) != 0 || bit(word, 5) != 0 {
+            return false;
+        }
+        let zd = bits(word, 2, 3) * 4;
+        let zn = bits(word, 6, 4) * 2;
+        out.set(code);
+        out.push_operand(zgroup(zd, 4, dst));
+        out.push_operand(zgroup(zn, 2, src));
+    }
+    true
+}
+
+/// Decode the SME2 multi-vector saturating extract-narrow family: `<op> Zd.<th>,
+/// { Zn.. }.<ts>` — a single destination and a 2- or 4-register consecutive source
+/// group whose element is twice the destination element.
+///
+/// Slot: `word<31:24> == 0xC1`, `word<21> == 1`, `word<19:16> == 0011`,
+/// `word<15:10> == 111000`; `word<20>` selects the count (`0` → 2-register
+/// source, `1` → 4-register source). For the 4-register form `word<6:5>` selects
+/// the operation within the size-dependent signedness family (`sqcvt`/`uqcvt`/
+/// `sqcvtn`/`uqcvtn` and the signed→unsigned `sqcvtu`/`sqcvtun`), the source group
+/// base is `word<9:7> * 4`, and the size `word<23:22>` chooses the element widths
+/// (`00`/`01` → `.b`/`.s`, `10`/`11` → `.h`/`.d`) and the signed (`word<22> == 0`)
+/// vs signed→unsigned (`word<22> == 1`) family. For the 2-register form only the
+/// `.h`/`.s` `sqcvt`/`uqcvt`/`sqcvtu` forms exist: `word<5>` selects signed(0)/
+/// unsigned(1), the source group base is `word<9:6> * 2`, and `word<23:22>` is
+/// `00` (`sqcvt`/`uqcvt`) or `01` (`sqcvtu`). FEAT_SME2.
+fn decode_cvt_narrow(word: u32, out: &mut Instruction) -> bool {
+    if word & 0xff2f_fc00 != 0xc123_e000 {
+        return false;
+    }
+    let zd = bits(word, 0, 5);
+    if bit(word, 20) == 0 {
+        // 2-register source form: dst `.h`, src `.s`. `word<22> == 0` → `sqcvt`/
+        // `uqcvt` (`word<5>`), `word<22> == 1` → `sqcvtu` (`word<5> == 0` only);
+        // `word<23>` is RES0.
+        if bit(word, 23) != 0 {
+            return false;
+        }
+        let usel = bit(word, 5);
+        let code = if bit(word, 22) == 0 {
+            if usel == 0 {
+                Code::SmeSqcvt
+            } else {
+                Code::SmeUqcvt
+            }
+        } else if usel == 0 {
+            Code::SmeSqcvtu
+        } else {
+            return false;
+        };
+        let zn = bits(word, 6, 4) * 2;
+        out.set(code);
+        out.push_operand(zsrc(zd, VA::Sh));
+        out.push_operand(zgroup(zn, 2, VA::Ss));
+        return true;
+    }
+    let op = bits(word, 5, 2);
+    // Destination element / source element from the size field: even size → `.b`/
+    // `.s`, odd/high size → `.h`/`.d`.
+    let (dst, src) = if bit(word, 23) == 0 {
+        (VA::Sb, VA::Ss)
+    } else {
+        (VA::Sh, VA::Sd)
+    };
+    // `(size, word<6:5>)` → mnemonic. Sizes `00`/`10` (`word<22> == 0`) name the
+    // signed family (`sqcvt`/`uqcvt`/`sqcvtn`/`uqcvtn`); `01`/`11` (`word<22> == 1`)
+    // name the signed→unsigned family (`sqcvtu`/`sqcvtun`, only `word<5> == 0`).
+    let code = if bit(word, 22) == 0 {
+        match op {
+            0 => Code::SmeSqcvt,
+            1 => Code::SmeUqcvt,
+            2 => Code::SmeSqcvtnNarrow,
+            _ => Code::SmeUqcvtnNarrow,
+        }
+    } else {
+        match op {
+            0 => Code::SmeSqcvtu,
+            2 => Code::SmeSqcvtunNarrow,
+            _ => return false,
+        }
+    };
+    let zn = bits(word, 7, 3) * 4;
+    out.set(code);
+    out.push_operand(zsrc(zd, dst));
+    out.push_operand(zgroup(zn, 4, src));
+    true
 }
 
 /// Decode the SME2 multi-vector `LUTI6` (FEAT_LUT): a four-register strided
@@ -325,28 +631,44 @@ pub fn decode_mul(word: u32, features: FeatureSet, out: &mut Instruction) {
 ///
 /// Returns `true` (and fills `out`) on a match, `false` otherwise.
 fn decode_luti6(word: u32, features: FeatureSet, out: &mut Instruction) -> bool {
-    // Family key: `word<31:24> == 0xC1`, `word<21> == 1`, `word<15:10> == 111111`.
-    if word & 0xff20_fc00 != 0xc120_fc00 {
+    // Both LUTI6 forms share `word<31:24> == 0xC1`, `word<21> == 1`,
+    // `word<23> == 0` (RES0), `word<15:12> == 1111`; they differ in
+    // `word<11:10>`: `11` (`word<15:10> == 111111`) is the stride-4 destination,
+    // `01` (`word<15:10> == 111101`) the 4-register consecutive destination. Both
+    // keep the `{ Zn, Zn+1 }` source pair and `{ Zt, Zt+1 }[index]` table pair.
+    let strided = word & 0xff20_fc00 == 0xc120_fc00; // word<15:10> == 111111
+    let consec = word & 0xff20_fc00 == 0xc120_f400; // word<15:10> == 111101
+    if !(strided || consec) {
         return false;
     }
     if !features.has(Feature::Lut) {
         return false;
     }
-    // `word<23>` is RES0; the element index is the single bit `word<22>`. The
-    // destination base packs `word<4>` (high bit) and `word<1:0>` (low bits);
-    // `word<3:2>` are RES0 (a stride-4 four-register group only allocates bases
-    // `0..3` and `16..19`).
-    if bit(word, 23) != 0 || bits(word, 2, 2) != 0 {
+    // `word<23>` is RES0; the element index is the single bit `word<22>`.
+    if bit(word, 23) != 0 {
         return false;
     }
+    // Validate the destination-base RES0 bits *before* touching `out`, so a
+    // reserved encoding leaves the instruction untouched (the caller falls
+    // through). The strided form's base packs `word<4>` (high) and `word<1:0>`
+    // (low), with `word<3:2>` RES0; the consecutive form's base is `word<4:0>`
+    // with the low two bits RES0 (a 4-register group steps by 4).
+    let dest = if strided {
+        if bits(word, 2, 2) != 0 {
+            return false;
+        }
+        strided_group((bit(word, 4) << 4) | bits(word, 0, 2), 4, VA::Sh, 4)
+    } else {
+        if bits(word, 0, 2) != 0 {
+            return false;
+        }
+        zgroup(bits(word, 0, 5), 4, VA::Sh)
+    };
     let index = bit(word, 22) as u8;
-    let zd = (bit(word, 4) << 4) | bits(word, 0, 2);
     let zn = bits(word, 5, 5);
     let table = bits(word, 16, 5);
-    out.set(Code::SmeLuti6);
-    // Destination: 4-register strided group (stride 4), `.h`, rendered as a comma
-    // list (the stride-4 lists never take the `z.. - z..` range form).
-    out.push_operand(strided_group(zd, 4, VA::Sh, 4));
+    out.set(if strided { Code::SmeLuti6 } else { Code::SmeLuti6Consec });
+    out.push_operand(dest);
     // Source: 2-register consecutive group, `.h`.
     out.push_operand(zgroup(zn, 2, VA::Sh));
     // Table pair `{ Zt, Zt+1 }[index]` — no element suffix, bracketed index.
@@ -409,6 +731,45 @@ fn decode_narrow_shift(word: u32, out: &mut Instruction) -> bool {
     out.set(code);
     out.push_operand(zsrc(zd, dst));
     out.push_operand(zgroup(zn, 4, src));
+    out.push_operand(Operand::ShiftAmount(shift as u8));
+    true
+}
+
+/// Decode the SME2 multi-vector saturating rounding shift-right-narrow with a
+/// **2-vector** source: `SQRSHR`/`UQRSHR`/`SQRSHRU` `Zd.h, { Zn, Zn+1 }.s,
+/// #shift`.
+///
+/// Slot key: `word<31:24> == 0xC1`, `word<15:11> == 11010`, `word<10> == 1`,
+/// `word<23:21> == 111` (the only allocated size — destination `.h`, source `.s`).
+/// `word<5>` is the unsigned input (`SQRSHR`→`UQRSHR`), `word<20>` the unsigned
+/// result (`SQRSHR`→`SQRSHRU`); `word<5> == word<20> == 1` is unallocated. The
+/// shift is `16 - word<19:16>` (`#1`..`#16`). The source 2-register consecutive
+/// group base is `word<9:6> * 2`; `Zd = word<4:0>`. FEAT_SME2.
+///
+/// Returns `true` (and fills `out`) on a match, `false` otherwise.
+fn decode_narrow_shift2(word: u32, out: &mut Instruction) -> bool {
+    // Family key: `word<31:24> == 0xC1`, `word<15:11> == 11010`, `word<10> == 1`,
+    // `word<23:21> == 111`.
+    if word & 0xffe0_fc00 != 0xc1e0_d400 {
+        return false;
+    }
+    let uinput = bit(word, 5);
+    let uresult = bit(word, 20);
+    // `SQRSHR`(0,0) / `UQRSHR`(uinput) / `SQRSHRU`(uresult); both set is
+    // unallocated.
+    let code = match (uresult, uinput) {
+        (0, 0) => Code::SmeSqrshrV2,
+        (0, 1) => Code::SmeUqrshrV2,
+        (1, 0) => Code::SmeSqrshruV2,
+        _ => return false,
+    };
+    let shift = 16 - bits(word, 16, 4);
+    let zd = bits(word, 0, 5);
+    // Source 2-register consecutive group, base = `word<9:6> * 2`.
+    let zn = bits(word, 6, 4) * 2;
+    out.set(code);
+    out.push_operand(zsrc(zd, VA::Sh));
+    out.push_operand(zgroup(zn, 2, VA::Ss));
     out.push_operand(Operand::ShiftAmount(shift as u8));
     true
 }
@@ -666,6 +1027,15 @@ pub static SME2_ALU_FORMS: &[AluForm] = &[
     // bit16 selects the `.q` form.)
     A { mask: 0xff3efc63, val: 0xc136e000, code: Code::SmeZipMV4, shape: AluSh::ZipGroup, arr: AluArr::Zip4, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x0 },
     A { mask: 0xff3efc63, val: 0xc136e002, code: Code::SmeUzpMV4, shape: AluSh::ZipGroup, arr: AluArr::Zip4, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x0 },
+    // SME2 BF16 multi-vector BFMUL: the `size == 00` case of the FMUL opcode slot,
+    // rendered `.h` (FEAT_SME_B16B16). These rows pin the size field to `00` and
+    // must precede the `AluArr::Fp` FMUL rows below (which reject `.b` by leaving
+    // the instruction Invalid for size 00). { Zd }, { Zn }, { Zm } (multi×multi).
+    A { mask: 0xffe1fc21, val: 0xc120e400, code: Code::SmeBfmulMV2, shape: AluSh::GroupGroup3, arr: AluArr::BfH, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3c0, zm: 0x1e0000 },
+    A { mask: 0xffe3fc63, val: 0xc121e400, code: Code::SmeBfmulMV4, shape: AluSh::GroupGroup3, arr: AluArr::BfH, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x1c0000 },
+    // BFMUL multi×single (`size == 00` of the FMUL multi×single slot).
+    A { mask: 0xffe1fc21, val: 0xc120e800, code: Code::SmeBfmulMVS2, shape: AluSh::GroupGroupSingle, arr: AluArr::BfH, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3c0, zm: 0x1e0000 },
+    A { mask: 0xffe1fc63, val: 0xc121e800, code: Code::SmeBfmulMVS4, shape: AluSh::GroupGroupSingle, arr: AluArr::BfH, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x1e0000 },
     // SME2/SVE2 multi-vector FMUL: { Zd }, { Zn }, { Zm } (three vector groups,
     // no predicate). `<15:10> == 111001`, `<21> == 1`, `<16>` selects vgx2(0)/
     // vgx4(1). `AluArr::Fp` rejects `.b` (size 00 is the BF16 BFMUL neighbour).

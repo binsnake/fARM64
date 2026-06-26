@@ -3153,6 +3153,95 @@ codes! {
     TchangebReg => Tchangeb, Tchange, "`TCHANGEB <Xt>, <Xn>` (translation-table change backward, register).";
     TchangefImm => Tchangef, Tchange, "`TCHANGEF <Xt>, #<imm>` (translation-table change forward, immediate).";
     TchangebImm => Tchangeb, Tchange, "`TCHANGEB <Xt>, #<imm>` (translation-table change backward, immediate).";
+
+    // --- L3: SME2 multi-vector × single-vector ALU, in-place (`{ Zdn }, { Zdn },
+    // Zm`) ---
+    // Quadrant `110`, `word<24> == 1`, `word<15:11> == 10100`, `word<10>` selects
+    // the (`smax`...) table (0) from the (`sqdmulh`) table (1); `word<9:5>` is the
+    // sub-opcode, `word<0>` the signed/unsigned (or max/min) selector, `word<11>`
+    // the vgx2(0)/vgx4(1) multi-vector count, `Zm = word<19:16>` (z0..z15).
+    // FEAT_SME2 for the integer/`f*` forms; FEAT_SME_B16B16 for the `bf*` forms.
+    SmeAddMVS2 => Add, Sme2, "`add { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeAddMVS4 => Add, Sme2, "`add { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeSmaxMVS2 => Smax, Sme2, "`smax { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeSmaxMVS4 => Smax, Sme2, "`smax { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeUmaxMVS2 => Umax, Sme2, "`umax { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeUmaxMVS4 => Umax, Sme2, "`umax { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeSminMVS2 => Smin, Sme2, "`smin { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeSminMVS4 => Smin, Sme2, "`smin { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeUminMVS2 => Umin, Sme2, "`umin { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeUminMVS4 => Umin, Sme2, "`umin { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeSrshlMVS2 => Srshl, Sme2, "`srshl { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeSrshlMVS4 => Srshl, Sme2, "`srshl { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeUrshlMVS2 => Urshl, Sme2, "`urshl { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeUrshlMVS4 => Urshl, Sme2, "`urshl { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeSqdmulhMVS2 => Sqdmulh, Sme2, "`sqdmulh { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeSqdmulhMVS4 => Sqdmulh, Sme2, "`sqdmulh { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeFmaxMVS2 => Fmax, Sme2, "`fmax { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeFmaxMVS4 => Fmax, Sme2, "`fmax { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeFminMVS2 => Fmin, Sme2, "`fmin { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeFminMVS4 => Fmin, Sme2, "`fmin { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeFmaxnmMVS2 => Fmaxnm, Sme2, "`fmaxnm { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeFmaxnmMVS4 => Fmaxnm, Sme2, "`fmaxnm { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeFminnmMVS2 => Fminnm, Sme2, "`fminnm { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeFminnmMVS4 => Fminnm, Sme2, "`fminnm { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeFscaleMVS2 => Fscale, Sme2, "`fscale { z0.s, z1.s }, { z0.s, z1.s }, z0.s` (SME2 multi × single, vgx2).";
+    SmeFscaleMVS4 => Fscale, Sme2, "`fscale { z0.s - z3.s }, { z0.s - z3.s }, z0.s` (SME2 multi × single, vgx4).";
+    SmeBfmaxMVS2 => Bfmax, SmeB16b16, "`bfmax { z0.h, z1.h }, { z0.h, z1.h }, z0.h` (SME2 BF16 multi × single, vgx2).";
+    SmeBfmaxMVS4 => Bfmax, SmeB16b16, "`bfmax { z0.h - z3.h }, { z0.h - z3.h }, z0.h` (SME2 BF16 multi × single, vgx4).";
+    SmeBfminMVS2 => Bfmin, SmeB16b16, "`bfmin { z0.h, z1.h }, { z0.h, z1.h }, z0.h` (SME2 BF16 multi × single, vgx2).";
+    SmeBfminMVS4 => Bfmin, SmeB16b16, "`bfmin { z0.h - z3.h }, { z0.h - z3.h }, z0.h` (SME2 BF16 multi × single, vgx4).";
+    SmeBfmaxnmMVS2 => Bfmaxnm, SmeB16b16, "`bfmaxnm { z0.h, z1.h }, { z0.h, z1.h }, z0.h` (SME2 BF16 multi × single, vgx2).";
+    SmeBfmaxnmMVS4 => Bfmaxnm, SmeB16b16, "`bfmaxnm { z0.h - z3.h }, { z0.h - z3.h }, z0.h` (SME2 BF16 multi × single, vgx4).";
+    SmeBfminnmMVS2 => Bfminnm, SmeB16b16, "`bfminnm { z0.h, z1.h }, { z0.h, z1.h }, z0.h` (SME2 BF16 multi × single, vgx2).";
+    SmeBfminnmMVS4 => Bfminnm, SmeB16b16, "`bfminnm { z0.h - z3.h }, { z0.h - z3.h }, z0.h` (SME2 BF16 multi × single, vgx4).";
+    SmeBfscaleMVS2 => Bfscale, SmeB16b16, "`bfscale { z0.h, z1.h }, { z0.h, z1.h }, z0.h` (SME2 BF16 multi × single, vgx2).";
+    SmeBfscaleMVS4 => Bfscale, SmeB16b16, "`bfscale { z0.h - z3.h }, { z0.h - z3.h }, z0.h` (SME2 BF16 multi × single, vgx4).";
+
+    // --- L3: SME2 BF16 multi-vector FMUL (the `.b`/`size==00` case of the FMUL
+    // opcode slot, rendered `.h`; FEAT_SME_B16B16). `<15:10> == 111001` is the
+    // multi×multi form, `111010` the multi×single form. ---
+    SmeBfmulMV2 => Bfmul, SmeB16b16, "`bfmul { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }` (SME2 BF16 multi × multi, vgx2).";
+    SmeBfmulMV4 => Bfmul, SmeB16b16, "`bfmul { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }` (SME2 BF16 multi × multi, vgx4).";
+    SmeBfmulMVS2 => Bfmul, SmeB16b16, "`bfmul { z0.h, z1.h }, { z0.h, z1.h }, z0.h` (SME2 BF16 multi × single, vgx2).";
+    SmeBfmulMVS4 => Bfmul, SmeB16b16, "`bfmul { z0.h - z3.h }, { z0.h - z3.h }, z0.h` (SME2 BF16 multi × single, vgx4).";
+
+    // --- L3: SME2 multi-vector unpack (`UUNPK`/`SUNPK`): `{ Zd, Zd+1 }.<T>,
+    // Zn.<T/2>` (the source element is half the destination element). Quadrant
+    // `110`, `word<24> == 1`, `word<20:16> == 00101`, `word<15:10> == 111000`,
+    // `word<0>` selects `SUNPK`(0)/`UUNPK`(1); size `word<23:22>` is `.h`/`.s`/`.d`
+    // (00 unallocated). FEAT_SME2. ---
+    SmeSunpk => Sunpk, Sme2, "`sunpk { z0.h, z1.h }, z0.b` (SME2 multi-vector signed unpack).";
+    SmeUunpk => Uunpk, Sme2, "`uunpk { z0.h, z1.h }, z0.b` (SME2 multi-vector unsigned unpack).";
+
+    // --- L3: SME2 multi-vector saturating extract-narrow (`SQCVT`/`UQCVT`/
+    // `SQCVTN`/`UQCVTN` and the signed→unsigned `SQCVTU`/`SQCVTUN`): a single
+    // destination `Zd.<th>` and a 4-register source group `{ Zn..Zn+3 }.<ts>`.
+    // Quadrant `110`, `word<24> == 1`, `word<20:16> == 10011`,
+    // `word<15:10> == 111000`; `word<6:5>` selects cvt(0)/cvtu(1)/cvtn(2)/
+    // cvtun-or-uqcvtn(3); size `word<23:22>` selects the element widths and signed/
+    // unsigned-saturating family. FEAT_SME2. ---
+    SmeSqcvt => Sqcvt, Sme2, "`sqcvt z0.h, { z0.s - z3.s }` (SME2 multi-vector signed saturating extract-narrow).";
+    SmeUqcvt => Uqcvt, Sme2, "`uqcvt z0.h, { z0.s - z3.s }` (SME2 multi-vector unsigned saturating extract-narrow).";
+    SmeSqcvtu => Sqcvtu, Sme2, "`sqcvtu z0.h, { z0.s - z3.s }` (SME2 multi-vector signed→unsigned saturating extract-narrow).";
+    SmeSqcvtnNarrow => Sqcvtn, Sme2, "`sqcvtn z0.h, { z0.d - z3.d }` (SME2 multi-vector signed saturating extract-narrow, interleaved).";
+    SmeUqcvtnNarrow => Uqcvtn, Sme2, "`uqcvtn z0.h, { z0.d - z3.d }` (SME2 multi-vector unsigned saturating extract-narrow, interleaved).";
+    SmeSqcvtunNarrow => Sqcvtun, Sme2, "`sqcvtun z0.h, { z0.s - z3.s }` (SME2 multi-vector signed→unsigned saturating extract-narrow, interleaved).";
+
+    // --- L3: SME2 multi-vector saturating rounding shift-right-narrow, 2-vector
+    // source (`SQRSHR`/`UQRSHR`/`SQRSHRU`): `Zd.h, { Zn, Zn+1 }.s, #shift`.
+    // Quadrant `110`, `word<24> == 1`, `word<15:11> == 11010`, `word<10> == 1`,
+    // `word<23:21> == 111`; `word<5>` is the unsigned input, `word<20>` the
+    // unsigned result; `#shift = 16 - word<19:16>`. FEAT_SME2. ---
+    SmeSqrshrV2 => Sqrshr, Sme2, "`sqrshr z0.h, { z0.s, z1.s }, #16` (SME2 2-vector saturating rounding shift-right-narrow).";
+    SmeUqrshrV2 => Uqrshr, Sme2, "`uqrshr z0.h, { z0.s, z1.s }, #16` (SME2 2-vector saturating rounding shift-right-narrow).";
+    SmeSqrshruV2 => Sqrshru, Sme2, "`sqrshru z0.h, { z0.s, z1.s }, #16` (SME2 2-vector signed→unsigned rounding shift-right-narrow).";
+
+    // --- L3: SME2 multi-vector LUTI6 with a 4-register *consecutive* destination
+    // (the K3 `SmeLuti6` covers the stride-4 destination). `{ Zd - Zd+3 }.H,
+    // { Zn, Zn+1 }.H, { Zt, Zt+1 }[index]`; `word<15:10> == 111101`, `word<21> == 1`,
+    // index `word<22>`. FEAT_LUT. ---
+    SmeLuti6Consec => Luti6, Lut, "`luti6 { z0.h - z3.h }, { z0.h, z1.h }, { z0, z1 }[0]` (SME2 multi-vector lookup, consecutive dest).";
 }
 
 impl Code {
@@ -6357,6 +6446,17 @@ pub enum Mnemonic {
     Scvtflt,
     /// `BFSCALE` (SVE2 BFloat16 scale, predicated).
     Bfscale,
+    // --- L3: SME2 multi-vector unpack + saturating extract-narrow ---
+    /// `SUNPK` (SME2 multi-vector signed unpack).
+    Sunpk,
+    /// `UUNPK` (SME2 multi-vector unsigned unpack).
+    Uunpk,
+    /// `SQCVT` (SME2 multi-vector signed saturating extract-narrow).
+    Sqcvt,
+    /// `UQCVT` (SME2 multi-vector unsigned saturating extract-narrow).
+    Uqcvt,
+    /// `SQCVTU` (SME2 multi-vector signed→unsigned saturating extract-narrow).
+    Sqcvtu,
 }
 
 impl Mnemonic {

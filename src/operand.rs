@@ -424,6 +424,10 @@ pub enum Operand {
         /// `WHILE<cc>` predicate-as-counter result (`pn8.b`). `None` for the SME2
         /// multi-vector governing forms, which render the bare `pn8`.
         arr: Option<crate::enums::VectorArrangement>,
+        /// Optional bracketed element index, as on the SVE2.1 `PEXT` source
+        /// (`pn8[0]`). `None` for the governing / `WHILE<cc>`-result forms, which
+        /// render no `[index]`.
+        index: Option<u8>,
     },
 
     /// An SVE2.1 `VLx2`/`VLx4` vector-length multiplier decorator, as the trailing

@@ -1719,7 +1719,7 @@ fn decode_cntp_count(word: u32, out: &mut Instruction) {
     let rd = bits(word, 0, 5);
     out.set(Code::SveCntpCount);
     out.push_operand(gpr(rd, RegWidth::X64));
-    out.push_operand(Operand::PredCounter { reg: P[(pn & 0xf) as usize], zeroing: false, arr: Some(a) });
+    out.push_operand(Operand::PredCounter { reg: P[(pn & 0xf) as usize], zeroing: false, arr: Some(a), index: None });
     out.push_operand(Operand::VlMul(if bit(word, 10) == 1 { 4 } else { 2 }));
 }
 

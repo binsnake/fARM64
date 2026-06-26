@@ -643,7 +643,14 @@ fn decode_pred(word: u32, features: FeatureSet, out: &mut Instruction) {
         // share `<15:14>=01`, distinguished by `<21:20>=10`, `<15:13>` in {010,011}).
         0b01..=0b11 => {
             if features.has(Feature::Sve2p1) {
-                decode_while_pair_pn(word, out);
+                // PEXT (`<15:11>=01110`) and the `pn`-form PTRUE (`<15:11>=01111`)
+                // sit in `<15:14>=01` with `<20:16>=00000`; claim them before the
+                // WHILE predicate-pair / counter forms (which use `<15:11>` in
+                // {01000,01010,01100}).
+                decode_pext_ptrue_pn(word, out);
+                if out.is_invalid() {
+                    decode_while_pair_pn(word, out);
+                }
             }
             if out.is_invalid() {
                 decode_pred_misc(word, out);
@@ -706,13 +713,103 @@ fn decode_while_pair_pn(word: u32, out: &mut Instruction) {
         let pn = 8 + bits(word, 0, 3);
         out.set(Code::SveWhilePn);
         out.set_mnemonic(mnem);
-        out.push_operand(Operand::PredCounter { reg: P[(pn & 0xf) as usize], zeroing: false, arr: Some(a) });
+        out.push_operand(Operand::PredCounter { reg: P[(pn & 0xf) as usize], zeroing: false, arr: Some(a), index: None });
     }
     out.push_operand(gpr(rn, RegWidth::X64));
     out.push_operand(gpr(rm, RegWidth::X64));
     if !is_pair {
         let mul = if bit(word, 13) == 1 { 4 } else { 2 };
         out.push_operand(Operand::VlMul(mul));
+    }
+}
+
+/// SVE2.1 PEXT (predicate extract from a predicate-as-counter) and the `pn`-form
+/// PTRUE (`PTRUE <PNd>.<T>`).
+///
+/// Both live in top byte 0x25 with `<21>=1`, `<20:16>=00000`, `<15:14>=01`:
+///
+/// * **PEXT** — `<15:11>=01110`, `<10>=op` (single=0 / pair=1), source
+///   `PN(8 + <7:5>)[index]`, dest `<3:0>`, `<4>` fixed 1, size `<23:22>`. The
+///   single form has a 2-bit index `<9:8>` and writes `<Pd>.<T>`; the pair form
+///   has a 1-bit index `<8>` (`<9>` reserved) and writes the consecutive pair
+///   `{P(d).T, P(d+1).T}`, `d = <3:0>` (any base, not just even). Verified
+///   reserved (UNDEFINED in LLVM): `<20:16>` non-zero, `<4>=0`, single `<9>=1`
+///   beyond the index, and pair `<9>=1`.
+/// * **PTRUE (predicate-as-counter)** — `<15:11>=01111`, `<10:4>=0000001`,
+///   dest `PN(8 + <2:0>)` (`<3>` reserved 0), size `<23:22>`.
+#[inline]
+fn decode_pext_ptrue_pn(word: u32, out: &mut Instruction) {
+    // Shared skeleton: `<21>=1`, `<20:16>=00000`, `<15:14>=01`.
+    if bit(word, 21) != 1 || bits(word, 16, 5) != 0 || bits(word, 14, 2) != 0b01 {
+        return;
+    }
+    let size = bits(word, 22, 2);
+    let a = arr(size);
+    match bits(word, 11, 5) {
+        // PEXT (predicate extract from predicate-as-counter).
+        0b01110 => {
+            // `<4>` is a fixed 1 marker (`<4>=0` is reserved -> UNDEFINED).
+            if bit(word, 4) != 1 {
+                return;
+            }
+            let pnn = 8 + bits(word, 5, 3);
+            if bit(word, 10) == 0 {
+                // Single destination predicate: 2-bit index `<9:8>`.
+                let index = bits(word, 8, 2) as u8;
+                let src = Operand::PredCounter {
+                    reg: P[(pnn & 0xf) as usize],
+                    zeroing: false,
+                    arr: None,
+                    index: Some(index),
+                };
+                let pd = bits(word, 0, 4);
+                out.set(Code::SvePextSingle);
+                out.set_mnemonic(Mnemonic::Pext);
+                out.push_operand(preg_sz(pd, a));
+                out.push_operand(src);
+            } else {
+                // Consecutive pair `{P(d).T, P(d+1).T}`, d = <3:0> (any base, not
+                // just even — `25207411` -> `{p1.b, p2.b}` in LLVM). The pair form
+                // has only a 1-bit index `<8>`; `<9>` is reserved (`<9>=1` ->
+                // UNDEFINED, e.g. `25207610`).
+                if bit(word, 9) != 0 {
+                    return;
+                }
+                let index = bit(word, 8) as u8;
+                let src = Operand::PredCounter {
+                    reg: P[(pnn & 0xf) as usize],
+                    zeroing: false,
+                    arr: None,
+                    index: Some(index),
+                };
+                let pd = bits(word, 0, 4);
+                out.set(Code::SvePextPair);
+                out.set_mnemonic(Mnemonic::Pext);
+                out.push_operand(pred_pair(pd, a));
+                out.push_operand(src);
+            }
+        }
+        // PTRUE (predicate-as-counter): `<10:4>=0000001`.
+        0b01111 => {
+            if bits(word, 4, 7) != 0b0000001 {
+                return;
+            }
+            let pnd = 8 + bits(word, 0, 3);
+            // `<3>` is part of the architectural marker (PN is 8..15); a set `<3>`
+            // would push the index past 15 and is reserved.
+            if bit(word, 3) != 0 {
+                return;
+            }
+            out.set(Code::SvePtruePn);
+            out.set_mnemonic(Mnemonic::Ptrue);
+            out.push_operand(Operand::PredCounter {
+                reg: P[(pnd & 0xf) as usize],
+                zeroing: false,
+                arr: Some(a),
+                index: None,
+            });
+        }
+        _ => {}
     }
 }
 
@@ -790,8 +887,12 @@ fn decode_while_rw(word: u32, out: &mut Instruction) {
 /// `sz<22>` selects the X (1) vs W (0) operand width; `op<4>` selects EQ(0)/NE(1).
 #[inline]
 fn decode_cterm(word: u32, out: &mut Instruction) {
-    // Skeleton check: `<15:10>=001000`, `<3:0>=0000`.
-    if bits(word, 10, 6) != 0b001000 || bits(word, 0, 4) != 0 {
+    // Skeleton check: `<15:10>=001000`, `<3:0>=0000`. The architectural skeleton
+    // fixes `<23>=1` (it is the leading `1` of the `1 sz` width field, *not* an
+    // operand bit); fARM64 previously ignored it and over-decoded the `<23>=0`
+    // reserved slot (e.g. `25732010` -> `ctermne x0, x19`, UNDEFINED in LLVM;
+    // canonical `25F32010`). Reject `<23>=0`.
+    if bit(word, 23) != 1 || bits(word, 10, 6) != 0b001000 || bits(word, 0, 4) != 0 {
         return;
     }
     let sz = bit(word, 22);
@@ -1098,8 +1199,11 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
         out.set_mnemonic(Mnemonic::Setffr);
         return;
     }
-    // WRFFR: `00100101 0010 1000 1001 000 Pn 0 0000`.
-    if bits(word, 12, 12) == 0b001010001001 && bits(word, 0, 5) == 0 {
+    // WRFFR: `00100101 0010 1000 1001 000 Pn 0 0000`. The `000` between `1001`
+    // and `Pn` is fixed (`<11:9>=000`); fARM64 previously checked only
+    // `<23:12>`/`<4:0>` and over-decoded the `<10>=1` reserved slot (e.g.
+    // `252894A0` -> `wrffr p5.b`, UNDEFINED in LLVM; canonical `252890A0`).
+    if bits(word, 12, 12) == 0b001010001001 && bits(word, 9, 3) == 0 && bits(word, 0, 5) == 0 {
         let pn = bits(word, 5, 4);
         out.set(Code::SveWrffr);
         out.set_mnemonic(Mnemonic::Wrffr);
@@ -1125,7 +1229,11 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
     // RDFFR/RDFFRS (predicated): `00100101 0 S 011000 1111 000 Pg 0 Pd`.
     //   rdffr  : <23:16>=00011000, <15:5>=11110000... Pg
     //   rdffrs : <23:16>=01011000
-    if bits(word, 16, 6) == 0b011000 && bits(word, 9, 7) == 0b1111000 && bit(word, 4) == 0 {
+    // `<23>` is a fixed 0 (only `<22>=S` toggles rdffr/rdffrs); fARM64 previously
+    // ignored it and over-decoded the `<23>=1` reserved slot (e.g. `2598F02F` ->
+    // `rdffr p15.b, p1/z` / `25D8F125` -> `rdffrs`, both UNDEFINED in LLVM;
+    // canonical `2518F02F` / `2558F125`). Reject `<23>=1`.
+    if bit(word, 23) == 0 && bits(word, 16, 6) == 0b011000 && bits(word, 9, 7) == 0b1111000 && bit(word, 4) == 0 {
         let s = bit(word, 22);
         let pg = bits(word, 5, 4);
         let pd = bits(word, 0, 4);
@@ -1173,9 +1281,18 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
     }
 
     // PTRUE/PTRUES: `00100101 size 011 00 S 1110 0 pattern 0 Pd`.
-    //   ptrue  : <23:22>=size, <20:16>=11000, <15:11>=11100, pattern=<9:5>, Pd=<3:0>
+    //   ptrue  : <23:22>=size, <21>=0, <20:16>=11000, <15:11>=11100, pattern=<9:5>, Pd=<3:0>
     //   ptrues : ... S=1 (<16>=1)
-    if bits(word, 17, 4) == 0b1100 && bits(word, 11, 5) == 0b11100 && bit(word, 10) == 0 && bit(word, 4) == 0 {
+    // `<21>` is a fixed 0 (it is the leading bit of the `011` opcode marker, not
+    // an operand field); fARM64 previously ignored it and over-decoded the
+    // `<21>=1` reserved slot (e.g. `2538E042` -> `ptrue p2.b, vl2` / `2539E0C4`
+    // -> `ptrues ...`, both UNDEFINED in LLVM; canonical `2518E042`). Reject it.
+    if bit(word, 21) == 0
+        && bits(word, 17, 4) == 0b1100
+        && bits(word, 11, 5) == 0b11100
+        && bit(word, 10) == 0
+        && bit(word, 4) == 0
+    {
         let s = bit(word, 16);
         let a = arr(size);
         let pattern = bits(word, 5, 5);

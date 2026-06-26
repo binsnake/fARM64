@@ -21,7 +21,7 @@ pub(super) fn is_perm(code: Code) -> bool {
             | SveSelPred | SvePredLogical | SveBrkpPred | SveBrkPred | SveBrkn | SveRdffr
             | SveRdffrPred | SveWrffr | SveSetffr | SvePfalse | SvePtest | SvePfirst | SvePnext
             | SvePtrue | SvePsel | SveLastp | SveFirstp | SveWhile | SveWhileRw | SveCterm
-            | SveWhilePair | SveWhilePn
+            | SveWhilePair | SveWhilePn | SvePextSingle | SvePextPair | SvePtruePn
     )
 }
 
@@ -395,6 +395,45 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 | fld(pattern, 5)
                 | pd
         }
+        // ---- PEXT / PTRUE (predicate-as-counter) ----
+        SvePextSingle => {
+            let size = esize(insn, 0)?;
+            let pd = p(insn, 0)?;
+            let (pnn, index) = pred_counter_index(insn, 1)?;
+            fld(0b00100101, 24) | fld(size, 22) | fld(1, 21) | fld(0b01110, 11) | fld(index, 8)
+                | fld(pnn, 5)
+                | fld(1, 4) // fixed marker
+                | pd
+        }
+        SvePextPair => {
+            // Consecutive pair `{P(d).T, P(d+1).T}`; `d = <3:0>` (any base).
+            let (first, a) = match insn.op(0) {
+                Operand::MultiReg { regs, arr: Some(a), count: 2, .. } => (regs[0].number() as u32, a),
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            let size = arr_size(a)?;
+            let (pnn, index) = pred_counter_index(insn, 1)?;
+            // The pair form has only a 1-bit index (`<8>`).
+            if index > 1 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            fld(0b00100101, 24) | fld(size, 22) | fld(1, 21) | fld(0b01110, 11) | fld(1, 10)
+                | fld(index, 8)
+                | fld(pnn, 5)
+                | fld(1, 4) // fixed marker
+                | (first & 0xf)
+        }
+        SvePtruePn => {
+            let (pnd, a) = match insn.op(0) {
+                Operand::PredCounter { reg, arr: Some(a), .. } => (reg.number() as u32, a),
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            if !(8..=15).contains(&pnd) {
+                return Err(EncodeError::InvalidOperand);
+            }
+            let size = arr_size(a)?;
+            fld(0b00100101, 24) | fld(size, 22) | fld(1, 21) | fld(0b01111, 11) | fld(1, 4) | (pnd - 8)
+        }
         // ---- LASTP / FIRSTP (extract predicate-as-counter) ----
         SveLastp | SveFirstp => {
             let size = esize(insn, 2)?; // element from Pn.T (operand 2)
@@ -465,6 +504,21 @@ fn base45() -> u32 {
 fn arr_of(insn: &Instruction, n: usize) -> Result<VA, EncodeError> {
     match insn.op(n) {
         Operand::Reg { arr: Some(a), .. } => Ok(a),
+        _ => Err(EncodeError::InvalidOperand),
+    }
+}
+
+/// The `(PNn-8, index)` of a predicate-as-counter source `pnN[index]` at operand
+/// `n` (used by PEXT). `PNn` is `8..=15`; the encoded `<7:5>` field is `PNn - 8`.
+fn pred_counter_index(insn: &Instruction, n: usize) -> Result<(u32, u32), EncodeError> {
+    match insn.op(n) {
+        Operand::PredCounter { reg, index: Some(idx), .. } => {
+            let pnn = reg.number() as u32;
+            if !(8..=15).contains(&pnn) || idx > 3 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            Ok((pnn - 8, idx as u32))
+        }
         _ => Err(EncodeError::InvalidOperand),
     }
 }

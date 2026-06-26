@@ -208,8 +208,10 @@ fn added_families_feature_gated() {
     // BFSCALE requires SVE_B16B16; the FP8 converts require FP8.
     assert!(decode(0x65099846, 0, without(FeatureSet::ALL, Feature::SveB16b16)).is_invalid(),
         "bfscale should require SveB16b16");
-    for w in [0x65083CF9u32, 0x654C3A4A] {
-        assert!(decode(w, 0, without(FeatureSet::ALL, Feature::Fp8)).is_invalid(),
-            "{:08X} should require Fp8", w);
-    }
+    // bf2cvt is FP8->BF16 (FEAT_FP8); scvtflt is int->FP, gated FEAT_SVE2p3
+    // (re-gated in the P batch, verified against LLVM `requires:`).
+    assert!(decode(0x65083CF9, 0, without(FeatureSet::ALL, Feature::Fp8)).is_invalid(),
+        "bf2cvt should require Fp8");
+    assert!(decode(0x654C3A4A, 0, without(FeatureSet::ALL, Feature::Sve2p3)).is_invalid(),
+        "scvtflt should require Sve2p3");
 }

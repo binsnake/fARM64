@@ -3382,6 +3382,14 @@ codes! {
     SmeUcvtf => Ucvtf, Sme2, "`ucvtf { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector unsigned int to FP).";
     SmeFcvtzs => Fcvtzs, Sme2, "`fcvtzs { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector FP to signed int).";
     SmeFcvtzu => Fcvtzu, Sme2, "`fcvtzu { z0.s, z1.s }, { z0.s, z1.s }` (SME2 multi-vector FP to unsigned int).";
+
+    // --- R1: SVE2.1 predicate-as-counter extract / generation (FEAT_SVE2p1).
+    // Slot `word<31:24> == 0x25`, `word<21:11> == 1_0000_01110` (`<15:11>=01110`)
+    // for PEXT and `<15:11>=01111` for the `pn`-form PTRUE; source/dest is a
+    // predicate-as-counter `pn8`..`pn15`. ---
+    SvePextSingle => Pext, Sve2p1, "`PEXT <Pd>.<T>, <PNn>[<imm>]` (SVE2.1 predicate extract from predicate-as-counter, single).";
+    SvePextPair => Pext, Sve2p1, "`PEXT {<Pd1>.<T>, <Pd2>.<T>}, <PNn>[<imm>]` (SVE2.1 predicate extract from predicate-as-counter, pair).";
+    SvePtruePn => Ptrue, Sve2p1, "`PTRUE <PNd>.<T>` (SVE2.1 initialise predicate-as-counter).";
 }
 
 impl Code {
@@ -6621,6 +6629,8 @@ pub enum Mnemonic {
     Fcvtnb,
     /// `UCVTFLT` (SVE2.2 unsigned int low-to-top widening FP convert).
     Ucvtflt,
+    /// `PEXT` (SVE2.1 predicate extract from a predicate-as-counter).
+    Pext,
 }
 
 impl Mnemonic {

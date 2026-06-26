@@ -452,8 +452,8 @@ impl Formatter for FmtFormatter {
                 }
             }
 
-            Operand::PredCounter { reg, zeroing, arr } => {
-                self.emit_pred_counter(reg, zeroing, arr, out);
+            Operand::PredCounter { reg, zeroing, arr, index } => {
+                self.emit_pred_counter(reg, zeroing, arr, index, out);
             }
 
             Operand::VlMul(n) => {
@@ -1008,6 +1008,7 @@ impl FmtFormatter {
         reg: Register,
         zeroing: bool,
         arr: Option<crate::enums::VectorArrangement>,
+        index: Option<u8>,
         out: &mut dyn FormatterOutput,
     ) {
         self.emit_cased("pn", self.opts.uppercase_registers, TokenKind::Register, out);
@@ -1020,6 +1021,12 @@ impl FmtFormatter {
             if !suf.is_empty() {
                 self.emit_cased(suf, self.opts.uppercase_registers, TokenKind::Register, out);
             }
+        }
+        // Bracketed element index (SVE2.1 `PEXT` source, e.g. `pn8[0]`).
+        if let Some(idx) = index {
+            out.write("[", TokenKind::Punctuation);
+            self.emit_dec_kind(idx as u64, TokenKind::Number, out);
+            out.write("]", TokenKind::Punctuation);
         }
         if zeroing {
             self.emit_cased("/z", self.opts.uppercase_registers, TokenKind::Decorator, out);

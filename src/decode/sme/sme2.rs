@@ -1335,6 +1335,7 @@ fn pn_counter(v: u32, zeroing: bool) -> Operand {
         reg: pn_register(v),
         zeroing,
         arr: None,
+        index: None,
     }
 }
 

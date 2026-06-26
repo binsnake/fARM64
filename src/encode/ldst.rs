@@ -61,6 +61,7 @@ pub fn is_ldst(code: Code) -> bool {
         || lsui_casp_fields(code).is_some()
         || swp_fields(code).is_some()
         || atomic_opc(code).is_some()
+        || lsfe_fields(code).is_some()
         || rcw_single_fields(code).is_some()
         || the_atomic_fields(code).is_some()
         || ldapstl_fields(code).is_some()
@@ -122,6 +123,8 @@ pub fn encode(insn: &Instruction) -> R {
         // --- LSE atomics: SWP and LD<op>/ST<op>. ---
         _ if swp_fields(code).is_some() => enc_swp(insn),
         _ if atomic_fields(code).is_some() => enc_atomic(insn),
+        // --- FEAT_LSFE atomic floating-point in-memory (LDF*/STF*/LDBF*/STBF*). ---
+        _ if lsfe_fields(code).is_some() => enc_lsfe(insn),
         // --- FEAT_THE single-register RCW RMW (RCWCLR/RCWSWP/RCWSET + RCWS*). ---
         _ if rcw_single_fields(code).is_some() => enc_rcw_single(insn),
         // --- FEAT_THE / FEAT_LSE128 atomics (LDTADD/SWPT, RCW*, LDCLRP/...). ---
@@ -1589,6 +1592,130 @@ fn enc_atomic(insn: &Instruction) -> R {
 fn atomic_word(size: u32, a: u32, r: u32, rs: u32, o3: u32, opc: u32, rn: u32, rt: u32) -> u32 {
     (size << 30)
         | (0b111 << 27)
+        | (a << 23)
+        | (r << 22)
+        | (1 << 21)
+        | (rs << 16)
+        | (o3 << 15)
+        | (opc << 12)
+        | (rn << 5)
+        | rt
+}
+
+// ---------------------------------------------------------------------------
+// FEAT_LSFE atomic floating-point in-memory ops (LDF*/STF* + BF16 LDBF*/STBF*).
+// ---------------------------------------------------------------------------
+
+/// Recover the LSFE encoding fields from a [`Code`]:
+/// `(o3, a, r, opc, is_bf, is_store)`. The data size (H/S/D) is read from the
+/// register operand width; `is_bf` forces `size==00` (BF16). The word is built by
+/// [`lsfe_word`].
+fn lsfe_fields(code: Code) -> Option<(u32, u32, u32, u32, bool, bool)> {
+    use Code::*;
+    Some(match code {
+        Ldfadd => (0, 0, 0, 0b000, false, false),
+        Ldfadda => (0, 1, 0, 0b000, false, false),
+        Ldfaddl => (0, 0, 1, 0b000, false, false),
+        Ldfaddal => (0, 1, 1, 0b000, false, false),
+        Ldfmax => (0, 0, 0, 0b100, false, false),
+        Ldfmaxa => (0, 1, 0, 0b100, false, false),
+        Ldfmaxl => (0, 0, 1, 0b100, false, false),
+        Ldfmaxal => (0, 1, 1, 0b100, false, false),
+        Ldfmin => (0, 0, 0, 0b101, false, false),
+        Ldfmina => (0, 1, 0, 0b101, false, false),
+        Ldfminl => (0, 0, 1, 0b101, false, false),
+        Ldfminal => (0, 1, 1, 0b101, false, false),
+        Ldfmaxnm => (0, 0, 0, 0b110, false, false),
+        Ldfmaxnma => (0, 1, 0, 0b110, false, false),
+        Ldfmaxnml => (0, 0, 1, 0b110, false, false),
+        Ldfmaxnmal => (0, 1, 1, 0b110, false, false),
+        Ldfminnm => (0, 0, 0, 0b111, false, false),
+        Ldfminnma => (0, 1, 0, 0b111, false, false),
+        Ldfminnml => (0, 0, 1, 0b111, false, false),
+        Ldfminnmal => (0, 1, 1, 0b111, false, false),
+        Stfadd => (1, 0, 0, 0b000, false, true),
+        Stfaddl => (1, 0, 1, 0b000, false, true),
+        Stfmax => (1, 0, 0, 0b100, false, true),
+        Stfmaxl => (1, 0, 1, 0b100, false, true),
+        Stfmin => (1, 0, 0, 0b101, false, true),
+        Stfminl => (1, 0, 1, 0b101, false, true),
+        Stfmaxnm => (1, 0, 0, 0b110, false, true),
+        Stfmaxnml => (1, 0, 1, 0b110, false, true),
+        Stfminnm => (1, 0, 0, 0b111, false, true),
+        Stfminnml => (1, 0, 1, 0b111, false, true),
+        Ldbfadd => (0, 0, 0, 0b000, true, false),
+        Ldbfadda => (0, 1, 0, 0b000, true, false),
+        Ldbfaddl => (0, 0, 1, 0b000, true, false),
+        Ldbfaddal => (0, 1, 1, 0b000, true, false),
+        Ldbfmax => (0, 0, 0, 0b100, true, false),
+        Ldbfmaxa => (0, 1, 0, 0b100, true, false),
+        Ldbfmaxl => (0, 0, 1, 0b100, true, false),
+        Ldbfmaxal => (0, 1, 1, 0b100, true, false),
+        Ldbfmin => (0, 0, 0, 0b101, true, false),
+        Ldbfmina => (0, 1, 0, 0b101, true, false),
+        Ldbfminl => (0, 0, 1, 0b101, true, false),
+        Ldbfminal => (0, 1, 1, 0b101, true, false),
+        Ldbfmaxnm => (0, 0, 0, 0b110, true, false),
+        Ldbfmaxnma => (0, 1, 0, 0b110, true, false),
+        Ldbfmaxnml => (0, 0, 1, 0b110, true, false),
+        Ldbfmaxnmal => (0, 1, 1, 0b110, true, false),
+        Ldbfminnm => (0, 0, 0, 0b111, true, false),
+        Ldbfminnma => (0, 1, 0, 0b111, true, false),
+        Ldbfminnml => (0, 0, 1, 0b111, true, false),
+        Ldbfminnmal => (0, 1, 1, 0b111, true, false),
+        Stbfadd => (1, 0, 0, 0b000, true, true),
+        Stbfaddl => (1, 0, 1, 0b000, true, true),
+        Stbfmax => (1, 0, 0, 0b100, true, true),
+        Stbfmaxl => (1, 0, 1, 0b100, true, true),
+        Stbfmin => (1, 0, 0, 0b101, true, true),
+        Stbfminl => (1, 0, 1, 0b101, true, true),
+        Stbfmaxnm => (1, 0, 0, 0b110, true, true),
+        Stbfmaxnml => (1, 0, 1, 0b110, true, true),
+        Stbfminnm => (1, 0, 0, 0b111, true, true),
+        Stbfminnml => (1, 0, 1, 0b111, true, true),
+        _ => return None,
+    })
+}
+
+/// Encode a FEAT_LSFE atomic float op:
+/// `size 111 1 00 A R 1 Rs o3 opc 00 Rn Rt`. Load form is `<V>s, <V>t, [Xn|SP]`;
+/// store form is `<V>s, [Xn|SP]` with `Rt` forced to 31.
+fn enc_lsfe(insn: &Instruction) -> R {
+    let (o3, a, r, opc, is_bf, is_store) =
+        lsfe_fields(insn.code()).ok_or(EncodeError::Unsupported)?;
+    // Size from the source register's width: BF16/H -> per code, S=32, D=64.
+    let size = if is_bf {
+        0
+    } else {
+        match insn.op(0) {
+            Operand::Reg { reg, .. } => match reg.width_bits() {
+                16 => 1,
+                32 => 2,
+                64 => 3,
+                _ => return Err(EncodeError::InvalidOperand),
+            },
+            _ => return Err(EncodeError::InvalidOperand),
+        }
+    };
+    let rs = reg_num(insn, 0)?;
+    let (rt, rn) = if is_store {
+        let (rn, _, _) = mem_imm(insn, 1)?;
+        (0b11111u32, rn)
+    } else {
+        let rt = reg_num(insn, 1)?;
+        let (rn, _, _) = mem_imm(insn, 2)?;
+        (rt, rn)
+    };
+    Ok(lsfe_word(size, a, r, rs, o3, opc, rn, rt))
+}
+
+/// Assemble an LSFE atomic word: `size 111 1 00 A R 1 Rs o3 opc 00 Rn Rt`.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn lsfe_word(size: u32, a: u32, r: u32, rs: u32, o3: u32, opc: u32, rn: u32, rt: u32) -> u32 {
+    (size << 30)
+        | (0b111 << 27)
+        | (1 << 26)
         | (a << 23)
         | (r << 22)
         | (1 << 21)

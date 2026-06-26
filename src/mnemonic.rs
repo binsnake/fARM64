@@ -2711,6 +2711,68 @@ codes! {
     SmeUqrshrn => Uqrshrn, Sme2, "`uqrshrn z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
     SmeSqrshru => Sqrshru, Sme2, "`sqrshru z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
     SmeSqrshrun => Sqrshrun, Sme2, "`sqrshrun z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
+
+    // --- FEAT_LSFE atomic floating-point in-memory (G4) ---
+    Ldfadd => Ldfadd, Lsfe, "`LDFADD` (FEAT_LSFE atomic float in-memory).";
+    Ldfadda => Ldfadda, Lsfe, "`LDFADDA` (FEAT_LSFE atomic float in-memory).";
+    Ldfaddl => Ldfaddl, Lsfe, "`LDFADDL` (FEAT_LSFE atomic float in-memory).";
+    Ldfaddal => Ldfaddal, Lsfe, "`LDFADDAL` (FEAT_LSFE atomic float in-memory).";
+    Ldfmax => Ldfmax, Lsfe, "`LDFMAX` (FEAT_LSFE atomic float in-memory).";
+    Ldfmaxa => Ldfmaxa, Lsfe, "`LDFMAXA` (FEAT_LSFE atomic float in-memory).";
+    Ldfmaxl => Ldfmaxl, Lsfe, "`LDFMAXL` (FEAT_LSFE atomic float in-memory).";
+    Ldfmaxal => Ldfmaxal, Lsfe, "`LDFMAXAL` (FEAT_LSFE atomic float in-memory).";
+    Ldfmin => Ldfmin, Lsfe, "`LDFMIN` (FEAT_LSFE atomic float in-memory).";
+    Ldfmina => Ldfmina, Lsfe, "`LDFMINA` (FEAT_LSFE atomic float in-memory).";
+    Ldfminl => Ldfminl, Lsfe, "`LDFMINL` (FEAT_LSFE atomic float in-memory).";
+    Ldfminal => Ldfminal, Lsfe, "`LDFMINAL` (FEAT_LSFE atomic float in-memory).";
+    Ldfmaxnm => Ldfmaxnm, Lsfe, "`LDFMAXNM` (FEAT_LSFE atomic float in-memory).";
+    Ldfmaxnma => Ldfmaxnma, Lsfe, "`LDFMAXNMA` (FEAT_LSFE atomic float in-memory).";
+    Ldfmaxnml => Ldfmaxnml, Lsfe, "`LDFMAXNML` (FEAT_LSFE atomic float in-memory).";
+    Ldfmaxnmal => Ldfmaxnmal, Lsfe, "`LDFMAXNMAL` (FEAT_LSFE atomic float in-memory).";
+    Ldfminnm => Ldfminnm, Lsfe, "`LDFMINNM` (FEAT_LSFE atomic float in-memory).";
+    Ldfminnma => Ldfminnma, Lsfe, "`LDFMINNMA` (FEAT_LSFE atomic float in-memory).";
+    Ldfminnml => Ldfminnml, Lsfe, "`LDFMINNML` (FEAT_LSFE atomic float in-memory).";
+    Ldfminnmal => Ldfminnmal, Lsfe, "`LDFMINNMAL` (FEAT_LSFE atomic float in-memory).";
+    Stfadd => Stfadd, Lsfe, "`STFADD` (FEAT_LSFE atomic float in-memory).";
+    Stfaddl => Stfaddl, Lsfe, "`STFADDL` (FEAT_LSFE atomic float in-memory).";
+    Stfmax => Stfmax, Lsfe, "`STFMAX` (FEAT_LSFE atomic float in-memory).";
+    Stfmaxl => Stfmaxl, Lsfe, "`STFMAXL` (FEAT_LSFE atomic float in-memory).";
+    Stfmin => Stfmin, Lsfe, "`STFMIN` (FEAT_LSFE atomic float in-memory).";
+    Stfminl => Stfminl, Lsfe, "`STFMINL` (FEAT_LSFE atomic float in-memory).";
+    Stfmaxnm => Stfmaxnm, Lsfe, "`STFMAXNM` (FEAT_LSFE atomic float in-memory).";
+    Stfmaxnml => Stfmaxnml, Lsfe, "`STFMAXNML` (FEAT_LSFE atomic float in-memory).";
+    Stfminnm => Stfminnm, Lsfe, "`STFMINNM` (FEAT_LSFE atomic float in-memory).";
+    Stfminnml => Stfminnml, Lsfe, "`STFMINNML` (FEAT_LSFE atomic float in-memory).";
+    Ldbfadd => Ldbfadd, Lsfe, "`LDBFADD` (FEAT_LSFE atomic float in-memory).";
+    Ldbfadda => Ldbfadda, Lsfe, "`LDBFADDA` (FEAT_LSFE atomic float in-memory).";
+    Ldbfaddl => Ldbfaddl, Lsfe, "`LDBFADDL` (FEAT_LSFE atomic float in-memory).";
+    Ldbfaddal => Ldbfaddal, Lsfe, "`LDBFADDAL` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmax => Ldbfmax, Lsfe, "`LDBFMAX` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmaxa => Ldbfmaxa, Lsfe, "`LDBFMAXA` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmaxl => Ldbfmaxl, Lsfe, "`LDBFMAXL` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmaxal => Ldbfmaxal, Lsfe, "`LDBFMAXAL` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmin => Ldbfmin, Lsfe, "`LDBFMIN` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmina => Ldbfmina, Lsfe, "`LDBFMINA` (FEAT_LSFE atomic float in-memory).";
+    Ldbfminl => Ldbfminl, Lsfe, "`LDBFMINL` (FEAT_LSFE atomic float in-memory).";
+    Ldbfminal => Ldbfminal, Lsfe, "`LDBFMINAL` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmaxnm => Ldbfmaxnm, Lsfe, "`LDBFMAXNM` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmaxnma => Ldbfmaxnma, Lsfe, "`LDBFMAXNMA` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmaxnml => Ldbfmaxnml, Lsfe, "`LDBFMAXNML` (FEAT_LSFE atomic float in-memory).";
+    Ldbfmaxnmal => Ldbfmaxnmal, Lsfe, "`LDBFMAXNMAL` (FEAT_LSFE atomic float in-memory).";
+    Ldbfminnm => Ldbfminnm, Lsfe, "`LDBFMINNM` (FEAT_LSFE atomic float in-memory).";
+    Ldbfminnma => Ldbfminnma, Lsfe, "`LDBFMINNMA` (FEAT_LSFE atomic float in-memory).";
+    Ldbfminnml => Ldbfminnml, Lsfe, "`LDBFMINNML` (FEAT_LSFE atomic float in-memory).";
+    Ldbfminnmal => Ldbfminnmal, Lsfe, "`LDBFMINNMAL` (FEAT_LSFE atomic float in-memory).";
+    Stbfadd => Stbfadd, Lsfe, "`STBFADD` (FEAT_LSFE atomic float in-memory).";
+    Stbfaddl => Stbfaddl, Lsfe, "`STBFADDL` (FEAT_LSFE atomic float in-memory).";
+    Stbfmax => Stbfmax, Lsfe, "`STBFMAX` (FEAT_LSFE atomic float in-memory).";
+    Stbfmaxl => Stbfmaxl, Lsfe, "`STBFMAXL` (FEAT_LSFE atomic float in-memory).";
+    Stbfmin => Stbfmin, Lsfe, "`STBFMIN` (FEAT_LSFE atomic float in-memory).";
+    Stbfminl => Stbfminl, Lsfe, "`STBFMINL` (FEAT_LSFE atomic float in-memory).";
+    Stbfmaxnm => Stbfmaxnm, Lsfe, "`STBFMAXNM` (FEAT_LSFE atomic float in-memory).";
+    Stbfmaxnml => Stbfmaxnml, Lsfe, "`STBFMAXNML` (FEAT_LSFE atomic float in-memory).";
+    Stbfminnm => Stbfminnm, Lsfe, "`STBFMINNM` (FEAT_LSFE atomic float in-memory).";
+    Stbfminnml => Stbfminnml, Lsfe, "`STBFMINNML` (FEAT_LSFE atomic float in-memory).";
 }
 
 impl Code {
@@ -5751,6 +5813,15 @@ pub enum Mnemonic {
     Uqrshr,
     /// `SQRSHRU` (SME2 multi-vector signed→unsigned saturating rounding shift right narrow).
     Sqrshru,
+    // --- FEAT_LSFE atomic floating-point in-memory (G4) ---
+    Ldfadd, Ldfadda, Ldfaddl, Ldfaddal, Ldfmax, Ldfmaxa, Ldfmaxl, Ldfmaxal,
+    Ldfmin, Ldfmina, Ldfminl, Ldfminal, Ldfmaxnm, Ldfmaxnma, Ldfmaxnml, Ldfmaxnmal,
+    Ldfminnm, Ldfminnma, Ldfminnml, Ldfminnmal, Stfadd, Stfaddl, Stfmax, Stfmaxl,
+    Stfmin, Stfminl, Stfmaxnm, Stfmaxnml, Stfminnm, Stfminnml, Ldbfadd, Ldbfadda,
+    Ldbfaddl, Ldbfaddal, Ldbfmax, Ldbfmaxa, Ldbfmaxl, Ldbfmaxal, Ldbfmin, Ldbfmina,
+    Ldbfminl, Ldbfminal, Ldbfmaxnm, Ldbfmaxnma, Ldbfmaxnml, Ldbfmaxnmal, Ldbfminnm, Ldbfminnma,
+    Ldbfminnml, Ldbfminnmal, Stbfadd, Stbfaddl, Stbfmax, Stbfmaxl, Stbfmin, Stbfminl,
+    Stbfmaxnm, Stbfmaxnml, Stbfminnm, Stbfminnml,
 }
 
 impl Mnemonic {

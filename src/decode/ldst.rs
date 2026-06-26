@@ -1517,7 +1517,9 @@ fn decode_lsui_casp(sz: u32, l: u32, o0: u32, rs: u32, rn: u32, rt: u32, out: &m
 #[inline]
 fn decode_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
     if bit(word, 26) != 0 {
-        return; // V must be 0
+        // V==1 is the FEAT_LSFE atomic floating-point in-memory family
+        // (`LDF*`/`STF*`/`LDBF*`/`STBF*`), which shares this LSE atomic major.
+        return decode_lsfe(word, features, out);
     }
     let size = bits(word, 30, 2);
     let a = bit(word, 23);
@@ -1625,6 +1627,108 @@ fn decode_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
         _ => return,
     };
     emit_atomic_rmw(size, a, r, op, rs, rn, rt, out);
+}
+
+// ---------------------------------------------------------------------------
+// FEAT_LSFE atomic floating-point in-memory ops (LDF*/STF* + BF16 LDBF*/STBF*).
+// ---------------------------------------------------------------------------
+
+/// FEAT_LSFE atomic float read-modify-write. Encoding (the `V==1` sibling of the
+/// integer LSE atomic major):
+/// `size 111 1 00 A R 1 Rs o3 opc 00 Rn Rt`, with `A`=bit23, `R`=bit22,
+/// `o3`=bit15, `opc`=bits<14:12>. `opc` selects the op (`000`=FADD, `100`=FMAX,
+/// `101`=FMIN, `110`=FMAXNM, `111`=FMINNM); `A:R` the ordering; `o3` the load
+/// (`0`, `LDF<op> <V>s,<V>t,[Xn]`) vs store (`1`, `STF<op> <V>s,[Xn]`, which
+/// requires `Rt==31` and `A==0`). `size` selects the data type: `00`=BF16
+/// (`LDBF*`/`STBF*`, rendered with an `H` register), `01`=H, `10`=S, `11`=D.
+#[inline]
+fn decode_lsfe(word: u32, features: FeatureSet, out: &mut Instruction) {
+    if !features.has(Feature::Lsfe) {
+        return;
+    }
+    let size = bits(word, 30, 2);
+    let a = bit(word, 23);
+    let r = bit(word, 22);
+    let rs = bits(word, 16, 5);
+    let o3 = bit(word, 15);
+    let opc = bits(word, 12, 3);
+    let rn = bits(word, 5, 5);
+    let rt = bits(word, 0, 5);
+
+    // opc -> op index (FADD/FMAX/FMIN/FMAXNM/FMINNM); other values unallocated.
+    let op_idx = match opc {
+        0b000 => 0,
+        0b100 => 1,
+        0b101 => 2,
+        0b110 => 3,
+        0b111 => 4,
+        _ => return,
+    };
+    let is_bf = size == 0;
+    // Register class: BF16 and FP16 both use the `H` view; S for size==10, D for 11.
+    let sc = if size == 0 { 1 } else { size };
+
+    if o3 == 0 {
+        // LDF<op> / LDBF<op>: <V>s, <V>t, [Xn|SP]. ordering 0..=3 from (A,R).
+        let ord = ((a << 1) | r) as usize;
+        out.set(lsfe_ld_code(op_idx, ord, is_bf));
+        out.push_operand(simd_op(fp_reg(sc, rs)));
+        out.push_operand(simd_op(fp_reg(sc, rt)));
+        out.push_operand(mem_off(rn, 0));
+    } else {
+        // STF<op> / STBF<op>: <V>s, [Xn|SP]. Pure store -> Rt==31 and A==0.
+        if rt != 0b11111 || a != 0 {
+            return;
+        }
+        out.set(lsfe_st_code(op_idx, r, is_bf));
+        out.push_operand(simd_op(fp_reg(sc, rs)));
+        out.push_operand(mem_off(rn, 0));
+    }
+}
+
+/// LSFE load-form [`Code`] for `(op_idx, ord, is_bf)` (`ord`: 0=plain,1=L,2=A,3=AL).
+fn lsfe_ld_code(op_idx: usize, ord: usize, is_bf: bool) -> Code {
+    use Code::*;
+    #[rustfmt::skip]
+    const F: [[Code; 4]; 5] = [
+        [Ldfadd, Ldfaddl, Ldfadda, Ldfaddal],
+        [Ldfmax, Ldfmaxl, Ldfmaxa, Ldfmaxal],
+        [Ldfmin, Ldfminl, Ldfmina, Ldfminal],
+        [Ldfmaxnm, Ldfmaxnml, Ldfmaxnma, Ldfmaxnmal],
+        [Ldfminnm, Ldfminnml, Ldfminnma, Ldfminnmal],
+    ];
+    #[rustfmt::skip]
+    const BF: [[Code; 4]; 5] = [
+        [Ldbfadd, Ldbfaddl, Ldbfadda, Ldbfaddal],
+        [Ldbfmax, Ldbfmaxl, Ldbfmaxa, Ldbfmaxal],
+        [Ldbfmin, Ldbfminl, Ldbfmina, Ldbfminal],
+        [Ldbfmaxnm, Ldbfmaxnml, Ldbfmaxnma, Ldbfmaxnmal],
+        [Ldbfminnm, Ldbfminnml, Ldbfminnma, Ldbfminnmal],
+    ];
+    if is_bf { BF[op_idx][ord] } else { F[op_idx][ord] }
+}
+
+/// LSFE store-form [`Code`] for `(op_idx, r, is_bf)` (`r`: 0=plain,1=L).
+fn lsfe_st_code(op_idx: usize, r: u32, is_bf: bool) -> Code {
+    use Code::*;
+    #[rustfmt::skip]
+    const F: [[Code; 2]; 5] = [
+        [Stfadd, Stfaddl],
+        [Stfmax, Stfmaxl],
+        [Stfmin, Stfminl],
+        [Stfmaxnm, Stfmaxnml],
+        [Stfminnm, Stfminnml],
+    ];
+    #[rustfmt::skip]
+    const BF: [[Code; 2]; 5] = [
+        [Stbfadd, Stbfaddl],
+        [Stbfmax, Stbfmaxl],
+        [Stbfmin, Stbfminl],
+        [Stbfmaxnm, Stbfmaxnml],
+        [Stbfminnm, Stbfminnml],
+    ];
+    let i = r as usize;
+    if is_bf { BF[op_idx][i] } else { F[op_idx][i] }
 }
 
 #[derive(Clone, Copy)]

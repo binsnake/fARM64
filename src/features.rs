@@ -109,6 +109,10 @@ pub enum Feature {
     Lut,
     /// Floating-point absolute maximum/minimum (`FEAT_FAMINMAX`): the Advanced
     /// SIMD `FAMAX`/`FAMIN` vector forms (`.4h`/`.8h`/`.2s`/`.4s`/`.2d`).
+    /// Atomic floating-point in-memory instructions (`FEAT_LSFE`): the
+    /// `LDF{ADD,MAX,MIN,MAXNM,MINNM}` / `STF*` and BFloat16 `LDBF*`/`STBF*`
+    /// atomic float read-modify-write memory ops (H/S/D + BF16, a/l/al ordering).
+    Lsfe,
     Faminmax,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }

@@ -404,7 +404,12 @@ fn decode_pred_perm(word: u32, out: &mut Instruction) {
         return;
     }
 
-    // `<20>=1`: REV (predicate) `<20:16>=10100`, PUNPK `<20:16>=1000H`.
+    // `<20>=1`: REV (predicate) `<20:16>=10100`, PUNPK `<20:16>=1000H`. Both are
+    // unary (no `Pm`) and fix `<12:10>=000`; a non-zero `<12:10>` is reserved
+    // (e.g. `05744501` over `05744101 rev p1.h,p8.h` — `<unknown>` in LLVM).
+    if bits(word, 10, 3) != 0 {
+        return;
+    }
     let op2016 = bits(word, 16, 5);
     if op2016 == 0b10100 {
         let a = arr(size);
@@ -1053,6 +1058,12 @@ fn decode_break(word: u32, out: &mut Instruction) {
             _ => Mnemonic::Brkbs,
         };
         let m = bit(word, 4);
+        // The flag-setting forms (BRKAS/BRKBS, `S=1`) are zeroing-only: the merge
+        // bit `<4>=M` must be 0. `M=1` with `S=1` is reserved → UNDEFINED (e.g.
+        // `25D05893` over `25D05883 brkbs p3.b,p6/z,p4.b` — `<unknown>` in LLVM).
+        if s == 1 && m == 1 {
+            return;
+        }
         let q = if s == 0 && m == 1 { PredQual::Merging } else { PredQual::Zeroing };
         out.set(Code::SveBrkPred);
         out.set_mnemonic(mnem);

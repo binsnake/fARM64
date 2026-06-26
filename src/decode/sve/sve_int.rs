@@ -676,6 +676,14 @@ fn decode_pmov(word: u32, out: &mut Instruction) {
     if bit(word, 16) == 1 && bit(word, 9) == 1 {
         return;
     }
+    // Symmetrically, the from-vector direction (`D=<16>=0`,
+    // `PMOV <Pd>.<T>, <Zn>{[index]}`) writes a predicate `Pd` addressed by only
+    // the 4 bits `<3:0>`; `word<4>` is then a fixed `0`. `<4>=1` would name a
+    // non-existent predicate ≥16 → UNDEFINED (e.g. `056E38BF` over-decoded as
+    // `pmov p15.s,z5[3]`, `<unknown>` in LLVM, vs the valid `056E38AF`).
+    if bit(word, 16) == 0 && bit(word, 4) == 1 {
+        return;
+    }
     let n5 = bits(word, 5, 5);
     let d5 = bits(word, 0, 5);
     out.set(Code::SvePmov);
@@ -1624,6 +1632,15 @@ fn decode_int_imm(word: u32, out: &mut Instruction) {
             if bits(word, 17, 2) != 0 {
                 return;
             }
+            // The `lsl #8` shift (`sh==1`) widens the imm8 past a byte, so it is
+            // reserved for the `.b` element size (`size==00`): an 8-bit element
+            // cannot hold a shifted-by-8 value → UNDEFINED (e.g. `2538EFC5`
+            // over-decoded as `mov z5.b,#0x7e00`, `<unknown>` in LLVM, vs the
+            // valid no-shift `2538CFC5 mov z5.b,#0x7e`). Mirrors the arithmetic
+            // and CPY-immediate `.b` shift guards.
+            if size == 0b00 && sh == 1 {
+                return;
+            }
             // DUP immediate, rendered as the MOV alias. imm8 is signed; the
             // optional `sh` (`<13>`) shifts the value left by 8.
             out.set(Code::SveDupImm);
@@ -1730,6 +1747,12 @@ fn decode_incdec_pred(word: u32, out: &mut Instruction) {
     // `<10>` is the `sf` selector *only* for the saturating scalar forms; for the
     // vector forms (`<11>=0`) and for plain INCP/DECP it is a fixed `0`.
     if (is_vector || opc == 0b100 || opc == 0b101) && bit(word, 10) != 0 {
+        return;
+    }
+    // The vector forms operate on `.h`/`.s`/`.d` elements only — `.b` (size==00)
+    // is reserved (e.g. `252980CB uqincp z11.b,p6` is `<unknown>` in LLVM). The
+    // scalar forms (`<11>=1`) keep `.b`, which sizes the governing predicate.
+    if is_vector && size == 0b00 {
         return;
     }
 
@@ -3056,6 +3079,16 @@ fn decode_45_shift(word: u32, features: FeatureSet, out: &mut Instruction) {
     let tszn = (bit(word, 22) << 2) | bits(word, 19, 2);
     // Saturating extract narrow: `<18:13>=000010`, no immediate.
     if bits(word, 13, 6) == 0b000010 {
+        // The destination element size is `tsz = tszh:tszl`; only the exact
+        // power-of-two patterns `001`/`010`/`100` (`.b`/`.h`/`.s`) are allocated.
+        // (Unlike the shift-narrow forms below, there is no `imm3` here to widen
+        // the field, so a non-power-of-two `tsz` is reserved, not a larger
+        // shift.) `tsz_size` would otherwise pick the top set bit and over-decode
+        // e.g. `45384F82` (tsz=011), `4578561A` (tsz=111), `45684744` (tsz=101) —
+        // all `<unknown>` in LLVM.
+        if tszn == 0 || tszn.count_ones() != 1 || tszn > 0b100 {
+            return;
+        }
         let Some(idx) = tsz_size(tszn) else { return };
         let da = arr(idx); // narrow element.
         let sa = match idx {
@@ -3525,7 +3558,13 @@ fn decode_reduction(word: u32, out: &mut Instruction) {
     // <20:16>; the corpus shows movprfx_z_p_z at <20:16>=10001/10000.
     match opc {
         0b00000 => {
-            // SADDV -> Dd
+            // SADDV -> Dd. The `.d` form (size==11) is reserved: a signed
+            // reduction of 64-bit elements into a 64-bit accumulator cannot widen
+            // (`04C02EF6 saddv d22,p3,z23.d` is `<unknown>` in LLVM). UADDV below
+            // keeps its `.d` form.
+            if size == 0b11 {
+                return;
+            }
             out.set(Code::SveSaddv);
             out.push_operand(scalar_fp(rd, 3));
             out.push_operand(preg(pg));

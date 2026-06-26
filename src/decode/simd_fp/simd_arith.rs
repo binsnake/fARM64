@@ -1389,12 +1389,28 @@ fn int_two_reg_misc(
         _ => return,
     };
 
+    // Pairwise-long (SADDLP/UADDLP/SADALP/UADALP), REV*, SHLL/SHLL2 and the
+    // bitwise MVN/RBIT have NO scalar form — they are vector-only. Reject the
+    // scalar slot up front (e.g. `5EA02BAA saddlp v10.2d`, `5E600A4B rev64
+    // v11.8h`, `5E21290B xtn b11,h8` — all `<unknown>` in LLVM). The remaining
+    // arms (Same/CmpZero/Narrow) keep their own scalar handling below.
+    if scalar
+        && matches!(
+            m,
+            Misc::Long(_) | Misc::Rev(_, _) | Misc::ShllOp | Misc::Bitwise(_)
+        )
+    {
+        return;
+    }
+
     match m {
         Misc::Same(code) => {
             // CLS/CLZ/CNT/REV are byte/half/word only; SUQADD/USQADD/SQABS/SQNEG
             // accept any size; ABS/NEG accept any size (incl. D).
             if scalar {
                 // Scalar SUQADD/USQADD/SQABS/SQNEG (any size), ABS/NEG (D only).
+                // CLS/CLZ/CNT are vector-only — reject in the scalar slot (e.g.
+                // `5E605A39 cnt h25,h17` is `<unknown>` in LLVM).
                 let eb = match code {
                     Code::AbsVec | Code::NegVec => {
                         if size == 0b11 {
@@ -1403,7 +1419,8 @@ fn int_two_reg_misc(
                             return;
                         }
                     }
-                    _ => esize(size),
+                    Code::SuqaddVec | Code::UsqaddVec | Code::SqabsVec | Code::SqnegVec => esize(size),
+                    _ => return,
                 };
                 out.set(code);
                 out.push_operand(sca(rd, eb));
@@ -1449,7 +1466,12 @@ fn int_two_reg_misc(
                 return;
             }
             if scalar {
-                // Scalar SQXTN/UQXTN/SQXTUN: result eb, source 2× eb.
+                // Scalar SQXTN/UQXTN/SQXTUN: result eb, source 2× eb. Plain XTN
+                // is vector-only (no saturation) — reject it in the scalar slot
+                // (`5E21290B xtn b11,h8` is `<unknown>` in LLVM).
+                if code == Code::XtnVec {
+                    return;
+                }
                 let eb = esize(size);
                 let src_eb = eb * 2;
                 out.set(code);
@@ -1574,10 +1596,14 @@ fn fp_two_reg_misc(
             return;
         }
         if u == 1 && opcode == 0b10110 {
-            // FCVTXN scalar: source D (64), dest S (32).
-            out.set(Code::FcvtxnVec);
-            out.push_operand(sca(rd, 32));
-            out.push_operand(sca(rn, 64));
+            // FCVTXN scalar: source D (64), dest S (32). Fixed `size==01`
+            // (`a==0`, `sz==1`); any other size is reserved (e.g. `7EA16BC9`,
+            // size==10, is `<unknown>` in LLVM).
+            if a == 0 && sz == 1 {
+                out.set(Code::FcvtxnVec);
+                out.push_operand(sca(rd, 32));
+                out.push_operand(sca(rn, 64));
+            }
             return;
         }
     }
@@ -1645,6 +1671,15 @@ fn fp_two_reg_misc(
     );
 
     if scalar {
+        // Many FP two-reg-misc opcodes are vector-only: the scalar slot allocates
+        // only the convert-to-int / compare-#0 / reciprocal-estimate forms (the
+        // FRINT* rounding, FABS/FNEG, URECPE/URSQRTE and FSQRT have no scalar
+        // form). Reject the rest → UNDEFINED (e.g. `5E619ABF frintm d31,d21`,
+        // `7E619ABF frintx d31,d21`, `5E61EAAD frint32z d13,d21` — all
+        // `<unknown>` in LLVM).
+        if !fp_misc_scalar_allowed(a, opcode) {
+            return;
+        }
         let eb: u16 = if sz == 1 { 64 } else { 32 };
         out.set(code);
         out.push_operand(sca(rd, eb));
@@ -1717,6 +1752,13 @@ fn fp16_two_reg_misc(word: u32, scalar: bool, features: FeatureSet, out: &mut In
         Code::FcmgtVec | Code::FcmgeVec | Code::FcmeqVec | Code::FcmleVec | Code::FcmltVec
     );
     if scalar {
+        // Same scalar restriction as the S/D family: only the convert/compare-#0/
+        // reciprocal-estimate ops have a half-precision scalar form. The FRINT*
+        // rounding ops (e.g. `5EF98909 frintp h9,h8`), FABS/FNEG and FSQRT are
+        // vector-only → UNDEFINED in LLVM.
+        if !fp_misc_scalar_allowed(a, opcode) {
+            return;
+        }
         out.set(code);
         out.push_operand(sca(rd, 16));
         out.push_operand(sca(rn, 16));
@@ -1781,6 +1823,27 @@ fn fp_misc_code(u: u32, a: u32, opcode: u32) -> Option<Code> {
         _ => return None,
     };
     Some(c)
+}
+
+/// Whether a generic FP two-reg-misc `opcode` (within the `0b1xxxx` block, after
+/// the FRECPX/FCVTXN scalar specials are peeled off) has a **scalar** form. The
+/// scalar slot allocates only the convert-fp-to-int (FCVT{N,M,A,P,Z}{S,U},
+/// SCVTF/UCVTF), the compare-against-zero (FCM{GT,EQ,LT,GE,LE}) and the
+/// reciprocal-estimate (FRECPE/FRSQRTE) ops. The rounding (FRINT*, opcode
+/// `110xx`), reciprocal-estimate-int (URECPE/URSQRTE, `11100`), FABS/FNEG
+/// (`01111`) and FSQRT (`11111`) forms are vector-only. Verified by an LLVM
+/// scalar opcode/size sweep over `0x5E`/`0x7E`.
+#[inline]
+fn fp_misc_scalar_allowed(a: u32, opcode: u32) -> bool {
+    match (a, opcode) {
+        // a==0 region: FCVTNS/FCVTNU, FCVTMS/FCVTMU, FCVTAS/FCVTAU, SCVTF/UCVTF.
+        (0, 0b11010..=0b11101) => true,
+        // a==1 region: FCM{GT,EQ,LT}/FCM{GE,LE}, FCVTPS/FCVTPU, FCVTZS/FCVTZU,
+        // FRECPE/FRSQRTE. (FRECPX op 11111 is handled earlier; FSQRT/FABS/FNEG
+        // are vector-only and excluded here.)
+        (1, 0b01100 | 0b01101 | 0b01110 | 0b11010 | 0b11011 | 0b11101) => true,
+        _ => false,
+    }
 }
 
 /// Identify the widen/narrow FP-convert specials by `(U,a,opcode)`.
@@ -1885,7 +1948,15 @@ fn scalar_pairwise(word: u32, features: FeatureSet, out: &mut Instruction) {
     let half = u == 0; // U==0 rows are the FP16 family here.
     let is_min = bit(size, 1) == 1;
     let code = match opcode {
-        0b01101 => Code::FaddpVec,
+        0b01101 => {
+            // FADDP has no min variant: `size<1>` (the max/min selector) must be
+            // 0. `5EB0DAC3` (FP16 FADDP, size==10) and `7EB0DAC3` (S/D FADDP,
+            // size==10) are `<unknown>` in LLVM.
+            if is_min {
+                return;
+            }
+            Code::FaddpVec
+        }
         0b01100 => {
             if is_min {
                 Code::FminnmpVec
@@ -1904,7 +1975,9 @@ fn scalar_pairwise(word: u32, features: FeatureSet, out: &mut Instruction) {
     };
 
     let (eb, arr) = if half {
-        if !features.has(Feature::Fp16) {
+        // FP16 scalar pairwise has no double-precision form: `size<0>` must be 0
+        // (size ∈ {00, 10}); `size<0>==1` is reserved.
+        if !features.has(Feature::Fp16) || bit(size, 0) == 1 {
             return;
         }
         (16u16, VA::V2H)

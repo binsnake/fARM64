@@ -24,7 +24,7 @@
 //! code. Every path is total and panic-free; unallocated encodings are left
 //! [`Code::Invalid`].
 
-use crate::decode::bits::{bits, sign_extend};
+use crate::decode::bits::{bit, bits, sign_extend};
 use crate::decode::ldst::prefetch_op_sve;
 use crate::enums::{ExtendType, VectorArrangement as VA};
 use crate::features::{Feature, FeatureSet};
@@ -523,10 +523,134 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
     if !features.has(Feature::Sve) {
         return;
     }
+    // SVE2.1 quadword (`.q`) contiguous structured + gather/scatter forms share
+    // the same top bytes as the byte/half/word/dword families; intercept them
+    // first (they occupy otherwise-unallocated sub-op slots) before the legacy
+    // dispatch. They are individually feature-gated on FEAT_SVE2p1.
+    if features.has(Feature::Sve2p1) {
+        decode_qword(word, out);
+        if !out.is_invalid() {
+            return;
+        }
+    }
     match bits(word, 24, 8) {
         0xa4 | 0xa5 | 0xe4 | 0xe5 => decode_contig(word, out),
         0x84 | 0x85 | 0xc4 | 0xc5 => decode_gather(word, out),
         _ => {}
+    }
+}
+
+// ===========================================================================
+// FEAT_SVE2p1 quadword (`.q`) load/store family.
+// ===========================================================================
+
+/// Decode the SVE2.1 quadword load/store forms, or leave `out` untouched.
+///
+/// Three groups share the SVE memory top bytes:
+/// * `LD1Q` gather (`0xC4`) / `ST1Q` scatter (`0xE4`): `[<Zn>.D{, <Xm>}]`.
+/// * `LD{2,3,4}Q` contiguous structured loads (`0xA4`/`0xA5`).
+/// * `ST{2,3,4}Q` contiguous structured stores (`0xE4`).
+///
+/// Each path verifies its full skeleton and leaves [`Code::Invalid`] otherwise,
+/// so it is safe to run ahead of the legacy contiguous/gather dispatch.
+#[inline]
+fn decode_qword(word: u32, out: &mut Instruction) {
+    let top = bits(word, 24, 8);
+    let pg = bits(word, 10, 3);
+    let rn = bits(word, 5, 5);
+    let zt = bits(word, 0, 5);
+    match top {
+        // LD1Q gather: 11000100 000 Rm 101 Pg Zn Zt, base Zn.d + offset Xm.
+        0xc4 if bits(word, 21, 3) == 0b000 && bits(word, 13, 3) == 0b101 => {
+            let rm = bits(word, 16, 5);
+            out.set(Code::SveLd1qG);
+            out.push_operand(zlist(zt, 1, VA::Sq));
+            out.push_operand(pg_z(pg));
+            out.push_operand(q_gather_addr(rn, rm));
+        }
+        // ST1Q scatter: 11100100 001 Rm 001 Pg Zn Zt, base Zn.d + offset Xm.
+        0xe4 if bits(word, 21, 3) == 0b001 && bits(word, 13, 3) == 0b001 => {
+            let rm = bits(word, 16, 5);
+            out.set(Code::SveSt1qS);
+            out.push_operand(zlist(zt, 1, VA::Sq));
+            out.push_operand(pg_plain(pg));
+            out.push_operand(q_gather_addr(rn, rm));
+        }
+        // LD{2,3,4}Q contiguous structured: 1010010 nreg-1(24:23) 0 form ...
+        0xa4 | 0xa5 if bit(word, 22) == 0 => {
+            let nreg = match bits(word, 23, 2) {
+                0b01 => 2,
+                0b10 => 3,
+                0b11 => 4,
+                _ => return,
+            };
+            decode_qword_struct(word, nreg, false, pg, rn, zt, out);
+        }
+        // ST{2,3,4}Q contiguous structured: 1110010 nreg-1(24:22) ...
+        0xe4 => {
+            let nreg = match bits(word, 22, 3) {
+                0b001 => 2,
+                0b010 => 3,
+                0b011 => 4,
+                _ => return,
+            };
+            decode_qword_struct(word, nreg, true, pg, rn, zt, out);
+        }
+        _ => {}
+    }
+}
+
+/// Decode the scalar+scalar / scalar+imm tail of a quadword structured form.
+#[inline]
+fn decode_qword_struct(word: u32, nreg: u8, store: bool, pg: u32, rn: u32, zt: u32, out: &mut Instruction) {
+    let ss_sel = if store { 0b000 } else { 0b100 };
+    let imm_sel = if store { 0b000 } else { 0b111 };
+    if bit(word, 21) == 1 && bits(word, 13, 3) == ss_sel {
+        // scalar + scalar, `[Xn, Xm, lsl #4]`. `Xm == 31` (xzr) is UNDEFINED for
+        // the structured forms (the no-offset case is the immediate form).
+        let rm = bits(word, 16, 5);
+        if rm == 0b11111 {
+            return;
+        }
+        let code = qword_struct_code(nreg, store, true);
+        out.set(code);
+        out.push_operand(zlist(zt, nreg, VA::Sq));
+        out.push_operand(if store { pg_plain(pg) } else { pg_z(pg) });
+        out.push_operand(m_ss(rn, rm, 4));
+    } else if bit(word, 21) == 0 && bit(word, 20) == (if store { 0 } else { 1 }) && bits(word, 13, 3) == imm_sel {
+        // scalar + imm `[Xn{, #imm, mul vl}]`, imm4 scaled by nreg.
+        let i4 = sign_extend(bits(word, 16, 4) as u64, 4) as i32;
+        let code = qword_struct_code(nreg, store, false);
+        out.set(code);
+        out.push_operand(zlist(zt, nreg, VA::Sq));
+        out.push_operand(if store { pg_plain(pg) } else { pg_z(pg) });
+        out.push_operand(m_mulvl(rn, i4 * nreg as i32));
+    }
+}
+
+/// The [`Code`] for a quadword structured `(nreg, store, ss)` form.
+fn qword_struct_code(nreg: u8, store: bool, ss: bool) -> Code {
+    use Code::*;
+    match (nreg, store, ss) {
+        (2, false, true) => SveLd2qSs, (2, false, false) => SveLd2qImm,
+        (3, false, true) => SveLd3qSs, (3, false, false) => SveLd3qImm,
+        (4, false, true) => SveLd4qSs, (4, false, false) => SveLd4qImm,
+        (2, true, true) => SveSt2qSs, (2, true, false) => SveSt2qImm,
+        (3, true, true) => SveSt3qSs, (3, true, false) => SveSt3qImm,
+        (_, true, true) => SveSt4qSs, (_, true, false) => SveSt4qImm,
+        (_, false, true) => SveLd4qSs, (_, false, false) => SveLd4qImm,
+    }
+}
+
+/// `[Zn.D{, Xm}]` for the quadword gather/scatter forms; an `Xm` of `31` (xzr)
+/// renders bare (`[Zn.D]`).
+#[inline]
+fn q_gather_addr(zn: u32, rm: u32) -> Operand {
+    if rm == 0b11111 {
+        // No offset register: `[Zn.D]` (a vector-base with no immediate).
+        m_vi(zn, VA::Sd, 0)
+    } else {
+        m_vs(zn, VA::Sd, rm)
     }
 }
 

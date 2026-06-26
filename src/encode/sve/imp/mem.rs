@@ -19,11 +19,14 @@ use Code::*;
 pub(super) fn is_mem(code: Code) -> bool {
     // The memory codes are a large contiguous run; classify by trying the
     // `(mnemonic, form)` decomposition.
-    decompose(code).is_some()
+    decompose(code).is_some() || is_qword(code)
 }
 
 /// Encode a memory SVE instruction.
 pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeError> {
+    if is_qword(code) {
+        return Ok(Some(enc_qword(insn, code)?));
+    }
     let Some((m, form)) = decompose(code) else {
         return Ok(None);
     };

@@ -2790,6 +2790,48 @@ codes! {
     Stbfmaxnml => Stbfmaxnml, Lsfe, "`STBFMAXNML` (FEAT_LSFE atomic float in-memory).";
     Stbfminnm => Stbfminnm, Lsfe, "`STBFMINNM` (FEAT_LSFE atomic float in-memory).";
     Stbfminnml => Stbfminnml, Lsfe, "`STBFMINNML` (FEAT_LSFE atomic float in-memory).";
+
+    // --- FEAT_SVE2p1 quadword (.q) contiguous + gather/scatter load/store (G2) ---
+    SveLd1qG => Ld1q, Sve2p1, "`LD1Q {<Zt>.Q}, <Pg>/Z, [<Zn>.D{, <Xm>}]` (SVE2.1 gather, quadword).";
+    SveSt1qS => St1q, Sve2p1, "`ST1Q {<Zt>.Q}, <Pg>, [<Zn>.D{, <Xm>}]` (SVE2.1 scatter, quadword).";
+    SveLd2qSs => Ld2q, Sve2p1, "`LD2Q {<Zt1>.Q, <Zt2>.Q}, <Pg>/Z, [<Xn>, <Xm>, LSL #4]` (SVE2.1).";
+    SveLd2qImm => Ld2q, Sve2p1, "`LD2Q {<Zt1>.Q, <Zt2>.Q}, <Pg>/Z, [<Xn>{, #imm, MUL VL}]` (SVE2.1).";
+    SveLd3qSs => Ld3q, Sve2p1, "`LD3Q {<Zt1>.Q-<Zt3>.Q}, <Pg>/Z, [<Xn>, <Xm>, LSL #4]` (SVE2.1).";
+    SveLd3qImm => Ld3q, Sve2p1, "`LD3Q {<Zt1>.Q-<Zt3>.Q}, <Pg>/Z, [<Xn>{, #imm, MUL VL}]` (SVE2.1).";
+    SveLd4qSs => Ld4q, Sve2p1, "`LD4Q {<Zt1>.Q-<Zt4>.Q}, <Pg>/Z, [<Xn>, <Xm>, LSL #4]` (SVE2.1).";
+    SveLd4qImm => Ld4q, Sve2p1, "`LD4Q {<Zt1>.Q-<Zt4>.Q}, <Pg>/Z, [<Xn>{, #imm, MUL VL}]` (SVE2.1).";
+    SveSt2qSs => St2q, Sve2p1, "`ST2Q {<Zt1>.Q, <Zt2>.Q}, <Pg>, [<Xn>, <Xm>, LSL #4]` (SVE2.1).";
+    SveSt2qImm => St2q, Sve2p1, "`ST2Q {<Zt1>.Q, <Zt2>.Q}, <Pg>, [<Xn>{, #imm, MUL VL}]` (SVE2.1).";
+    SveSt3qSs => St3q, Sve2p1, "`ST3Q {<Zt1>.Q-<Zt3>.Q}, <Pg>, [<Xn>, <Xm>, LSL #4]` (SVE2.1).";
+    SveSt3qImm => St3q, Sve2p1, "`ST3Q {<Zt1>.Q-<Zt3>.Q}, <Pg>, [<Xn>{, #imm, MUL VL}]` (SVE2.1).";
+    SveSt4qSs => St4q, Sve2p1, "`ST4Q {<Zt1>.Q-<Zt4>.Q}, <Pg>, [<Xn>, <Xm>, LSL #4]` (SVE2.1).";
+    SveSt4qImm => St4q, Sve2p1, "`ST4Q {<Zt1>.Q-<Zt4>.Q}, <Pg>, [<Xn>{, #imm, MUL VL}]` (SVE2.1).";
+
+    // --- FEAT_SVE2p1 REVD zeroing (G2) ---
+    SveRevdZpzZero => Revd, Sve2p1, "`REVD <Zd>.Q, <Pg>/Z, <Zn>.Q` (SVE2.1 reverse 64-bit doublewords, zeroing).";
+
+    // --- FEAT_SVE2p1 WHILE predicate-pair / predicate-as-counter (G2) ---
+    SveWhilePair => Whilege, Sve2p1, "`WHILE<cc> {<Pd1>.<T>, <Pd2>.<T>}, <Xn>, <Xm>` (SVE2.1 predicate pair).";
+    SveWhilePn => Whilege, Sve2p1, "`WHILE<cc> <PNd>.<T>, <Xn>, <Xm>, VLx{2,4}` (SVE2.1 predicate-as-counter).";
+
+    // --- FEAT_SVE2p1 FP unary predicated convert/round, zeroing /z (G2) ---
+    SveFrintnZ => Frintn, Sve2p1, "`FRINTN <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrintpZ => Frintp, Sve2p1, "`FRINTP <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrintmZ => Frintm, Sve2p1, "`FRINTM <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrintzZ => Frintz, Sve2p1, "`FRINTZ <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrintaZ => Frinta, Sve2p1, "`FRINTA <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrintxZ => Frintx, Sve2p1, "`FRINTX <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrintiZ => Frinti, Sve2p1, "`FRINTI <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrecpxZ => Frecpx, Sve2p1, "`FRECPX <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFsqrtZ => Fsqrt, Sve2p1, "`FSQRT <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFcvtZ => Fcvt, Sve2p1, "`FCVT <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFcvtxZ => Fcvtx, Sve2p1, "`FCVTX <Zd>.S, <Pg>/Z, <Zn>.D` (SVE2.1 zeroing).";
+    SveScvtfZ => Scvtf, Sve2p1, "`SCVTF <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveUcvtfZ => Ucvtf, Sve2p1, "`UCVTF <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFcvtzsZ => Fcvtzs, Sve2p1, "`FCVTZS <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFcvtzuZ => Fcvtzu, Sve2p1, "`FCVTZU <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveBfcvtZ => Bfcvt, Sve2p1, "`BFCVT <Zd>.H, <Pg>/Z, <Zn>.S` (SVE2.1 zeroing).";
+    SveFlogbZ => Flogb, Sve2p1, "`FLOGB <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
 }
 
 impl Code {
@@ -5841,6 +5883,20 @@ pub enum Mnemonic {
     Ldbfminl, Ldbfminal, Ldbfmaxnm, Ldbfmaxnma, Ldbfmaxnml, Ldbfmaxnmal, Ldbfminnm, Ldbfminnma,
     Ldbfminnml, Ldbfminnmal, Stbfadd, Stbfaddl, Stbfmax, Stbfmaxl, Stbfmin, Stbfminl,
     Stbfmaxnm, Stbfmaxnml, Stbfminnm, Stbfminnml,
+    // --- FEAT_SVE2p1 quadword (.q) structured load/store (G2) ---
+    // (`Ld1q`/`St1q` mnemonics already exist for the SME ZA-array forms.)
+    /// `LD2Q` (SVE2.1 two-register structured load, quadword).
+    Ld2q,
+    /// `LD3Q` (SVE2.1 three-register structured load, quadword).
+    Ld3q,
+    /// `LD4Q` (SVE2.1 four-register structured load, quadword).
+    Ld4q,
+    /// `ST2Q` (SVE2.1 two-register structured store, quadword).
+    St2q,
+    /// `ST3Q` (SVE2.1 three-register structured store, quadword).
+    St3q,
+    /// `ST4Q` (SVE2.1 four-register structured store, quadword).
+    St4q,
 }
 
 impl Mnemonic {

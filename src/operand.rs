@@ -401,7 +401,16 @@ pub enum Operand {
         reg: Register,
         /// Whether the `/z` zeroing qualifier is shown.
         zeroing: bool,
+        /// Optional element-size suffix (`.b`/`.h`/`.s`/`.d`), as on the SVE2.1
+        /// `WHILE<cc>` predicate-as-counter result (`pn8.b`). `None` for the SME2
+        /// multi-vector governing forms, which render the bare `pn8`.
+        arr: Option<crate::enums::VectorArrangement>,
     },
+
+    /// An SVE2.1 `VLx2`/`VLx4` vector-length multiplier decorator, as the trailing
+    /// operand of the `WHILE<cc>` predicate-as-counter forms
+    /// (`WHILE<cc> <PNd>.<T>, <Xn>, <Xm>, VLx2`). The value is `2` or `4`.
+    VlMul(u8),
 }
 
 impl Operand {
@@ -439,6 +448,7 @@ impl Operand {
             Operand::SmeZaSlice { .. } => OpKind::SmeZaSlice,
             Operand::SveVecGroup { .. } => OpKind::SveVecGroup,
             Operand::PredCounter { .. } => OpKind::PredCounter,
+            Operand::VlMul(_) => OpKind::VlMul,
         }
     }
 }
@@ -513,4 +523,6 @@ pub enum OpKind {
     SveVecGroup,
     /// [`Operand::PredCounter`].
     PredCounter,
+    /// [`Operand::VlMul`].
+    VlMul,
 }

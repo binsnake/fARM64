@@ -23,7 +23,7 @@ pub(crate) type R = Result<u32, EncodeError>;
 /// `true` for every [`Code`] produced by the SVE/SVE2 decoder.
 #[inline]
 pub fn is_sve(code: Code) -> bool {
-    matches!(code, Code::RevdZPZ)
+    matches!(code, Code::RevdZPZ | Code::SveRevdZpzZero)
         || int::is_int(code)
         || perm::is_perm(code)
         || fp::is_fp(code)

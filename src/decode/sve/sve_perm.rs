@@ -166,10 +166,10 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
     match bits(word, 24, 8) {
         // 0x05: SVE permute (vector + predicate), unpack, splice, ext, tbl, rev,
         //       clast/last, compact (quadrant 000).
-        0x05 => decode_perm(word, out),
+        0x05 => decode_perm(word, features, out),
         // 0x25: predicate logical / generation / FFR / break, WHILE, CTERM, and
         //       the predicate-indexed DUP (quadrant 001).
-        0x25 => decode_pred(word, out),
+        0x25 => decode_pred(word, features, out),
         _ => {}
     }
 }
@@ -179,7 +179,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
 // ===========================================================================
 
 #[inline]
-fn decode_perm(word: u32, out: &mut Instruction) {
+fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let s1513 = bits(word, 13, 3); // word<15:13>
 
@@ -338,7 +338,7 @@ fn decode_perm(word: u32, out: &mut Instruction) {
         0b010 => decode_pred_perm(word, out),
 
         // `<15:13>=100` / `101`: COMPACT, SPLICE, CLAST/LAST, REVB/H/W, REVD.
-        0b100 | 0b101 => decode_perm_misc(word, out),
+        0b100 | 0b101 => decode_perm_misc(word, features, out),
 
         _ => {}
     }
@@ -406,7 +406,7 @@ fn decode_pred_perm(word: u32, out: &mut Instruction) {
 /// (`<15:13>=100` or `101`). All carry a governing predicate `<12:10>` and a
 /// distinguishing `<20:16>` opcode.
 #[inline]
-fn decode_perm_misc(word: u32, out: &mut Instruction) {
+fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let op2016 = bits(word, 16, 5);
     let pg = bits(word, 10, 3);
@@ -436,6 +436,16 @@ fn decode_perm_misc(word: u32, out: &mut Instruction) {
                 out.push_operand(gpr(d, w));
                 out.push_operand(preg(pg));
                 out.push_operand(zreg(s1, arr(size)));
+            }
+            // REVD zeroing (`/z`, FEAT_SVE2p1): `<21>=1`, `<20:16>=01110`,
+            // `<13>=1`, `<23:22>=00`. The merging (`/m`) form lives in the
+            // `<15:13>=100` group below; this is its `<15:13>=101` sibling.
+            0b01110 if size == 0 && bit(word, 21) == 1 && features.has(Feature::Sve2p1) => {
+                out.set(Code::SveRevdZpzZero);
+                out.set_mnemonic(Mnemonic::Revd);
+                out.push_operand(zreg_q(d));
+                out.push_operand(preg_q(pg, PredQual::Zeroing));
+                out.push_operand(zreg_q(s1));
             }
             _ => {}
         }
@@ -520,9 +530,13 @@ fn decode_perm_misc(word: u32, out: &mut Instruction) {
             out.push_operand(preg_q(pg, PredQual::Merging));
             out.push_operand(zreg(s1, a));
         }
-        // REVD (predicated, `.Q`): `<20:16>=01110`, `<23:22>=00`. Uses the
-        // pre-existing `RevdZPZ` code so it renders `revd <Zd>.q, <Pg>/m, <Zn>.q`.
+        // REVD merging (`/m`, `.Q`): `<21>=1`, `<20:16>=01110`, `<15:13>=100`,
+        // `<23:22>=00` (size != 00 is UNDEFINED). The `<15:13>=101` zeroing (`/z`)
+        // sibling is handled in the CLAST/LAST block above.
         0b01110 => {
+            if size != 0 || bit(word, 21) != 1 {
+                return; // size field reserved; `<21>` must be 1.
+            }
             out.set(Code::RevdZPZ);
             out.set_mnemonic(Mnemonic::Revd);
             out.push_operand(zreg_q(d));
@@ -584,7 +598,7 @@ fn decode_ext_con(word: u32, out: &mut Instruction) {
 // ===========================================================================
 
 #[inline]
-fn decode_pred(word: u32, out: &mut Instruction) {
+fn decode_pred(word: u32, features: FeatureSet, out: &mut Instruction) {
     // The predicate region is keyed by `<15:14>`; within `00` the `<13>` bit
     // splits the WHILE<cc>/compare region (0) from CTERM/WHILERW (1).
     match bits(word, 14, 2) {
@@ -599,9 +613,92 @@ fn decode_pred(word: u32, out: &mut Instruction) {
                 decode_cterm(word, out);
             }
         }
-        // 01/10/11: predicate gen/logical/FFR/break/SEL, BRKP, PTRUE/PFALSE/...
-        0b01..=0b11 => decode_pred_misc(word, out),
+        // 01/10/11: predicate gen/logical/FFR/break/SEL, BRKP, PTRUE/PFALSE/...,
+        // and the SVE2.1 WHILE predicate-pair / predicate-as-counter forms (which
+        // share `<15:14>=01`, distinguished by `<21:20>=10`, `<15:13>` in {010,011}).
+        0b01..=0b11 => {
+            if features.has(Feature::Sve2p1) {
+                decode_while_pair_pn(word, out);
+            }
+            if out.is_invalid() {
+                decode_pred_misc(word, out);
+            }
+        }
         _ => {}
+    }
+}
+
+/// SVE2.1 `WHILE<cc>` with a predicate-PAIR result (`{Pd.T, Pd+1.T}`) or a
+/// predicate-as-counter result (`PNd.T, ..., VLx{2,4}`). Layout (top byte 0x25):
+/// `00100101 size 1 Rm 010 ...`, both operands 64-bit X registers.
+///
+/// * `<12>=1` selects the **predicate-pair** form: condition `(U<11>, lt<10>,
+///   eq<0>)`, the result pair is `P(2*<3:1>)`/`P(2*<3:1>+1)` and `<4>=1`.
+/// * `<12>=0` selects the **predicate-as-counter** form: condition `(U<11>,
+///   lt<10>, eq<3>)`, `<13>` selects `VLx2`(0)/`VLx4`(1), result `PN(8+<2:0>)`
+///   and `<4>=1`.
+#[inline]
+fn decode_while_pair_pn(word: u32, out: &mut Instruction) {
+    // Skeleton: `<15:13>=010` (pair / counter-x2) or `011` (counter-x4),
+    // `<21>=1` (`Rm`-region marker; `<20:16>` is the free `Rm` field), `<4>=1`.
+    if bits(word, 13, 3) != 0b010 && bits(word, 13, 3) != 0b011 {
+        return;
+    }
+    if bit(word, 21) != 1 || bit(word, 4) != 1 {
+        return;
+    }
+    let size = bits(word, 22, 2);
+    let a = arr(size);
+    let rm = bits(word, 16, 5);
+    let rn = bits(word, 5, 5);
+    let u = bit(word, 11);
+    let lt = bit(word, 10);
+    let is_pair = bit(word, 12) == 1;
+    // `<13>` must be 0 for the pair form (it has no VL multiplier).
+    if is_pair && bit(word, 13) != 0 {
+        return;
+    }
+    let eq = if is_pair { bit(word, 0) } else { bit(word, 3) };
+    let mnem = match (u, lt, eq) {
+        (0, 1, 0) => Mnemonic::Whilelt,
+        (0, 1, 1) => Mnemonic::Whilele,
+        (1, 1, 0) => Mnemonic::Whilelo,
+        (1, 1, 1) => Mnemonic::Whilels,
+        (0, 0, 0) => Mnemonic::Whilege,
+        (0, 0, 1) => Mnemonic::Whilegt,
+        (1, 0, 1) => Mnemonic::Whilehi,
+        _ => Mnemonic::Whilehs,
+    };
+    if is_pair {
+        // Predicate pair: `{P(2k).T, P(2k+1).T}`, k = <3:1>.
+        let k = bits(word, 1, 3);
+        let first = (2 * k) & 0xf;
+        out.set(Code::SveWhilePair);
+        out.set_mnemonic(mnem);
+        out.push_operand(pred_pair(first, a));
+    } else {
+        // Predicate-as-counter: `PN(8 + <2:0>).T`, with a VLx2/VLx4 multiplier.
+        let pn = 8 + bits(word, 0, 3);
+        out.set(Code::SveWhilePn);
+        out.set_mnemonic(mnem);
+        out.push_operand(Operand::PredCounter { reg: P[(pn & 0xf) as usize], zeroing: false, arr: Some(a) });
+    }
+    out.push_operand(gpr(rn, RegWidth::X64));
+    out.push_operand(gpr(rm, RegWidth::X64));
+    if !is_pair {
+        let mul = if bit(word, 13) == 1 { 4 } else { 2 };
+        out.push_operand(Operand::VlMul(mul));
+    }
+}
+
+/// A predicate-pair `{P(first).T, P(first+1).T}` rendered via [`Operand::MultiReg`].
+#[inline]
+fn pred_pair(first: u32, a: VA) -> Operand {
+    Operand::MultiReg {
+        regs: [P[(first & 0xf) as usize], P[((first + 1) & 0xf) as usize], Register::None, Register::None],
+        count: 2,
+        arr: Some(a),
+        lane: None,
     }
 }
 

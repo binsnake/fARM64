@@ -258,4 +258,113 @@ fn enc_mem(insn: &Instruction, m: Mnemonic, form: Form, code: Code) -> Result<u3
     }
 }
 
+// ---------------------------------------------------------------------------
+// FEAT_SVE2p1 quadword (`.q`) load/store encode (inverse of `decode_qword`).
+// ---------------------------------------------------------------------------
+
+/// `true` if `code` is a quadword load/store form handled by [`enc_qword`].
+pub(super) fn is_qword(code: Code) -> bool {
+    matches!(
+        code,
+        Code::SveLd1qG
+            | Code::SveSt1qS
+            | Code::SveLd2qSs | Code::SveLd2qImm
+            | Code::SveLd3qSs | Code::SveLd3qImm
+            | Code::SveLd4qSs | Code::SveLd4qImm
+            | Code::SveSt2qSs | Code::SveSt2qImm
+            | Code::SveSt3qSs | Code::SveSt3qImm
+            | Code::SveSt4qSs | Code::SveSt4qImm
+    )
+}
+
+/// Reconstruct the word for a quadword load/store form from its operands.
+fn enc_qword(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
+    let zt = zt(insn)?;
+    let pgv = pg(insn)?;
+    match code {
+        // LD1Q gather: 11000100 000 Rm 101 Pg Zn Zt.
+        Code::SveLd1qG => {
+            let (zn, rm) = read_q_gather(insn)?;
+            Ok(0xc400_0000 | fld(0b101, 13) | fld(rm, 16) | fld(pgv, 10) | fld(zn, 5) | zt)
+        }
+        // ST1Q scatter: 11100100 001 Rm 001 Pg Zn Zt.
+        Code::SveSt1qS => {
+            let (zn, rm) = read_q_gather(insn)?;
+            Ok(0xe400_0000 | fld(0b001, 21) | fld(0b001, 13) | fld(rm, 16) | fld(pgv, 10) | fld(zn, 5) | zt)
+        }
+        // LD{2,3,4}Q: 1010010 nreg-1(24:23) 0 ...
+        Code::SveLd2qSs | Code::SveLd3qSs | Code::SveLd4qSs
+        | Code::SveLd2qImm | Code::SveLd3qImm | Code::SveLd4qImm => {
+            enc_qword_struct(insn, code, false, zt, pgv)
+        }
+        // ST{2,3,4}Q: 1110010 nreg-1(24:22) ...
+        Code::SveSt2qSs | Code::SveSt3qSs | Code::SveSt4qSs
+        | Code::SveSt2qImm | Code::SveSt3qImm | Code::SveSt4qImm => {
+            enc_qword_struct(insn, code, true, zt, pgv)
+        }
+        _ => Err(EncodeError::Unsupported),
+    }
+}
+
+/// Encode a quadword structured `(nreg, store, ss/imm)` form.
+fn enc_qword_struct(insn: &Instruction, code: Code, store: bool, zt: u32, pgv: u32) -> Result<u32, EncodeError> {
+    let (nreg, ss) = qword_struct_params(code);
+    let base = if store { 0xe400_0000 } else { 0xa400_0000 };
+    let nfield = if store {
+        // stores: nreg-1 in bits<24:22>.
+        fld((nreg - 1) as u32, 22)
+    } else {
+        // loads: nreg-1 in bits<24:23>.
+        fld((nreg - 1) as u32, 23)
+    };
+    if ss {
+        let (rn, rm) = read_ss(insn)?;
+        let sel = if store { 0b000 } else { 0b100 };
+        Ok(base | nfield | fld(1, 21) | fld(rm, 16) | fld(sel, 13) | fld(pgv, 10) | fld(rn, 5) | zt)
+    } else {
+        let (rn, imm) = read_mulvl(insn)?;
+        if imm % nreg as i32 != 0 {
+            return Err(EncodeError::InvalidImmediate);
+        }
+        let i4 = imm / nreg as i32;
+        if !(-8..=7).contains(&i4) {
+            return Err(EncodeError::InvalidImmediate);
+        }
+        let sel = if store { 0b000 } else { 0b111 };
+        let b20 = if store { 0 } else { 1 };
+        Ok(base
+            | nfield
+            | fld(b20, 20)
+            | fld((i4 as u32) & 0xf, 16)
+            | fld(sel, 13)
+            | fld(pgv, 10)
+            | fld(rn, 5)
+            | zt)
+    }
+}
+
+/// `(nreg, is_ss)` for a quadword structured [`Code`].
+fn qword_struct_params(code: Code) -> (u8, bool) {
+    match code {
+        Code::SveLd2qSs | Code::SveSt2qSs => (2, true),
+        Code::SveLd3qSs | Code::SveSt3qSs => (3, true),
+        Code::SveLd4qSs | Code::SveSt4qSs => (4, true),
+        Code::SveLd2qImm | Code::SveSt2qImm => (2, false),
+        Code::SveLd3qImm | Code::SveSt3qImm => (3, false),
+        _ => (4, false),
+    }
+}
+
+/// Read a quadword gather/scatter address `[Zn.D{, Xm}]`: returns `(zn, rm)`,
+/// where `rm == 31` (xzr) for the bare `[Zn.D]` form (a `VecImm` operand).
+fn read_q_gather(insn: &Instruction) -> Result<(u32, u32), EncodeError> {
+    match addr(insn) {
+        Operand::SveMem { base, mode: SveMemMode::VecImm, .. } => Ok((base.number() as u32, 0b11111)),
+        Operand::SveMem { base, offset, mode: SveMemMode::VecScalar, .. } => {
+            Ok((base.number() as u32, offset.number() as u32))
+        }
+        _ => Err(EncodeError::InvalidOperand),
+    }
+}
+
 include!("mem_forms.rs");

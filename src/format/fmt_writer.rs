@@ -444,8 +444,13 @@ impl Formatter for FmtFormatter {
                 self.emit_sve_vec_group(first, count, arr, range, stride, out);
             }
 
-            Operand::PredCounter { reg, zeroing } => {
-                self.emit_pred_counter(reg, zeroing, out);
+            Operand::PredCounter { reg, zeroing, arr } => {
+                self.emit_pred_counter(reg, zeroing, arr, out);
+            }
+
+            Operand::VlMul(n) => {
+                self.emit_cased("vlx", self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+                self.emit_dec_kind(n as u64, TokenKind::Decorator, out);
             }
         }
     }
@@ -972,11 +977,24 @@ impl FmtFormatter {
     /// ([`Operand::PredCounter`](crate::operand::Operand::PredCounter)):
     /// `pn8`..`pn15`, optionally with a `/z` qualifier. The underlying register
     /// is `P8`..`P15`; the `p` name is rewritten to `pn`.
-    fn emit_pred_counter(&self, reg: Register, zeroing: bool, out: &mut dyn FormatterOutput) {
+    fn emit_pred_counter(
+        &self,
+        reg: Register,
+        zeroing: bool,
+        arr: Option<crate::enums::VectorArrangement>,
+        out: &mut dyn FormatterOutput,
+    ) {
         self.emit_cased("pn", self.opts.uppercase_registers, TokenKind::Register, out);
         // The architectural number (8..=15); written as a register-kind token so
         // it groups with the `pn` prefix rather than reading as an immediate.
         self.emit_dec_kind(reg.number() as u64, TokenKind::Register, out);
+        // Element-size suffix (SVE2.1 `WHILE<cc>` predicate-as-counter result).
+        if let Some(a) = arr {
+            let suf = a.suffix(true);
+            if !suf.is_empty() {
+                self.emit_cased(suf, self.opts.uppercase_registers, TokenKind::Register, out);
+            }
+        }
         if zeroing {
             self.emit_cased("/z", self.opts.uppercase_registers, TokenKind::Decorator, out);
         }

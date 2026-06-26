@@ -513,6 +513,7 @@ fn pn_counter(v: u32, zeroing: bool) -> Operand {
     Operand::PredCounter {
         reg: pn_register(v),
         zeroing,
+        arr: None,
     }
 }
 

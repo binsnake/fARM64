@@ -1696,6 +1696,12 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Stbfmaxnml => "stbfmaxnml",
         Mnemonic::Stbfminnm => "stbfminnm",
         Mnemonic::Stbfminnml => "stbfminnml",
+        Mnemonic::Ld2q => "ld2q",
+        Mnemonic::Ld3q => "ld3q",
+        Mnemonic::Ld4q => "ld4q",
+        Mnemonic::St2q => "st2q",
+        Mnemonic::St3q => "st3q",
+        Mnemonic::St4q => "st4q",
     }
 }
 

@@ -21,6 +21,7 @@ pub(super) fn is_perm(code: Code) -> bool {
             | SveSelPred | SvePredLogical | SveBrkpPred | SveBrkPred | SveBrkn | SveRdffr
             | SveRdffrPred | SveWrffr | SveSetffr | SvePfalse | SvePtest | SvePfirst | SvePnext
             | SvePtrue | SveDupPred | SveWhile | SveWhileRw | SveCterm
+            | SveWhilePair | SveWhilePn
     )
 }
 
@@ -313,11 +314,13 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let sel = if matches!(pred_qual(insn, 1), Some(PredQual::Zeroing)) { 0b101 } else { 0b100 };
             base05(size) | fld(1, 21) | fld(opc, 16) | fld(sel, 13) | fld(pg, 10) | fld(zn, 5) | zd
         }
-        RevdZPZ => {
+        RevdZPZ | SveRevdZpzZero => {
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            base05(0) | fld(1, 21) | fld(0b01110, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zn, 5) | zd
+            // `<13>` M-bit: 0 merging (`/m`), 1 FEAT_SVE2p1 zeroing (`/z`).
+            let sel = if matches!(code, SveRevdZpzZero) { 0b101 } else { 0b100 };
+            base05(0) | fld(1, 21) | fld(0b01110, 16) | fld(sel, 13) | fld(pg, 10) | fld(zn, 5) | zd
         }
         // ---- predicate logical / SEL / break / generation / FFR ----
         SveSelPred => enc_sel_pred(insn)?,
@@ -375,6 +378,9 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         SveDupPred => enc_dup_pred(insn)?,
         // ---- WHILE / CTERM ----
         SveWhile => enc_while(insn)?,
+        // ---- SVE2.1 WHILE predicate-pair / predicate-as-counter ----
+        SveWhilePair => enc_while_pair(insn)?,
+        SveWhilePn => enc_while_pn(insn)?,
         SveWhileRw => {
             let size = esize(insn, 0)?;
             let pd = p(insn, 0)?;
@@ -676,4 +682,82 @@ fn enc_while(insn: &Instruction) -> Result<u32, EncodeError> {
         | fld(rn, 5)
         | fld(eq, 4)
         | pd)
+}
+
+/// `(U, lt, eq)` condition triple for a `WHILE<cc>` mnemonic.
+fn while_cond(m: Mnemonic) -> Result<(u32, u32, u32), EncodeError> {
+    Ok(match m {
+        Mnemonic::Whilelt => (0, 1, 0),
+        Mnemonic::Whilele => (0, 1, 1),
+        Mnemonic::Whilelo => (1, 1, 0),
+        Mnemonic::Whilels => (1, 1, 1),
+        Mnemonic::Whilege => (0, 0, 0),
+        Mnemonic::Whilegt => (0, 0, 1),
+        Mnemonic::Whilehi => (1, 0, 1),
+        Mnemonic::Whilehs => (1, 0, 0),
+        _ => return Err(EncodeError::InvalidOperand),
+    })
+}
+
+/// SVE2.1 `WHILE<cc> {Pd.T, Pd+1.T}, Xn, Xm` (predicate pair). Layout:
+/// `00100101 size 1 Rm 010 1 U lt Rn 1 Pd<3:1> eq`, with `<8>=1` fixed.
+fn enc_while_pair(insn: &Instruction) -> Result<u32, EncodeError> {
+    // Result pair `{P(2k).T, P(2k+1).T}` -> k in <3:1>; size from the arrangement.
+    let (first, a) = match insn.op(0) {
+        Operand::MultiReg { regs, arr: Some(a), count: 2, .. } => (regs[0].number() as u32, a),
+        _ => return Err(EncodeError::InvalidOperand),
+    };
+    if first & 1 != 0 {
+        return Err(EncodeError::InvalidOperand);
+    }
+    let size = arr_size(a)?;
+    let k = first >> 1; // 0..=7
+    let rn = g(insn, 1)?;
+    let rm = g(insn, 2)?;
+    let (u, lt, eq) = while_cond(insn.mnemonic())?;
+    Ok(fld(0b00100101, 24)
+        | fld(size, 22)
+        | fld(1, 21)
+        | fld(rm, 16)
+        | fld(0b010, 13)
+        | fld(1, 12)
+        | fld(u, 11)
+        | fld(lt, 10)
+        | fld(rn, 5)
+        | fld(1, 4) // fixed marker
+        | fld(k, 1)
+        | eq)
+}
+
+/// SVE2.1 `WHILE<cc> PNd.T, Xn, Xm, VLx{2,4}` (predicate as counter). Layout:
+/// `00100101 size 1 Rm 01 vl 0 U lt Rn 1 eq PN<2:0>`, with `<8>=1` fixed.
+fn enc_while_pn(insn: &Instruction) -> Result<u32, EncodeError> {
+    let (pn, a) = match insn.op(0) {
+        Operand::PredCounter { reg, arr: Some(a), .. } => (reg.number() as u32, a),
+        _ => return Err(EncodeError::InvalidOperand),
+    };
+    if !(8..=15).contains(&pn) {
+        return Err(EncodeError::InvalidOperand);
+    }
+    let size = arr_size(a)?;
+    let rn = g(insn, 1)?;
+    let rm = g(insn, 2)?;
+    let vl = match insn.op(3) {
+        Operand::VlMul(2) => 0,
+        Operand::VlMul(4) => 1,
+        _ => return Err(EncodeError::InvalidOperand),
+    };
+    let (u, lt, eq) = while_cond(insn.mnemonic())?;
+    Ok(fld(0b00100101, 24)
+        | fld(size, 22)
+        | fld(1, 21)
+        | fld(rm, 16)
+        | fld(0b01, 14)
+        | fld(vl, 13)
+        | fld(u, 11)
+        | fld(lt, 10)
+        | fld(rn, 5)
+        | fld(1, 4) // fixed marker
+        | fld(eq, 3)
+        | (pn - 8))
 }

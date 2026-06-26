@@ -847,7 +847,7 @@ mod imp {
     /// requiring the `/z` qualifier to match `expect_zeroing`.
     fn pn_field(insn: &Instruction, n: usize, expect_zeroing: bool) -> Result<u32, EncodeError> {
         match insn.op(n) {
-            Operand::PredCounter { reg, zeroing }
+            Operand::PredCounter { reg, zeroing, .. }
                 if reg.class() == RegClass::Predicate && zeroing == expect_zeroing =>
             {
                 let v = reg.number() as u32;

@@ -51,6 +51,11 @@ pub(super) fn is_fp(code: Code) -> bool {
             | SveFabsZpz | SveFnegZpz | SveFexpa | SveFtssel | SveFcpy | SveFdup
         // sve2.1 quadword FP reductions
             | SveFaddqv | SveFmaxnmqv | SveFminnmqv | SveFmaxqv | SveFminqv
+        // sve2.1 FP unary predicated convert/round, zeroing (/z)
+            | SveFrintnZ | SveFrintpZ | SveFrintmZ | SveFrintzZ | SveFrintaZ | SveFrintxZ
+            | SveFrintiZ | SveFrecpxZ | SveFsqrtZ
+            | SveFcvtZ | SveFcvtxZ | SveScvtfZ | SveUcvtfZ | SveFcvtzsZ | SveFcvtzuZ | SveBfcvtZ
+            | SveFlogbZ
     )
 }
 
@@ -201,6 +206,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         SveFcvt | SveBfcvt | SveFcvtx | SveFcvtzs | SveFcvtzu | SveScvtf | SveUcvtf => {
             enc_65_convert(insn, code)?
         }
+        // ---- 0x64 SVE2.1 predicated unary, zeroing (/z) ----
+        SveFrintnZ | SveFrintpZ | SveFrintmZ | SveFrintzZ | SveFrintaZ | SveFrintxZ
+        | SveFrintiZ | SveFrecpxZ | SveFsqrtZ
+        | SveFcvtZ | SveFcvtxZ | SveScvtfZ | SveUcvtfZ | SveFcvtzsZ | SveFcvtzuZ | SveBfcvtZ
+        | SveFlogbZ => enc_64_pred_unary_z(insn, code)?,
         // ---- 0x65 vector compare ----
         SveFcmgeZz | SveFcmgtZz | SveFcmeqZz | SveFcmneZz | SveFcmuoZz | SveFacgeZz | SveFacgtZz => {
             let (sel, b4) = match code {
@@ -608,6 +618,106 @@ fn conv_sel_65(code: Code, da: VA, sa: VA) -> Result<u32, EncodeError> {
         (SveUcvtf, Sd, Ss) => 0b11_010_001,
         (SveUcvtf, Ss, Sd) => 0b11_010_101,
         (SveUcvtf, Sd, Sd) => 0b11_010_111,
+        _ => return Err(EncodeError::InvalidOperand),
+    };
+    Ok(sel)
+}
+
+/// 0x64 SVE2.1 predicated unary, ZEROING (`/z`). Inverse of
+/// `decode_64_pred_unary_z`: builds `01100100 size 0 11 opc 1 sel Pg Zn Zd`.
+#[allow(clippy::unusual_byte_groupings)]
+fn enc_64_pred_unary_z(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
+    let da = arr_of(insn, 0)?;
+    let zd = z(insn, 0)?;
+    let pg = p(insn, 1)?;
+    let zn = z(insn, 2)?;
+    let sa = arr_of(insn, 2)?;
+
+    // Round-to-integral / FRECPX / FSQRT: `(opc, sel)` with element size = `da`.
+    let round = match code {
+        SveFrintnZ => Some((0b000, 0b100)),
+        SveFrintpZ => Some((0b000, 0b101)),
+        SveFrintmZ => Some((0b000, 0b110)),
+        SveFrintzZ => Some((0b000, 0b111)),
+        SveFrintaZ => Some((0b001, 0b100)),
+        SveFrintxZ => Some((0b001, 0b110)),
+        SveFrintiZ => Some((0b001, 0b111)),
+        SveFrecpxZ => Some((0b011u32, 0b100u32)),
+        SveFsqrtZ => Some((0b011, 0b101)),
+        _ => None,
+    };
+    let (size, opc, sel) = if let Some((opc, sel)) = round {
+        let size = super::arr_size(da)?;
+        if size == 0 {
+            return Err(EncodeError::InvalidOperand);
+        }
+        (size, opc, sel)
+    } else {
+        // Convert sub-block: the 8-bit `size:opc:sel` from (code, dst, src).
+        let full = conv_sel_64z(code, da, sa)?;
+        ((full >> 6) & 3, (full >> 3) & 7, full & 7)
+    };
+    Ok(base64(0)
+        | fld(size, 22)
+        | fld(0b11, 19)
+        | fld(opc, 16)
+        | fld(sel, 13)
+        | fld(pg, 10)
+        | fld(zn, 5)
+        | zd)
+}
+
+/// The 8-bit `size:opc:sel` selector for an 0x64 zeroing convert (code, dst, src).
+#[allow(clippy::unusual_byte_groupings)]
+fn conv_sel_64z(code: Code, da: VA, sa: VA) -> Result<u32, EncodeError> {
+    use VA::{Sd, Sh, Ss};
+    let sel = match (code, da, sa) {
+        // FCVT.
+        (SveFcvtZ, Sh, Ss) => 0b10_010_100,
+        (SveFcvtZ, Ss, Sh) => 0b10_010_101,
+        (SveFcvtZ, Sh, Sd) => 0b11_010_100,
+        (SveFcvtZ, Sd, Sh) => 0b11_010_101,
+        (SveFcvtZ, Ss, Sd) => 0b11_010_110,
+        (SveFcvtZ, Sd, Ss) => 0b11_010_111,
+        // FCVTX / BFCVT.
+        (SveFcvtxZ, Ss, Sd) => 0b00_010_110,
+        (SveBfcvtZ, Sh, Ss) => 0b10_010_110,
+        // FLOGB (element size in `sel`).
+        (SveFlogbZ, Sh, Sh) => 0b00_110_101,
+        (SveFlogbZ, Ss, Ss) => 0b00_110_110,
+        (SveFlogbZ, Sd, Sd) => 0b00_110_111,
+        // SCVTF.
+        (SveScvtfZ, Sh, Sh) => 0b01_100_110,
+        (SveScvtfZ, Sh, Ss) => 0b01_101_100,
+        (SveScvtfZ, Sh, Sd) => 0b01_101_110,
+        (SveScvtfZ, Ss, Ss) => 0b10_101_100,
+        (SveScvtfZ, Sd, Ss) => 0b11_100_100,
+        (SveScvtfZ, Ss, Sd) => 0b11_101_100,
+        (SveScvtfZ, Sd, Sd) => 0b11_101_110,
+        // UCVTF.
+        (SveUcvtfZ, Sh, Sh) => 0b01_100_111,
+        (SveUcvtfZ, Sh, Ss) => 0b01_101_101,
+        (SveUcvtfZ, Sh, Sd) => 0b01_101_111,
+        (SveUcvtfZ, Ss, Ss) => 0b10_101_101,
+        (SveUcvtfZ, Sd, Ss) => 0b11_100_101,
+        (SveUcvtfZ, Ss, Sd) => 0b11_101_101,
+        (SveUcvtfZ, Sd, Sd) => 0b11_101_111,
+        // FCVTZS.
+        (SveFcvtzsZ, Sh, Sh) => 0b01_110_110,
+        (SveFcvtzsZ, Ss, Sh) => 0b01_111_100,
+        (SveFcvtzsZ, Sd, Sh) => 0b01_111_110,
+        (SveFcvtzsZ, Ss, Ss) => 0b10_111_100,
+        (SveFcvtzsZ, Sd, Ss) => 0b11_111_100,
+        (SveFcvtzsZ, Ss, Sd) => 0b11_110_100,
+        (SveFcvtzsZ, Sd, Sd) => 0b11_111_110,
+        // FCVTZU.
+        (SveFcvtzuZ, Sh, Sh) => 0b01_110_111,
+        (SveFcvtzuZ, Ss, Sh) => 0b01_111_101,
+        (SveFcvtzuZ, Sd, Sh) => 0b01_111_111,
+        (SveFcvtzuZ, Ss, Ss) => 0b10_111_101,
+        (SveFcvtzuZ, Sd, Ss) => 0b11_111_101,
+        (SveFcvtzuZ, Ss, Sd) => 0b11_110_101,
+        (SveFcvtzuZ, Sd, Sd) => 0b11_111_111,
         _ => return Err(EncodeError::InvalidOperand),
     };
     Ok(sel)

@@ -683,6 +683,15 @@ fn decode_64(word: u32, features: FeatureSet, out: &mut Instruction) {
             decode_64_fcmla_vec(word, out);
             return;
         }
+        // SVE2.1 FP unary predicated convert/round, ZEROING (`/z`): the marker
+        // `<20:19>=11` distinguishes them from the narrow/long converts (`00`) and
+        // the qv-reductions / pairwise (`10`). Element width in `<23:22>`.
+        if features.has(Feature::Sve2p1) && bits(word, 19, 2) == 0b11 {
+            decode_64_pred_unary_z(word, out);
+            if !out.is_invalid() {
+                return;
+            }
+        }
         // <15>=1 region: FCADD and the SVE2 FP pairwise group (both
         // <15:13>=100), and the SVE2 narrow/long converts (<15:13>=101).
         if bits(word, 13, 3) == 0b100 {
@@ -799,6 +808,111 @@ fn decode_64_narrow_convert(word: u32, features: FeatureSet, out: &mut Instructi
             }
             conv!(Code::SveBfcvtnt, VA::Sh, VA::Ss);
         }
+        _ => {}
+    }
+}
+
+/// SVE2.1 FP unary predicated convert/round, ZEROING `/z` (`0x64`, `<21>=0`,
+/// `<20:19>=11`, `<15>=1`). These are the `/z` analogues of the existing `0x65`
+/// merging (`/m`) forms but with a wholly different opcode layout: the operation
+/// is selected by `size(<23:22>) : opc(<18:16>) : sel(<15:13>)`, and the
+/// governing predicate is zeroing. The round-to-integral / reciprocal-exp / sqrt
+/// group keeps the element size in `<23:22>` (selected by `opc:sel` with
+/// `opc` in {0,1,3}); everything else is a precision/integer convert keyed on the
+/// full 8-bit `<23:22>:<18:16>:<15:13>` opcode.
+#[inline]
+fn decode_64_pred_unary_z(word: u32, out: &mut Instruction) {
+    let size = bits(word, 22, 2);
+    let opc = bits(word, 16, 3); // <18:16>
+    let sel = bits(word, 13, 3); // <15:13>
+    let pg = bits(word, 10, 3);
+    let zn = bits(word, 5, 5);
+    let zd = bits(word, 0, 5);
+
+    // Round-to-integral / FRECPX / FSQRT: opc in {0,1,3}, element size in <23:22>.
+    if matches!(opc, 0b000 | 0b001 | 0b011) {
+        let code = match (opc, sel) {
+            (0b000, 0b100) => Code::SveFrintnZ,
+            (0b000, 0b101) => Code::SveFrintpZ,
+            (0b000, 0b110) => Code::SveFrintmZ,
+            (0b000, 0b111) => Code::SveFrintzZ,
+            (0b001, 0b100) => Code::SveFrintaZ,
+            (0b001, 0b110) => Code::SveFrintxZ,
+            (0b001, 0b111) => Code::SveFrintiZ,
+            (0b011, 0b100) => Code::SveFrecpxZ,
+            (0b011, 0b101) => Code::SveFsqrtZ,
+            _ => return,
+        };
+        if size == 0 {
+            return; // no `.b` FP form.
+        }
+        let a = arr(size);
+        out.set(code);
+        out.push_operand(zreg(zd, a));
+        out.push_operand(preg_q(pg, PredQual::Zeroing));
+        out.push_operand(zreg(zn, a));
+        return;
+    }
+
+    // Convert sub-block: select on the full 8-bit opcode `size:opc:sel`.
+    let full = (size << 6) | (opc << 3) | sel;
+    macro_rules! conv {
+        ($code:expr, $da:expr, $sa:expr) => {{
+            out.set($code);
+            out.push_operand(zreg(zd, $da));
+            out.push_operand(preg_q(pg, PredQual::Zeroing));
+            out.push_operand(zreg(zn, $sa));
+            return;
+        }};
+    }
+    match full {
+        // FCVT precision pairs.
+        0b10_010_100 => conv!(Code::SveFcvtZ, VA::Sh, VA::Ss),
+        0b10_010_101 => conv!(Code::SveFcvtZ, VA::Ss, VA::Sh),
+        0b11_010_100 => conv!(Code::SveFcvtZ, VA::Sh, VA::Sd),
+        0b11_010_101 => conv!(Code::SveFcvtZ, VA::Sd, VA::Sh),
+        0b11_010_110 => conv!(Code::SveFcvtZ, VA::Ss, VA::Sd),
+        0b11_010_111 => conv!(Code::SveFcvtZ, VA::Sd, VA::Ss),
+        // FCVTX (round-to-odd, d->s).
+        0b00_010_110 => conv!(Code::SveFcvtxZ, VA::Ss, VA::Sd),
+        // BFCVT (s->bf16(h)).
+        0b10_010_110 => conv!(Code::SveBfcvtZ, VA::Sh, VA::Ss),
+        // FLOGB (element size in `sel`: h/s/d).
+        0b00_110_101 => conv!(Code::SveFlogbZ, VA::Sh, VA::Sh),
+        0b00_110_110 => conv!(Code::SveFlogbZ, VA::Ss, VA::Ss),
+        0b00_110_111 => conv!(Code::SveFlogbZ, VA::Sd, VA::Sd),
+        // SCVTF.
+        0b01_100_110 => conv!(Code::SveScvtfZ, VA::Sh, VA::Sh),
+        0b01_101_100 => conv!(Code::SveScvtfZ, VA::Sh, VA::Ss),
+        0b01_101_110 => conv!(Code::SveScvtfZ, VA::Sh, VA::Sd),
+        0b10_101_100 => conv!(Code::SveScvtfZ, VA::Ss, VA::Ss),
+        0b11_100_100 => conv!(Code::SveScvtfZ, VA::Sd, VA::Ss),
+        0b11_101_100 => conv!(Code::SveScvtfZ, VA::Ss, VA::Sd),
+        0b11_101_110 => conv!(Code::SveScvtfZ, VA::Sd, VA::Sd),
+        // UCVTF.
+        0b01_100_111 => conv!(Code::SveUcvtfZ, VA::Sh, VA::Sh),
+        0b01_101_101 => conv!(Code::SveUcvtfZ, VA::Sh, VA::Ss),
+        0b01_101_111 => conv!(Code::SveUcvtfZ, VA::Sh, VA::Sd),
+        0b10_101_101 => conv!(Code::SveUcvtfZ, VA::Ss, VA::Ss),
+        0b11_100_101 => conv!(Code::SveUcvtfZ, VA::Sd, VA::Ss),
+        0b11_101_101 => conv!(Code::SveUcvtfZ, VA::Ss, VA::Sd),
+        0b11_101_111 => conv!(Code::SveUcvtfZ, VA::Sd, VA::Sd),
+        // FCVTZS.
+        0b01_110_110 => conv!(Code::SveFcvtzsZ, VA::Sh, VA::Sh),
+        0b01_111_100 => conv!(Code::SveFcvtzsZ, VA::Ss, VA::Sh),
+        0b01_111_110 => conv!(Code::SveFcvtzsZ, VA::Sd, VA::Sh),
+        0b10_111_100 => conv!(Code::SveFcvtzsZ, VA::Ss, VA::Ss),
+        0b11_111_100 => conv!(Code::SveFcvtzsZ, VA::Sd, VA::Ss),
+        0b11_110_100 => conv!(Code::SveFcvtzsZ, VA::Ss, VA::Sd),
+        0b11_111_110 => conv!(Code::SveFcvtzsZ, VA::Sd, VA::Sd),
+        // FCVTZU.
+        0b01_110_111 => conv!(Code::SveFcvtzuZ, VA::Sh, VA::Sh),
+        0b01_111_101 => conv!(Code::SveFcvtzuZ, VA::Ss, VA::Sh),
+        0b01_111_111 => conv!(Code::SveFcvtzuZ, VA::Sd, VA::Sh),
+        0b10_111_101 => conv!(Code::SveFcvtzuZ, VA::Ss, VA::Ss),
+        0b11_111_101 => conv!(Code::SveFcvtzuZ, VA::Sd, VA::Ss),
+        0b11_110_101 => conv!(Code::SveFcvtzuZ, VA::Ss, VA::Sd),
+        0b11_111_111 => conv!(Code::SveFcvtzuZ, VA::Sd, VA::Sd),
         _ => {}
     }
 }

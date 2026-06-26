@@ -188,8 +188,12 @@ fn is_branch_sys(code: Code) -> bool {
     use Code::*;
     matches!(
         code,
-        // Conditional / unconditional branch (immediate).
-        BCond | BUncond | BlImm
+        // Conditional / unconditional branch (immediate). `BcCond` is the
+        // FEAT_HBC hinted conditional branch; the `*sppc` are the FEAT_PAuth_LR
+        // PC-relative authenticate/return branches (decoded in dp_imm, but
+        // encoded here next to the other branch-with-label forms).
+        BCond | BcCond | BUncond | BlImm
+            | Retaasppc | Retabsppc | Autiasppc | Autibsppc
         // Compare / test and branch.
             | Cbz32 | Cbz64 | Cbnz32 | Cbnz64 | Tbz | Tbnz
         // FEAT_CMPBR compare-and-branch (register / immediate).

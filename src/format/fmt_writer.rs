@@ -1250,12 +1250,16 @@ impl FmtFormatter {
     }
 }
 
-/// `true` when `insn` is the `B.<cond>` conditional-branch encoding, whose
-/// condition is fused into the mnemonic (`b.ne`) rather than printed as a
-/// separate operand.
+/// `true` when `insn` is a conditional-branch encoding whose condition is fused
+/// into the mnemonic (`b.ne` / `bc.ne`) rather than printed as a separate
+/// operand. Covers `B.<cond>` ([`Code::BCond`]) and the FEAT_HBC `BC.<cond>`
+/// ([`Code::BcCond`]).
 #[inline]
 fn is_bcond(insn: &Instruction) -> bool {
-    matches!(insn.code(), crate::mnemonic::Code::BCond)
+    matches!(
+        insn.code(),
+        crate::mnemonic::Code::BCond | crate::mnemonic::Code::BcCond
+    )
 }
 
 /// The SVE element-count pattern keyword for a 5-bit `pattern` field, or `None`

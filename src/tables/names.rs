@@ -1705,6 +1705,12 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::St3q => "st3q",
         Mnemonic::St4q => "st4q",
         Mnemonic::Movaz => "movaz",
+        // --- FEAT_HBC / FEAT_PAuth_LR branches (H1) ---
+        Mnemonic::Bc => "bc",
+        Mnemonic::Retaasppc => "retaasppc",
+        Mnemonic::Retabsppc => "retabsppc",
+        Mnemonic::Autiasppc => "autiasppc",
+        Mnemonic::Autibsppc => "autibsppc",
     }
 }
 

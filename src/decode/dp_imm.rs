@@ -58,6 +58,20 @@ fn width_of(sf: u32) -> RegWidth {
 /// as the invalid default. Pure, total and panic-free for every input.
 #[inline]
 pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
+    // FEAT_PAuth_LR AUTIASPPC/AUTIBSPPC (PC-relative authenticate of LR) overlap
+    // the Extract (`op1 == 111`) sub-class space but use a distinct fixed pattern
+    // `word<31:22> == 1111001110` with `word<4:0> == 11111` (the `word<21>` bit
+    // is the A/B key, `word<20:5>` the imm16). They render a PC-relative label,
+    // so they belong with the branch forms — delegate to `branch_sys`. Gated on
+    // FEAT_PAuth_LR; an unrecognized neighbour falls through to the normal
+    // dp-immediate dispatch (and is rejected by `decode_extract`).
+    if (word & 0xFFC0_001F) == 0xF380_001F {
+        if features.has(Feature::PauthLr) {
+            crate::decode::branch_sys::decode_auti_sppc(word, out);
+        }
+        return;
+    }
+
     // op1 = word<25:23> selects the seven sub-classes.
     let op1 = bits(word, 23, 3);
     match op1 {

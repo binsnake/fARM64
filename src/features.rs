@@ -126,6 +126,14 @@ pub enum Feature {
     /// FP8-to-single Advanced SIMD matrix multiply-accumulate (`FEAT_F8F32MM`):
     /// the NEON `FMMLA <Vd>.4S, <Vn>.16B, <Vm>.16B`.
     F8f32mm,
+    /// Hinted conditional branches (`FEAT_HBC`): the consistent/hinted
+    /// conditional branch `BC.<cond> <label>` — the `bit4 == 1` sibling of the
+    /// ordinary `B.<cond>` conditional-branch encoding.
+    Hbc,
+    /// Pointer authentication using link register (`FEAT_PAuth_LR`): the
+    /// PC-relative return/authenticate branch forms `RETAASPPC`/`RETABSPPC` and
+    /// `AUTIASPPC`/`AUTIBSPPC` (`<label>`).
+    PauthLr,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

@@ -2848,6 +2848,13 @@ codes! {
     FmmlaVecF8F16 => Fmmla, F8f16mm, "`FMMLA <Vd>.8H, <Vn>.16B, <Vm>.16B` (FEAT_F8F16MM, FP8→FP16 matrix).";
     FmmlaVecF8F32 => Fmmla, F8f32mm, "`FMMLA <Vd>.4S, <Vn>.16B, <Vm>.16B` (FEAT_F8F32MM, FP8→FP32 matrix).";
     BfmmlaVec => Bfmmla, Bf16, "`BFMMLA <Vd>.4S, <Vn>.8H, <Vm>.8H` (FEAT_BF16, NEON BF16 matrix).";
+    // --- FEAT_HBC consistent/hinted conditional branch (H1) ---
+    BcCond => Bc, Hbc, "`BC.<cond> <label>` (FEAT_HBC hinted conditional branch; the `bit4 == 1` sibling of `B.<cond>`).";
+    // --- FEAT_PAuth_LR PC-relative authenticate/return branches (H1) ---
+    Retaasppc => Retaasppc, PauthLr, "`RETAASPPC <label>` (FEAT_PAuth_LR PC-relative return, key A).";
+    Retabsppc => Retabsppc, PauthLr, "`RETABSPPC <label>` (FEAT_PAuth_LR PC-relative return, key B).";
+    Autiasppc => Autiasppc, PauthLr, "`AUTIASPPC <label>` (FEAT_PAuth_LR PC-relative authenticate LR, key A).";
+    Autibsppc => Autibsppc, PauthLr, "`AUTIBSPPC <label>` (FEAT_PAuth_LR PC-relative authenticate LR, key B).";
 }
 
 impl Code {
@@ -5916,6 +5923,17 @@ pub enum Mnemonic {
     // --- SME2 ZA tile move (G3) ---
     /// `MOVAZ` (SME2 move ZA tile slice group to vectors, zeroing).
     Movaz,
+    // --- FEAT_HBC / FEAT_PAuth_LR branches (H1) ---
+    /// `BC` (FEAT_HBC consistent/hinted conditional branch; renders `bc.<cond>`).
+    Bc,
+    /// `RETAASPPC` (FEAT_PAuth_LR PC-relative return, key A).
+    Retaasppc,
+    /// `RETABSPPC` (FEAT_PAuth_LR PC-relative return, key B).
+    Retabsppc,
+    /// `AUTIASPPC` (FEAT_PAuth_LR PC-relative authenticate LR, key A).
+    Autiasppc,
+    /// `AUTIBSPPC` (FEAT_PAuth_LR PC-relative authenticate LR, key B).
+    Autibsppc,
 }
 
 impl Mnemonic {

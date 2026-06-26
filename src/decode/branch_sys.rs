@@ -132,23 +132,95 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
 // Conditional branch (immediate): B.cond / BC.cond.
 // ---------------------------------------------------------------------------
 
-/// `B.<cond>` (and `BC.<cond>` when FEAT_HBC is accepted). Target is
-/// `ip + SignExtend(imm19:00, 21)`. The condition is carried as an
-/// [`Operand::Cond`]; the formatter fuses it into the mnemonic (`b.ne`).
+/// `B.<cond>`, the FEAT_HBC `BC.<cond>`, and the FEAT_PAuth_LR PC-relative
+/// returns `RETAASPPC`/`RETABSPPC` — the encodings whose top seven bits are
+/// `0101010` (this is the `word<31:25> == 0101010` arm of [`decode`]).
+///
+/// * `o1` (`word<24>`) == 0 — conditional branch. Target is
+///   `ip + SignExtend(imm19:00, 21)`; the condition is carried as an
+///   [`Operand::Cond`] which the formatter fuses into the mnemonic. `o0`
+///   (`word<4>`) selects the hinted `BC.<cond>` (1, FEAT_HBC) over the ordinary
+///   `B.<cond>` (0).
+/// * `o1` (`word<24>`) == 1 — the FEAT_PAuth_LR `RETAASPPC`/`RETABSPPC`
+///   PC-relative returns (`word<23:22> == 00`, `word<4:0> == 11111`,
+///   `word<21>` the A/B key); see [`decode_ret_sppc`].
 #[inline]
-fn decode_cond_branch(word: u32, _features: FeatureSet, out: &mut Instruction) {
-    // o0 (word<4>) selects BC.cond (FEAT_HBC) over B.cond; both render the same
-    // `b.<cond>` disassembly, so we accept either. o1 (word<24>) must be 0.
+fn decode_cond_branch(word: u32, features: FeatureSet, out: &mut Instruction) {
     if bit(word, 24) != 0 {
+        // FEAT_PAuth_LR RETAASPPC/RETABSPPC live in this `0101010 1 ...` slot.
+        decode_ret_sppc(word, features, out);
         return;
     }
     let imm19 = bits(word, 5, 19);
     let off = sign_extend((imm19 as u64) << 2, 21);
     let cond = Condition::from_u4(bits(word, 0, 4) as u8);
 
-    out.set(Code::BCond);
+    // o0 (word<4>) selects the FEAT_HBC hinted branch `BC.<cond>` (1) over the
+    // ordinary `B.<cond>` (0). The two encodings disassemble to distinct
+    // mnemonics (`b.<cond>` vs `bc.<cond>`); `BC.<cond>` is gated on FEAT_HBC.
+    if bit(word, 4) != 0 {
+        if !features.has(Feature::Hbc) {
+            return;
+        }
+        out.set(Code::BcCond);
+    } else {
+        out.set(Code::BCond);
+    }
     out.push_operand(Operand::Cond(cond));
     out.push_operand(Operand::Label(out.ip().wrapping_add(off as u64)));
+}
+
+/// `RETAASPPC`/`RETABSPPC <label>` (FEAT_PAuth_LR PC-relative return) —
+/// `0101010 1 00 M imm16 11111`. The `word<21>` `M` bit selects the signing key
+/// (0 = key A / `RETAASPPC`, 1 = key B / `RETABSPPC`); the 16-bit `imm16`
+/// (`word<20:5>`) gives a *backward* PC-relative target `ip - (imm16:00)`. The
+/// fixed structural bits `word<23:22> == 00` and `word<4:0> == 11111` must hold;
+/// every other selector here is UNALLOCATED. Gated on [`Feature::PauthLr`].
+#[inline]
+fn decode_ret_sppc(word: u32, features: FeatureSet, out: &mut Instruction) {
+    if !features.has(Feature::PauthLr) {
+        return;
+    }
+    // Fixed: word<23:22> == 00, word<4:0> == 11111.
+    if bits(word, 22, 2) != 0 || bits(word, 0, 5) != 0b11111 {
+        return;
+    }
+    out.set(if bit(word, 21) == 1 {
+        Code::Retabsppc
+    } else {
+        Code::Retaasppc
+    });
+    push_sppc_label(word, out);
+}
+
+/// Push the backward PC-relative [`Operand::Label`] shared by the FEAT_PAuth_LR
+/// `*SPPC` forms. The `imm16` at `word<20:5>` is the *negated* offset:
+/// `target = ip - (imm16 << 2)`.
+#[inline]
+fn push_sppc_label(word: u32, out: &mut Instruction) {
+    let imm16 = bits(word, 5, 16);
+    let off = (imm16 as u64) << 2;
+    out.push_operand(Operand::Label(out.ip().wrapping_sub(off)));
+}
+
+/// `AUTIASPPC`/`AUTIBSPPC <label>` (FEAT_PAuth_LR, PC-relative authenticate of
+/// the link register against a signing instruction) — `1111001110 M imm16
+/// 11111`. These live in the Data-Processing (Immediate) top-level group
+/// (`op0 == 100x`), so [`crate::decode::dp_imm`] routes here once it recognizes
+/// the `word<31:22> == 1111001110` / `word<4:0> == 11111` pattern.
+///
+/// `word<21>` `M` selects the key (0 = key A / `AUTIASPPC`, 1 = key B /
+/// `AUTIBSPPC`); the backward PC-relative target is `ip - (imm16:00)`, exactly
+/// like [`decode_ret_sppc`]. The caller has already matched the fixed mask and
+/// checked [`Feature::PauthLr`]; this routine only sets the code + label.
+#[inline]
+pub(crate) fn decode_auti_sppc(word: u32, out: &mut Instruction) {
+    out.set(if bit(word, 21) == 1 {
+        Code::Autibsppc
+    } else {
+        Code::Autiasppc
+    });
+    push_sppc_label(word, out);
 }
 
 // ---------------------------------------------------------------------------

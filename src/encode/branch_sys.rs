@@ -49,8 +49,10 @@ type R = Result<u32, EncodeError>;
 pub fn encode(insn: &Instruction) -> R {
     use Code::*;
     match insn.code() {
-        // Conditional branch (immediate).
-        BCond => enc_cond_branch(insn),
+        // Conditional branch (immediate): B.cond and FEAT_HBC BC.cond.
+        BCond | BcCond => enc_cond_branch(insn),
+        // FEAT_PAuth_LR PC-relative authenticate/return branches.
+        Retaasppc | Retabsppc | Autiasppc | Autibsppc => enc_pauth_lr_sppc(insn),
         // Unconditional branch (immediate).
         BUncond | BlImm => enc_uncond_branch_imm(insn),
         // Compare-and-branch.
@@ -157,17 +159,54 @@ fn sysop_name(insn: &Instruction, n: usize) -> Result<&'static str, EncodeError>
 // Conditional branch (immediate): B.cond / BC.cond.
 // ---------------------------------------------------------------------------
 
-/// `B.<cond>` — `0101_0100 imm19 0 cond`. Operands: `[Cond, Label]`. We emit the
-/// `B.cond` form (o0 == 0); the decoder accepts either o0, so this round-trips
-/// the canonical encoding.
+/// `B.<cond>` / `BC.<cond>` — `0101_0100 imm19 o0 cond`. Operands: `[Cond,
+/// Label]`. `o0` (word<4>) selects the FEAT_HBC hinted `BC.<cond>` ([`Code::BcCond`],
+/// o0 == 1) over the ordinary `B.<cond>` ([`Code::BCond`], o0 == 0); each round-trips
+/// to its own encoding bit-exactly.
 fn enc_cond_branch(insn: &Instruction) -> R {
     let cond = match insn.op(0) {
         Operand::Cond(c) => c,
         _ => return Err(EncodeError::InvalidOperand),
     };
     let imm19 = rel_imm(label(insn, 1)?, insn.ip(), 19, 2)?;
-    let word = (0b0101_0100u32 << 24) | (imm19 << 5) | (cond.as_u4() as u32);
+    let o0 = if insn.code() == Code::BcCond { 1u32 } else { 0 };
+    let word = (0b0101_0100u32 << 24) | (imm19 << 5) | (o0 << 4) | (cond.as_u4() as u32);
     Ok(word)
+}
+
+/// `RETAASPPC`/`RETABSPPC`/`AUTIASPPC`/`AUTIBSPPC <label>` (FEAT_PAuth_LR) — the
+/// PC-relative authenticate/return branch forms. Operand 0 is the
+/// [`Operand::Label`]; the 16-bit `imm16` (word<20:5>) is the *negated* offset
+/// (`target = ip - (imm16 << 2)`, so the target must lie at or before `ip`).
+/// The base word and `M` (word<21>) key bit come from the [`Code`]:
+///
+/// * `RETAASPPC`: `0101010 1 00 0 imm16 11111`
+/// * `RETABSPPC`: `0101010 1 00 1 imm16 11111`
+/// * `AUTIASPPC`: `1111001110 0 imm16 11111`
+/// * `AUTIBSPPC`: `1111001110 1 imm16 11111`
+fn enc_pauth_lr_sppc(insn: &Instruction) -> R {
+    use Code::*;
+    // (base word with M==0, Rd/Rn fixed at 11111; M is OR-ed in below.) The base
+    // is `word<31:22> << 22` | Rt(11111); `word<23:22> == 00` for the RET forms.
+    const RET_BASE: u32 = (0b01_0101_0100u32 << 22) | 0b11111; // 0101010 1 00 ...
+    const AUTI_BASE: u32 = (0b11_1100_1110u32 << 22) | 0b11111; // 1111001110 ...
+    let (base, m): (u32, u32) = match insn.code() {
+        Retaasppc => (RET_BASE, 0),
+        Retabsppc => (RET_BASE, 1),
+        Autiasppc => (AUTI_BASE, 0),
+        Autibsppc => (AUTI_BASE, 1),
+        _ => return Err(EncodeError::Unsupported),
+    };
+    // The target is `ip - (imm16 << 2)`, so the *backward distance* `ip - target`
+    // must equal `imm16 << 2`: 4-byte aligned and within `2^16 * 4`. Work on the
+    // unsigned distance to stay panic-free (no signed negation overflow).
+    let target = label(insn, 0)?;
+    let dist = insn.ip().wrapping_sub(target);
+    if dist & 0b11 != 0 || (dist >> 2) > 0xFFFF {
+        return Err(EncodeError::InvalidImmediate);
+    }
+    let imm16 = (dist >> 2) as u32;
+    Ok(base | (m << 21) | (imm16 << 5))
 }
 
 // ---------------------------------------------------------------------------
@@ -1041,6 +1080,18 @@ mod tests {
         // B.cond.
         rt(0x54156881);
         rt(0x54FEE2A8);
+        // FEAT_HBC BC.cond (bit4 == 1).
+        rt(0x54156891); // bc.<cond>, forward offset
+        rt(0x54FEE2B8); // bc.<cond>, backward offset
+        rt(0x543779B1); // bc.ne (oracle example)
+        // FEAT_PAuth_LR RETAASPPC/RETABSPPC (PC-relative return, backward imm16).
+        rt(0x551E8D9F); // retaasppc
+        rt(0x552F577F); // retabsppc
+        rt(0x5500001F); // retaasppc, offset 0
+        // FEAT_PAuth_LR AUTIASPPC/AUTIBSPPC (decoded in dp_imm, encoded here).
+        rt(0xF3983E9F); // autiasppc
+        rt(0xF3B9D25F); // autibsppc
+        rt(0xF3A0001F); // autibsppc, offset 0
         // CBZ/CBNZ, TBZ/TBNZ.
         rt(0x342F64AB);
         rt(0x358FD614);

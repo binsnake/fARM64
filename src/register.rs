@@ -459,10 +459,11 @@ pub const fn sve_register(n: u8) -> Register {
 
 /// Map a 5-bit SIMD register number `0..=31` to the 128-bit vector `V{n}`.
 ///
-/// Private helper for [`Register::full_register`] (the scalar-FP → `V` parent
-/// fold); `n` is taken modulo 32. Total and panic-free.
+/// Helper for [`Register::full_register`] (the scalar-FP → `V` parent fold) and
+/// for the SVE2.1 quadword reductions whose destination is a `V` register; `n`
+/// is taken modulo 32. Total and panic-free.
 #[inline]
-const fn v_numbered(n: u8) -> Register {
+pub(crate) const fn v_numbered(n: u8) -> Register {
     match n % 32 {
         0 => Register::V0, 1 => Register::V1, 2 => Register::V2, 3 => Register::V3,
         4 => Register::V4, 5 => Register::V5, 6 => Register::V6, 7 => Register::V7,

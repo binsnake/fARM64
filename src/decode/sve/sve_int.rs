@@ -329,6 +329,21 @@ fn decode_05(word: u32, out: &mut Instruction) {
                 // DUP indexed: `MOV <Zd>.<T>, <Zn>.<T>[idx]`. tsz = imm2:tsz
                 // = <23:22>:<20:16>. The element size is the lowest set bit of tsz.
                 decode_dup_indexed(word, out);
+            } else if bit(word, 21) == 1 && bits(word, 10, 3) == 0b001 {
+                // SVE2.1 128-bit-segment forms: DUPQ (<23:22>=00) and EXTQ
+                // (<23:22>=01).
+                match size {
+                    0b00 => decode_dupq(word, out),
+                    0b01 => decode_extq(word, out),
+                    _ => {}
+                }
+            } else if bit(word, 21) == 1
+                && bits(word, 10, 3) == 0b110
+                && bit(word, 20) == 0
+                && bit(word, 19) == 1
+            {
+                // SVE2.1 PMOV (predicate <-> vector move).
+                decode_pmov(word, out);
             }
         }
         // CPY (scalar) <15:13>=101 with <20:16>=01000: `CPY <Zd>.<T>, <Pg>/M,
@@ -346,7 +361,7 @@ fn decode_05(word: u32, out: &mut Instruction) {
         }
         0b100 => {
             // word<20:16> selects: 00000=CPY vector; 00100/00101/00110=REVB/H/W;
-            // 00111=RBIT.
+            // 00111=RBIT; 10001=EXPAND (SVE2.1).
             let pg = bits(word, 10, 3);
             let zn = bits(word, 5, 5);
             match opc2016 {
@@ -363,9 +378,37 @@ fn decode_05(word: u32, out: &mut Instruction) {
                     out.push_operand(preg_q(pg, PredQual::Merging));
                     out.push_operand(zreg(zn, arr(size)));
                 }
+                // EXPAND (SVE2.1): `EXPAND <Zd>.<T>, <Pg>, <Zn>.<T>` (plain Pg).
+                0b10001 if bit(word, 21) == 1 => {
+                    out.set(Code::SveExpand);
+                    out.push_operand(zreg(zd, arr(size)));
+                    out.push_operand(preg(pg));
+                    out.push_operand(zreg(zn, arr(size)));
+                }
                 // REVB/REVH/REVW are permute ops; leave to sve_perm.
                 _ => {}
             }
+        }
+        // SVE2.1 zeroing reverse-within-element: REVB/REVH/REVW/RBIT
+        // `<Zd>.<T>, <Pg>/Z, <Zn>.<T>` (`<21>=1`, `<20:16>=001xx`).
+        0b101 if bit(word, 21) == 1 && (0b00100..=0b00111).contains(&opc2016) => {
+            let pg = bits(word, 10, 3);
+            let zn = bits(word, 5, 5);
+            let a = arr(size);
+            let (code, mnem, min_size) = match opc2016 {
+                0b00100 => (Code::SveRevbhw, Mnemonic::Revb, 1),
+                0b00101 => (Code::SveRevbhw, Mnemonic::Revh, 2),
+                0b00110 => (Code::SveRevbhw, Mnemonic::Revw, 3),
+                _ => (Code::SveRbitZpz, Mnemonic::Rbit, 0),
+            };
+            if size < min_size {
+                return;
+            }
+            out.set(code);
+            out.set_mnemonic(mnem);
+            out.push_operand(zreg(zd, a));
+            out.push_operand(preg_q(pg, PredQual::Zeroing));
+            out.push_operand(zreg(zn, a));
         }
         // SEL `<15:14>=11` with `<21>=1` (`Pg<13:10>` makes `<15:13>` `110`/`111`).
         // The `<15:13>=110`,`<21:20>=01` slot is FCPY (an FP op, left to sve_fp).
@@ -543,6 +586,82 @@ fn decode_dup_indexed(word: u32, out: &mut Instruction) {
         out.push_operand(scalar_fp_q(zn, esize));
     } else {
         out.push_operand(zreg_idx(zn, a, idx as u8));
+    }
+}
+
+/// SVE2.1 DUPQ: `DUPQ <Zd>.<T>, <Zn>.<T>[<index>]` — broadcast an indexed
+/// element within each 128-bit segment. The element size and lane index use the
+/// standard trailing `tsz = word<20:16>` encoding (`<23:22>` is 0 here). Always
+/// renders the lane index (even 0) with the source arrangement.
+#[inline]
+fn decode_dupq(word: u32, out: &mut Instruction) {
+    let tsz = bits(word, 16, 5);
+    let zn = bits(word, 5, 5);
+    let zd = bits(word, 0, 5);
+    let (a, idx) = match tsz {
+        t if t & 0b1 != 0 => (VA::Sb, t >> 1),
+        t if t & 0b10 != 0 => (VA::Sh, t >> 2),
+        t if t & 0b100 != 0 => (VA::Ss, t >> 3),
+        t if t & 0b1000 != 0 => (VA::Sd, t >> 4),
+        _ => return,
+    };
+    out.set(Code::SveDupq);
+    out.push_operand(zreg(zd, a));
+    out.push_operand(zreg_idx(zn, a, idx as u8));
+}
+
+/// SVE2.1 EXTQ: `EXTQ <Zdn>.B, <Zdn>.B, <Zm>.B, #imm` — extract a byte-aligned
+/// vector from the `Zdn:Zm` pair within each 128-bit segment. The byte offset
+/// `imm` (0..15) is `word<19:16>`; the instruction is destructive (`Zd==Zdn`).
+#[inline]
+fn decode_extq(word: u32, out: &mut Instruction) {
+    let imm = bits(word, 16, 5);
+    if imm > 15 {
+        return; // <20>=1 is unallocated.
+    }
+    let zm = bits(word, 5, 5);
+    let zd = bits(word, 0, 5);
+    out.set(Code::SveExtq);
+    out.push_operand(zreg(zd, VA::Sb));
+    out.push_operand(zreg(zd, VA::Sb));
+    out.push_operand(zreg(zm, VA::Sb));
+    out.push_operand(Operand::ImmUnsigned(imm as u64));
+}
+
+/// SVE2.1 PMOV (predicate <-> vector). `word<16>` (D) selects direction:
+/// `0` -> `PMOV <Pd>.<T>, <Zn>{[index]}`; `1` -> `PMOV <Zd>{[index]}, <Pn>.<T>`.
+/// The element size and lane index come from the trailing-one field
+/// `T = {word<23>, word<22>, word<18>, word<17>}` (highest set bit = size; the
+/// lower bits are the index). The `.b` form has no index and a bare `Z`.
+#[inline]
+fn decode_pmov(word: u32, out: &mut Instruction) {
+    let t = (bit(word, 23) << 3) | (bit(word, 22) << 2) | (bit(word, 18) << 1) | bit(word, 17);
+    let (a, pos) = match t {
+        t if t & 0b1000 != 0 => (VA::Sd, 3),
+        t if t & 0b100 != 0 => (VA::Ss, 2),
+        t if t & 0b10 != 0 => (VA::Sh, 1),
+        t if t & 0b1 != 0 => (VA::Sb, 0),
+        _ => return,
+    };
+    let idx = (t & ((1 << pos) - 1)) as u8;
+    let n5 = bits(word, 5, 5);
+    let d5 = bits(word, 0, 5);
+    out.set(Code::SvePmov);
+    let zoperand = |reg: u32| {
+        if pos == 0 {
+            plain_z(reg)
+        } else {
+            plain_z_idx(reg, idx)
+        }
+    };
+    if bit(word, 16) == 0 {
+        // Predicate <- vector.
+        out.push_operand(preg_sz(d5, a));
+        out.push_operand(zoperand(n5));
+    } else {
+        // Vector <- predicate.
+        out.push_operand(zoperand(d5));
+        out.push_operand(preg_sz(n5, a));
     }
 }
 
@@ -741,9 +860,10 @@ fn decode_mul_zzz(word: u32, out: &mut Instruction) {
     out.push_operand(zreg(zm, a));
 }
 
-/// INDEX, ADDVL/ADDPL, RDVL (`<21>=1`, `<15:13>=010`).
+/// INDEX, ADDVL/ADDPL, RDVL (`<21>=1`, `<15:13>=010`), plus the SME streaming
+/// analogues ADDSVL/ADDSPL/RDSVL (`<11>=1`, gated on FEAT_SME).
 #[inline]
-fn decode_index_addvl(word: u32, out: &mut Instruction) {
+fn decode_index_addvl(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let a = arr(size);
     let w = if size == 3 { RegWidth::X64 } else { RegWidth::W32 };
@@ -797,6 +917,41 @@ fn decode_index_addvl(word: u32, out: &mut Instruction) {
                 0b10 => {
                     // RDVL <Xd>, #imm6 (Rn field is fixed 11111).
                     out.set(Code::SveRdvl);
+                    out.push_operand(gpr(rd, RegWidth::X64));
+                    out.push_operand(Operand::ImmSignedDec(imm6));
+                }
+                _ => {}
+            }
+        }
+        // ADDSVL / ADDSPL / RDSVL — the SME streaming-mode analogues, selected by
+        // word<11>=1 (the streaming bit) and word<23:22> (00 / 01 / 10). FEAT_SME.
+        0b110 | 0b111 => {
+            if !features.has(crate::features::Feature::Sme) {
+                return;
+            }
+            let rn = bits(word, 16, 5);
+            let rd = bits(word, 0, 5);
+            let imm6 = sign_extend(bits(word, 5, 6) as u64, 6);
+            match bits(word, 22, 2) {
+                0b00 => {
+                    out.set(Code::SveAddsvl);
+                    out.push_operand(gpr_sp(rd, RegWidth::X64));
+                    out.push_operand(gpr_sp(rn, RegWidth::X64));
+                    out.push_operand(Operand::ImmSignedDec(imm6));
+                }
+                0b01 => {
+                    out.set(Code::SveAddspl);
+                    out.push_operand(gpr_sp(rd, RegWidth::X64));
+                    out.push_operand(gpr_sp(rn, RegWidth::X64));
+                    out.push_operand(Operand::ImmSignedDec(imm6));
+                }
+                0b10 => {
+                    // RDSVL <Xd>, #imm6 — the Rn field is architecturally fixed to
+                    // 11111; reject any other value (LLVM leaves it unallocated).
+                    if rn != 0b11111 {
+                        return;
+                    }
+                    out.set(Code::SveRdsvl);
                     out.push_operand(gpr(rd, RegWidth::X64));
                     out.push_operand(Operand::ImmSignedDec(imm6));
                 }
@@ -912,6 +1067,39 @@ fn decode_adr_vec(word: u32, out: &mut Instruction) {
 #[inline]
 fn plain_z(n: u32) -> Operand {
     Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+}
+
+/// A bare `Z{n}` carrying a lane index but no arrangement (`z4[2]`), used by
+/// PMOV's vector operand for the `.h`/`.s`/`.d` element sizes.
+#[inline]
+fn plain_z_idx(n: u32, lane: u8) -> Operand {
+    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: None, lane: Some(lane), shift: None, extend: None, pred: None }
+}
+
+/// A NEON `V{n}` operand with a full-128-bit arrangement (`v0.16b`/`.8h`/`.4s`/
+/// `.2d`), the destination of the SVE2.1 quadword reductions.
+#[inline]
+fn vreg(n: u32, a: VA) -> Operand {
+    Operand::Reg {
+        reg: crate::register::v_numbered((n & 0x1f) as u8),
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
+}
+
+/// The full-128-bit NEON arrangement matching element `size` (`0`=`.16b` ..
+/// `3`=`.2d`).
+#[inline]
+fn va_neon(size: u32) -> VA {
+    match size & 3 {
+        0 => VA::V16B,
+        1 => VA::V8H,
+        2 => VA::V4S,
+        _ => VA::V2D,
+    }
 }
 
 /// INC/DEC vector by element count (`<21>=1`, `<15:13>=110`):
@@ -2777,7 +2965,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
     let hi = bits(word, 24, 8); // word<31:24>
     match hi {
         // 0x04 / 0x05: SVE integer, shift, misc, MOVPRFX, DUP/CPY (top byte 000).
-        0x04 => decode_04(word, out),
+        0x04 => decode_04(word, features, out),
         0x05 => decode_05(word, out),
         // 0x25: SVE integer immediate (add/sub/min/max/mul) + INC/DEC by pred,
         //       compare-with-imm, predicate counts (top byte 001).
@@ -2796,7 +2984,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
 // ===========================================================================
 
 #[inline]
-fn decode_04(word: u32, out: &mut Instruction) {
+fn decode_04(word: u32, features: FeatureSet, out: &mut Instruction) {
     let b21 = bit(word, 21);
     let sel = bits(word, 13, 3); // word<15:13>
     match (b21, sel) {
@@ -2819,8 +3007,8 @@ fn decode_04(word: u32, out: &mut Instruction) {
         (1, 0b000) => decode_arith_zzz(word, out),
         // Unpredicated bitwise logical AND/ORR/EOR/BIC (+ MOV alias).
         (1, 0b001) => decode_logical_zzz(word, out),
-        // INDEX, ADDVL/ADDPL, RDVL.
-        (1, 0b010) => decode_index_addvl(word, out),
+        // INDEX, ADDVL/ADDPL, RDVL (+ the SME streaming ADDSVL/ADDSPL/RDSVL).
+        (1, 0b010) => decode_index_addvl(word, features, out),
         // Unpredicated multiply MUL/SMULH/UMULH/PMUL (+ SQDMULH/SQRDMULH).
         (1, 0b011) => decode_mul_zzz(word, out),
         // Shift by immediate (unpred) and wide-shift (unpred).
@@ -2924,6 +3112,15 @@ fn decode_reduction(word: u32, out: &mut Instruction) {
         0b11000 => reduction_scalar(out, Code::SveOrv, rd, pg, zn, size, a),
         0b11001 => reduction_scalar(out, Code::SveEorv, rd, pg, zn, size, a),
         0b11010 => reduction_scalar(out, Code::SveAndv, rd, pg, zn, size, a),
+        // SVE2.1 quadword reductions to a NEON `V` register (`<Vd>.<T>`).
+        0b00101 => reduction_qv(out, Code::SveAddqv, rd, pg, zn, size),
+        0b01100 => reduction_qv(out, Code::SveSmaxqv, rd, pg, zn, size),
+        0b01101 => reduction_qv(out, Code::SveUmaxqv, rd, pg, zn, size),
+        0b01110 => reduction_qv(out, Code::SveSminqv, rd, pg, zn, size),
+        0b01111 => reduction_qv(out, Code::SveUminqv, rd, pg, zn, size),
+        0b11100 => reduction_qv(out, Code::SveOrqv, rd, pg, zn, size),
+        0b11101 => reduction_qv(out, Code::SveEorqv, rd, pg, zn, size),
+        0b11110 => reduction_qv(out, Code::SveAndqv, rd, pg, zn, size),
         // MOVPRFX predicated: `MOVPRFX <Zd>.<T>, <Pg>/<ZM>, <Zn>.<T>`.
         0b10000 | 0b10001 => {
             // M bit is word<16>; /m when set, /z when clear.
@@ -2944,6 +3141,16 @@ fn reduction_scalar(out: &mut Instruction, code: Code, rd: u32, pg: u32, zn: u32
     out.push_operand(scalar_fp(rd, size));
     out.push_operand(preg(pg));
     out.push_operand(zreg(zn, a));
+}
+
+/// SVE2.1 quadword reductions reduce into a full NEON `V` register whose
+/// arrangement matches the source element size (`ADDQV <Vd>.<T>, <Pg>, <Zn>.<T>`).
+#[inline]
+fn reduction_qv(out: &mut Instruction, code: Code, rd: u32, pg: u32, zn: u32, size: u32) {
+    out.set(code);
+    out.push_operand(vreg(rd, va_neon(size)));
+    out.push_operand(preg(pg));
+    out.push_operand(zreg(zn, arr(size)));
 }
 
 /// MLA / MLS (`<21>=0`, `<15:13>=010/011`): `op <Zda>.<T>, <Pg>/M, <Zn>.<T>,
@@ -3058,39 +3265,40 @@ fn decode_shift_pred(word: u32, out: &mut Instruction) {
 }
 
 /// Unary predicated (`<21>=0`, `<15:13>=101`): ABS/NEG/CNT/CLS/CLZ/CNOT/NOT/
-/// RBIT/SXTB../UXTB.. — `op <Zd>.<T>, <Pg>/M, <Zn>.<T>`. The operation is in
-/// `word<18:16>` with `word<20:19>` distinguishing extend vs the rest.
+/// SXTB../UXTB.. — `op <Zd>.<T>, <Pg>/<M|Z>, <Zn>.<T>`. The operation is the
+/// 4-bit `word<19:16>`; `word<20>` selects the merging (`/m`, base SVE) vs the
+/// zeroing (`/z`, FEAT_SVE2p1) predicate form. Extend forms require the
+/// destination element to be wider than the extended width (else unallocated).
 #[inline]
 fn decode_unary_pred(word: u32, out: &mut Instruction) {
     let size = bits(word, 22, 2);
-    let opc = bits(word, 16, 5); // word<20:16>
+    let op4 = bits(word, 16, 4); // word<19:16>: operation selector
+    let merging = bit(word, 20) == 1; // <20>: 1 = /m (SVE), 0 = /z (SVE2.1)
     let pg = bits(word, 10, 3);
     let zn = bits(word, 5, 5);
     let zd = bits(word, 0, 5);
     let a = arr(size);
-    // Extend forms: opc<4:3>==10 (SXTB/H/W, UXTB/H/W) selected by opc<2:1> width
-    // and opc<0> signedness; the destination element size must exceed the
-    // extended width.
-    let code = match opc {
-        0b10000 => Code::SveSxtbZpz,
-        0b10001 => Code::SveUxtbZpz,
-        0b10010 => Code::SveSxthZpz,
-        0b10011 => Code::SveUxthZpz,
-        0b10100 => Code::SveSxtwZpz,
-        0b10101 => Code::SveUxtwZpz,
-        0b10110 => Code::SveAbsZpz,
-        0b10111 => Code::SveNegZpz,
-        0b11000 => Code::SveClsZpz,
-        0b11001 => Code::SveClzZpz,
-        0b11010 => Code::SveCntZpz,
-        0b11011 => Code::SveCnotZpz,
-        0b11110 => Code::SveNotZpz,
-        // FABS/FNEG live here too (11100/11101) but belong to sve_fp; skip.
+    let code = match op4 {
+        0b0000 if size >= 1 => Code::SveSxtbZpz,
+        0b0001 if size >= 1 => Code::SveUxtbZpz,
+        0b0010 if size >= 2 => Code::SveSxthZpz,
+        0b0011 if size >= 2 => Code::SveUxthZpz,
+        0b0100 if size == 3 => Code::SveSxtwZpz,
+        0b0101 if size == 3 => Code::SveUxtwZpz,
+        0b0110 => Code::SveAbsZpz,
+        0b0111 => Code::SveNegZpz,
+        0b1000 => Code::SveClsZpz,
+        0b1001 => Code::SveClzZpz,
+        0b1010 => Code::SveCntZpz,
+        0b1011 => Code::SveCnotZpz,
+        0b1110 => Code::SveNotZpz,
+        // FABS/FNEG (1100/1101) live here too but belong to sve_fp; everything
+        // else (incl. illegal extend element sizes) is unallocated.
         _ => return,
     };
     out.set(code);
     out.push_operand(zreg(zd, a));
-    out.push_operand(preg_q(pg, PredQual::Merging));
+    out.push_operand(preg_q(pg, if merging { PredQual::Merging } else { PredQual::Zeroing }));
     out.push_operand(zreg(zn, a));
 }
 
@@ -3117,6 +3325,19 @@ mod tests {
     fn check(word: u32, expected: &str) {
         let mut buf = [0u8; 128];
         assert_eq!(render(word, &mut buf), expected, "word={word:#010x}");
+    }
+
+    /// Decode `word`, re-encode it, and require the exact same word back.
+    #[track_caller]
+    fn rt(word: u32) {
+        let bytes = word.to_le_bytes();
+        let mut dec = Decoder::new(&bytes, 0x1000, DecoderOptions::default());
+        let insn = dec.decode();
+        assert!(!insn.is_invalid(), "word {word:#010x} failed to decode");
+        let got = insn
+            .encode()
+            .unwrap_or_else(|e| panic!("encode of {word:#010x} ({:?}) failed: {e:?}", insn.code()));
+        assert_eq!(got, word, "round-trip mismatch for {word:#010x} (code={:?})", insn.code());
     }
 
     #[test]
@@ -3146,6 +3367,92 @@ mod tests {
         check(0x04941FE8, "sdiv    z8.s, p7/m, z8.s, z31.s");
         check(0x0496BFB2, "abs     z18.s, p7/m, z29.s");
         check(0x0490A714, "sxtb    z20.s, p1/m, z24.s");
+    }
+
+    #[test]
+    fn unary_pred_zeroing_sve2p1() {
+        // FEAT_SVE2p1 zeroing (`/z`) predicated unary (0x04, <20>=0).
+        check(0x0408A016, "cls     z22.b, p0/z, z0.b");
+        check(0x0409A069, "clz     z9.b, p0/z, z3.b");
+        check(0x040AA036, "cnt     z22.b, p0/z, z1.b");
+        check(0x040BA151, "cnot    z17.b, p0/z, z10.b");
+        check(0x040EA021, "not     z1.b, p0/z, z1.b");
+        check(0x0406A190, "abs     z16.b, p0/z, z12.b");
+        check(0x0407A102, "neg     z2.b, p0/z, z8.b");
+        check(0x0440A077, "sxtb    z23.h, p0/z, z3.h");
+        check(0x0441A11C, "uxtb    z28.h, p0/z, z8.h");
+        check(0x0482A059, "sxth    z25.s, p0/z, z2.s");
+        check(0x0483A00C, "uxth    z12.s, p0/z, z0.s");
+        check(0x04C4A01A, "sxtw    z26.d, p0/z, z0.d");
+        check(0x04C5A05B, "uxtw    z27.d, p0/z, z2.d");
+        for w in [
+            0x0408A016, 0x0409A069, 0x040AA036, 0x040BA151, 0x040EA021, 0x0406A190, 0x0407A102,
+            0x0440A077, 0x0441A11C, 0x0482A059, 0x0483A00C, 0x04C4A01A, 0x04C5A05B,
+            // merging (`/m`) base-SVE forms still round-trip.
+            0x0496BFB2, 0x0490A714,
+        ] {
+            rt(w);
+        }
+        // Illegal extend element sizes are unallocated (LLVM-Invalid), not decoded.
+        let inv = [0x0410A09F_u32, 0x0411A0E9, 0x0412A03E, 0x0413A01A, 0x0414A1D7, 0x0415A044];
+        for w in inv {
+            let b = w.to_le_bytes();
+            let mut d = Decoder::new(&b, 0x1000, DecoderOptions::default());
+            assert!(d.decode().is_invalid(), "should be Invalid: {w:#010x}");
+        }
+    }
+
+    #[test]
+    fn rev_rbit_zeroing_sve2p1() {
+        check(0x0527A005, "rbit    z5.b, p0/z, z0.b");
+        check(0x0564A02B, "revb    z11.h, p0/z, z1.h");
+        check(0x05A5A000, "revh    z0.s, p0/z, z0.s");
+        check(0x05E6A032, "revw    z18.d, p0/z, z1.d");
+        for w in [0x0527A005, 0x0564A02B, 0x05A5A000, 0x05E6A032] {
+            rt(w);
+        }
+    }
+
+    #[test]
+    fn quadword_reductions_int() {
+        check(0x04052027, "addqv   v7.16b, p0, z1.b");
+        check(0x040C213E, "smaxqv  v30.16b, p0, z9.b");
+        check(0x040D2055, "umaxqv  v21.16b, p0, z2.b");
+        check(0x040E2030, "sminqv  v16.16b, p0, z1.b");
+        check(0x040F2072, "uminqv  v18.16b, p0, z3.b");
+        check(0x041C204C, "orqv    v12.16b, p0, z2.b");
+        check(0x041D20C7, "eorqv   v7.16b, p0, z6.b");
+        check(0x041E2088, "andqv   v8.16b, p0, z4.b");
+        // size variants (.h/.s/.d).
+        check(0x04852000, "addqv   v0.4s, p0, z0.s");
+        check(0x04CE2000, "sminqv  v0.2d, p0, z0.d");
+        for w in [
+            0x04052027, 0x040C213E, 0x040D2055, 0x040E2030, 0x040F2072, 0x041C204C, 0x041D20C7,
+            0x041E2088, 0x04852000, 0x04CE2000,
+        ] {
+            rt(w);
+        }
+    }
+
+    #[test]
+    fn sve2p1_misc() {
+        check(0x05318081, "expand  z1.b, p0, z4.b");
+        check(0x05212486, "dupq    z6.b, z4.b[0]");
+        check(0x053F2486, "dupq    z6.b, z4.b[15]");
+        check(0x05282486, "dupq    z6.d, z4.d[0]");
+        check(0x05602401, "extq    z1.b, z1.b, z0.b, #0x0");
+        check(0x056F2401, "extq    z1.b, z1.b, z0.b, #0xf");
+        check(0x052A3880, "pmov    p0.b, z4");
+        check(0x052B3880, "pmov    z0, p4.b");
+        check(0x052C3880, "pmov    p0.h, z4[0]");
+        check(0x052F3880, "pmov    z0[1], p4.h");
+        check(0x05EF3880, "pmov    z0[7], p4.d");
+        for w in [
+            0x05318081, 0x05212486, 0x053F2486, 0x05282486, 0x05602401, 0x056F2401, 0x052A3880,
+            0x052B3880, 0x052C3880, 0x052F3880, 0x05EF3880,
+        ] {
+            rt(w);
+        }
     }
 
     #[test]
@@ -3204,6 +3511,24 @@ mod tests {
         check(0x04BF52F6, "rdvl    x22, #0x17");
         check(0x04BF54D5, "rdvl    x21, #-26");
         check(0x043F564E, "addvl   x14, sp, #-14");
+    }
+
+    #[test]
+    fn addsvl_addspl_rdsvl() {
+        // SME streaming-mode analogues (word<11>=1).
+        check(0x04205801, "addsvl  x1, x0, #0x0");
+        check(0x04205821, "addsvl  x1, x0, #0x1");
+        check(0x04205C01, "addsvl  x1, x0, #-32");
+        check(0x04605807, "addspl  x7, x0, #0x0");
+        check(0x04BF5823, "rdsvl   x3, #0x1");
+        check(0x04BF5C23, "rdsvl   x3, #-31");
+        // Round-trip (decode -> encode -> identical word).
+        rt(0x04205801);
+        rt(0x04205C01);
+        rt(0x04605807);
+        rt(0x046F5C8F); // addspl  x15, x15, #-28
+        rt(0x04BF5823);
+        rt(0x04BF5C23);
     }
 
     #[test]

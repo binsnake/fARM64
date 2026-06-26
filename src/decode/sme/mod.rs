@@ -675,10 +675,42 @@ mod tests {
         check(0xA0004015, "ldnt1w  { z20.s, z21.s }, pn8/z, [x0, x0, lsl #0x2]");
         check(0xA0200001, "stnt1b  { z0.b, z1.b }, pn8, [x0, x0]");
         check(0xA0204014, "st1w    { z20.s, z21.s }, pn8, [x0, x0, lsl #0x2]");
-        // word<24> == 1 is the strided family (out of scope) -> Invalid.
-        let bytes = 0xA1004000u32.to_le_bytes();
+    }
+
+    #[test]
+    fn sme2_multivector_strided() {
+        // word<24> == 1: the strided (non-consecutive) register lists. 2-register
+        // groups step by 8 (`z16, z24`); 4-register groups step by 4.
+        check(0xA1206710, "st1d    { z16.d, z24.d }, pn9, [x24, x0, lsl #0x3]");
+        check(0xA1204983, "st1w    { z3.s, z11.s }, pn10, [x12, x0, lsl #0x2]");
+        check(0xA1004DB1, "ld1w    { z17.s, z25.s }, pn11/z, [x13, x0, lsl #0x2]");
+        check(0xA120A541, "st1h    { z1.h, z5.h, z9.h, z13.h }, pn9, [x10, x0, lsl #0x1]");
+        // Strided nontemporal (NT = word<3>), and the byte form (no LSL shown).
+        check(0xA1206718, "stnt1d  { z16.d, z24.d }, pn9, [x24, x0, lsl #0x3]");
+        check(0xA1004000, "ld1w    { z0.s, z8.s }, pn8/z, [x0, x0, lsl #0x2]");
+        // Strided scalar+immediate (`MUL VL`): the offset is `imm4 * count`.
+        check(0xA1606710, "st1d    { z16.d, z24.d }, pn9, [x24]");
+        check(0xA1414000, "ld1w    { z0.s, z8.s }, pn8/z, [x0, #0x2, mul vl]");
+        // vgx4 strided leaves word<2> reserved (must be zero) -> Invalid.
+        let bytes = 0xA120E714u32.to_le_bytes();
         let mut dec = Decoder::new(&bytes, 0x1000, DecoderOptions::default());
         assert!(dec.decode().is_invalid());
+    }
+
+    #[test]
+    fn sme2_multivector_shift_narrow() {
+        // 4-vector -> 1-vector saturating rounding shift right narrow; the dest
+        // element (.b/.h), source element (.s/.d) and shift range come from the
+        // `tsz` size field. `#shift` renders as a plain decimal.
+        check(0xC161D920, "uqrshr  z0.b, { z8.s - z11.s }, #31");
+        check(0xC161D998, "sqrshr  z24.b, { z12.s - z15.s }, #31");
+        check(0xC160DC9A, "sqrshrn z26.b, { z4.s - z7.s }, #32");
+        check(0xC161DE2B, "uqrshrn z11.b, { z16.s - z19.s }, #31");
+        check(0xC164DB5D, "sqrshru z29.b, { z24.s - z27.s }, #28");
+        check(0xC162DFD7, "sqrshrun z23.b, { z28.s - z31.s }, #30");
+        // .h dest / .d source, both shift sub-ranges (`#64`..`#33` and `#32`..`#1`).
+        check(0xC1A0D900, "sqrshr  z0.h, { z8.d - z11.d }, #64");
+        check(0xC1E0D900, "sqrshr  z0.h, { z8.d - z11.d }, #32");
     }
 
     #[test]

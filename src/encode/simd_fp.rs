@@ -89,6 +89,10 @@ pub fn is_simd_fp(code: Code) -> bool {
         | FdotVec | FdotIdx | UsdotVec | UsdotIdx | SudotIdx | BfdotVec | BfdotIdx
         | BfmlalbVec | BfmlaltVec | FmlalbVec | FmlaltVec
         | FmlallbbVec | FmlallbtVec | FmlalltbVec | FmlallttVec
+        // --- FEAT_FAMINMAX / FEAT_FP8 / FEAT_LUT (NEON) ---
+        | FamaxVec | FaminVec | FscaleVec | FcvtnFp8 | Fcvtn2Fp8 | BfcvtnVec | Bfcvtn2Vec
+        | F1cvtlVec | F1cvtl2Vec | F2cvtlVec | F2cvtl2Vec | Bf1cvtlVec | Bf1cvtl2Vec
+        | Bf2cvtlVec | Bf2cvtl2Vec | Luti2Vec | Luti4Vec | Luti4TwoVec
         // --- three-different ---
         | SaddlVec | Saddl2Vec | SaddwVec | Saddw2Vec | SsublVec | Ssubl2Vec | SsubwVec
         | Ssubw2Vec | AddhnVec | Addhn2Vec | SabalVec | Sabal2Vec | SubhnVec | Subhn2Vec

@@ -468,7 +468,7 @@ fn fp_three_same(
     rm: u32,
     rn: u32,
     rd: u32,
-    _features: FeatureSet,
+    features: FeatureSet,
     out: &mut Instruction,
 ) {
     let _ = word;
@@ -506,6 +506,9 @@ fn fp_three_same(
         (0, 0, 0b11100) => Code::FcmeqVec,
         (0, 0, 0b11110) => Code::FmaxVec,
         (0, 0, 0b11111) => Code::FrecpsVec,
+        // FEAT_FAMINMAX: FAMAX shares opcode 11011 with FMULX but is selected by
+        // the size<1>(=bit23) group bit (o1==1).
+        (0, 1, 0b11011) => Code::FamaxVec,
         (0, 1, 0b11000) => Code::FminnmVec,
         (0, 1, 0b11001) => Code::FmlsVec,
         (0, 1, 0b11010) => Code::FsubVec,
@@ -520,11 +523,22 @@ fn fp_three_same(
         (1, 0, 0b11111) => Code::FdivVec,
         (1, 1, 0b11000) => Code::FminnmpVec,
         (1, 1, 0b11010) => Code::FabdVec,
+        // FEAT_FAMINMAX: FAMIN shares opcode 11011 with FMUL (U==1, o1==1).
+        (1, 1, 0b11011) => Code::FaminVec,
         (1, 1, 0b11100) => Code::FcmgtVec,
         (1, 1, 0b11101) => Code::FacgtVec,
         (1, 1, 0b11110) => Code::FminpVec,
+        // FEAT_FP8: FSCALE shares opcode 11111 with FDIV (U==1, o1==1).
+        (1, 1, 0b11111) => Code::FscaleVec,
         _ => return,
     };
+
+    // FEAT_FAMINMAX / FEAT_FP8 forms are vector-only and runtime-gated.
+    match code {
+        Code::FamaxVec | Code::FaminVec if scalar || !features.has(Feature::Faminmax) => return,
+        Code::FscaleVec if scalar || !features.has(Feature::Fp8) => return,
+        _ => {}
+    }
 
     if scalar {
         let eb: u16 = if bit(size, 0) == 1 { 64 } else { 32 };
@@ -681,6 +695,8 @@ fn fp16_three_same(word: u32, scalar: bool, features: FeatureSet, out: &mut Inst
         (0, 0, 0b100) => Code::FcmeqVec,
         (0, 0, 0b110) => Code::FmaxVec,
         (0, 0, 0b111) => Code::FrecpsVec,
+        // FEAT_FAMINMAX (half): FAMAX shares opcode 011 with FMULX (a==1).
+        (0, 1, 0b011) => Code::FamaxVec,
         (0, 1, 0b000) => Code::FminnmVec,
         (0, 1, 0b001) => Code::FmlsVec,
         (0, 1, 0b010) => Code::FsubVec,
@@ -695,11 +711,21 @@ fn fp16_three_same(word: u32, scalar: bool, features: FeatureSet, out: &mut Inst
         (1, 0, 0b111) => Code::FdivVec,
         (1, 1, 0b000) => Code::FminnmpVec,
         (1, 1, 0b010) => Code::FabdVec,
+        // FEAT_FAMINMAX (half): FAMIN shares opcode 011 with FMUL (U==1, a==1).
+        (1, 1, 0b011) => Code::FaminVec,
         (1, 1, 0b100) => Code::FcmgtVec,
         (1, 1, 0b101) => Code::FacgtVec,
         (1, 1, 0b110) => Code::FminpVec,
+        // FEAT_FP8 (half): FSCALE shares opcode 111 with FDIV (U==1, a==1).
+        (1, 1, 0b111) => Code::FscaleVec,
         _ => return,
     };
+    // FEAT_FAMINMAX / FEAT_FP8 (half) forms are vector-only and runtime-gated.
+    match code {
+        Code::FamaxVec | Code::FaminVec if scalar || !features.has(Feature::Faminmax) => return,
+        Code::FscaleVec if scalar || !features.has(Feature::Fp8) => return,
+        _ => {}
+    }
     if scalar {
         out.set(code);
         out.push_operand(sca(rd, 16));
@@ -876,6 +902,36 @@ fn simd_three_reg_ext(word: u32, features: FeatureSet, out: &mut Instruction) ->
                     (_, _) => Code::FmlallttVec,
                 };
                 emit3(out, code, rd, VA::V4S, rn, VA::V16B, rm, VA::V16B);
+            }
+            true
+        }
+        0b111101 if u == 0 => {
+            // FP8 FCVTN (FEAT_FP8): convert+narrow two source vectors to FP8.
+            //   size==00 — FP32 sources `.4s`: Q=0 -> FCVTN `Vd.8b`, Q=1 ->
+            //              FCVTN2 `Vd.16b` (high half).
+            //   size==01 — FP16 sources: Q=0 -> `Vd.8b, Vn.4h, Vm.4h`, Q=1 ->
+            //              `Vd.16b, Vn.8h, Vm.8h` (both spelled FCVTN, no `2`).
+            // `U==1` falls through to the complex-FP (FCADD) decoder.
+            if features.has(Feature::Fp8) {
+                match size {
+                    0b00 => {
+                        let (code, ta) = if q == 0 {
+                            (Code::FcvtnFp8, VA::V8B)
+                        } else {
+                            (Code::Fcvtn2Fp8, VA::V16B)
+                        };
+                        emit3(out, code, rd, ta, rn, VA::V4S, rm, VA::V4S);
+                    }
+                    0b01 => {
+                        let (ta, tb) = if q == 0 {
+                            (VA::V8B, VA::V4H)
+                        } else {
+                            (VA::V16B, VA::V8H)
+                        };
+                        emit3(out, Code::FcvtnFp8, rd, ta, rn, tb, rm, tb);
+                    }
+                    _ => {}
+                }
             }
             true
         }
@@ -1350,7 +1406,6 @@ fn fp_two_reg_misc(
     features: FeatureSet,
     out: &mut Instruction,
 ) {
-    let _ = size;
     // FP two-reg-misc: the opcode-group bit is `a = size<1>` (word<23>) while
     // the *precision* is `sz = size<0>` (word<22>): `0` -> single (`.2s`/`.4s`),
     // `1` -> double (`.2d`). The corpus carries no half-precision members of
@@ -1374,6 +1429,48 @@ fn fp_two_reg_misc(
             out.set(Code::FcvtxnVec);
             out.push_operand(sca(rd, 32));
             out.push_operand(sca(rn, 64));
+            return;
+        }
+    }
+
+    // FEAT_BF16 / FEAT_FP8 two-reg-misc convert specials (vector only). These
+    // reuse the FCVTN (10110) / FCVTL (10111) opcodes with FP8/BF16-specific
+    // (U, size) combinations, so claim them before the generic widen/narrow.
+    if !scalar {
+        // BFCVTN / BFCVTN2: U==0, opcode 10110, size==10. Convert+narrow FP32
+        // `.4s` -> BF16: Q=0 `Vd.4h` (BFCVTN), Q=1 `Vd.8h` (BFCVTN2, high half).
+        if u == 0 && opcode == 0b10110 && size == 0b10 {
+            if features.has(Feature::Bf16) {
+                let (code, ta) = if q == 0 {
+                    (Code::BfcvtnVec, VA::V4H)
+                } else {
+                    (Code::Bfcvtn2Vec, VA::V8H)
+                };
+                out.set(code);
+                out.push_operand(vreg(rd, ta));
+                out.push_operand(vreg(rn, VA::V4S));
+            }
+            return;
+        }
+        // F1CVTL/F2CVTL/BF1CVTL/BF2CVTL (+L2): U==1, opcode 10111. Widen FP8
+        // `.8b`/`.16b` -> FP16/BF16 `.8h`. `size` picks the variant; Q picks the
+        // low (`.8b`) vs high (`.16b`, `2`-suffixed) source half.
+        if u == 1 && opcode == 0b10111 {
+            if features.has(Feature::Fp8) {
+                let (code, tb) = match (size, q) {
+                    (0b00, 0) => (Code::F1cvtlVec, VA::V8B),
+                    (0b00, _) => (Code::F1cvtl2Vec, VA::V16B),
+                    (0b01, 0) => (Code::F2cvtlVec, VA::V8B),
+                    (0b01, _) => (Code::F2cvtl2Vec, VA::V16B),
+                    (0b10, 0) => (Code::Bf1cvtlVec, VA::V8B),
+                    (0b10, _) => (Code::Bf1cvtl2Vec, VA::V16B),
+                    (0b11, 0) => (Code::Bf2cvtlVec, VA::V8B),
+                    (_, _) => (Code::Bf2cvtl2Vec, VA::V16B),
+                };
+                out.set(code);
+                out.push_operand(vreg(rd, VA::V8H));
+                out.push_operand(vreg(rn, tb));
+            }
             return;
         }
     }
@@ -2253,6 +2350,98 @@ mod tests {
         let mut insn = Instruction::default();
         crate::decode::simd_fp::decode(word, 0, FeatureSet::ALL, &mut insn);
         assert!(insn.is_invalid(), "expected invalid for {word:#010x}");
+    }
+
+    /// Decode (via the public group entry) then re-encode and require the exact
+    /// same word back.
+    #[track_caller]
+    fn rt(word: u32) {
+        let mut insn = Instruction::default();
+        crate::decode::decode_into(word, 0x1000, FeatureSet::ALL, &mut insn);
+        assert!(!insn.is_invalid(), "word {word:#010x} failed to decode");
+        let got = insn.encode().expect("encode");
+        assert_eq!(got, word, "round-trip mismatch for {word:#010x}: got {got:#010x}");
+    }
+
+    #[test]
+    fn faminmax_vector() {
+        // FAMAX/FAMIN single/double (FEAT_FAMINMAX), bit23-selected group.
+        render(0x0EA0DC72, "famax   v18.2s, v3.2s, v0.2s");
+        render(0x4EA0DC72, "famax   v18.4s, v3.4s, v0.4s");
+        render(0x4EE0DC72, "famax   v18.2d, v3.2d, v0.2d");
+        render(0x2EA0DCD0, "famin   v16.2s, v6.2s, v0.2s");
+        render(0x6EE0DCD0, "famin   v16.2d, v6.2d, v0.2d");
+        // Half-precision FAMAX/FAMIN.
+        render(0x0EC01C00, "famax   v0.4h, v0.4h, v0.4h");
+        render(0x4EC01C00, "famax   v0.8h, v0.8h, v0.8h");
+        render(0x2EC01C00, "famin   v0.4h, v0.4h, v0.4h");
+        render(0x6EC01C00, "famin   v0.8h, v0.8h, v0.8h");
+        for w in [
+            0x0EA0DC72, 0x4EA0DC72, 0x4EE0DC72, 0x2EA0DCD0, 0x6EE0DCD0, 0x0EC01C00, 0x4EC01C00,
+            0x2EC01C00, 0x6EC01C00,
+        ] {
+            rt(w);
+        }
+        // Gated off without FEAT_FAMINMAX.
+        let mut insn = Instruction::default();
+        crate::decode::simd_fp::decode(
+            0x0EA0DC72,
+            0,
+            FeatureSet::BASE.with(Feature::Fp16),
+            &mut insn,
+        );
+        assert!(insn.is_invalid());
+    }
+
+    #[test]
+    fn fscale_vector() {
+        render(0x2EA0FC5F, "fscale  v31.2s, v2.2s, v0.2s");
+        render(0x6EA0FC5F, "fscale  v31.4s, v2.4s, v0.4s");
+        render(0x6EE0FC5F, "fscale  v31.2d, v2.2d, v0.2d");
+        render(0x2EC03C00, "fscale  v0.4h, v0.4h, v0.4h");
+        render(0x6EC03C00, "fscale  v0.8h, v0.8h, v0.8h");
+        for w in [0x2EA0FC5F, 0x6EA0FC5F, 0x6EE0FC5F, 0x2EC03C00, 0x6EC03C00] {
+            rt(w);
+        }
+    }
+
+    #[test]
+    fn fp8_fcvtn_narrow() {
+        // FP8 down-convert: two source vectors -> FP8 bytes.
+        render(0x0E00F43E, "fcvtn   v30.8b, v1.4s, v0.4s");
+        render(0x4E00F542, "fcvtn2  v2.16b, v10.4s, v0.4s");
+        render(0x0E40F43E, "fcvtn   v30.8b, v1.4h, v0.4h");
+        render(0x4E40F43E, "fcvtn   v30.16b, v1.8h, v0.8h");
+        for w in [0x0E00F43E, 0x4E00F542, 0x0E40F43E, 0x4E40F43E] {
+            rt(w);
+        }
+        // U==1 in the same slot is FCADD, not FCVTN.
+        render(0x2E80F43E, "fcadd   v30.2s, v1.2s, v0.2s, #0x10e");
+    }
+
+    #[test]
+    fn fp8_bfcvtn_and_upconvert() {
+        // BFCVTN/BFCVTN2: FP32 -> BF16 narrow.
+        render(0x0EA1686B, "bfcvtn  v11.4h, v3.4s");
+        render(0x4EA168B3, "bfcvtn2 v19.8h, v5.4s");
+        // FP8 -> FP16/BF16 widen (L) and high-half (L2).
+        render(0x2E217841, "f1cvtl  v1.8h, v2.8b");
+        render(0x6E217841, "f1cvtl2 v1.8h, v2.16b");
+        render(0x2E617841, "f2cvtl  v1.8h, v2.8b");
+        render(0x6E617841, "f2cvtl2 v1.8h, v2.16b");
+        render(0x2EA17841, "bf1cvtl v1.8h, v2.8b");
+        render(0x6EA17841, "bf1cvtl2 v1.8h, v2.16b");
+        render(0x2EE17A01, "bf2cvtl v1.8h, v16.8b");
+        render(0x6EE17841, "bf2cvtl2 v1.8h, v2.16b");
+        for w in [
+            0x0EA1686B, 0x4EA168B3, 0x2E217841, 0x6E217841, 0x2E617841, 0x6E617841, 0x2EA17841,
+            0x6EA17841, 0x2EE17841, 0x2EE17A01, 0x6EE17841,
+        ] {
+            rt(w);
+        }
+        // Existing FCVTN (FP narrow) and FCVTL (FP widen) are unaffected.
+        render(0x0E216841, "fcvtn   v1.4h, v2.4s");
+        render(0x0E217841, "fcvtl   v1.4s, v2.4h");
     }
 
     #[test]

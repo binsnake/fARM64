@@ -9,6 +9,7 @@ use crate::enums::VectorArrangement as VA;
 use crate::instruction::Instruction;
 use crate::mnemonic::{Code, Mnemonic};
 use crate::operand::{Operand, PredQual};
+use crate::register::RegClass;
 
 use Code::*;
 
@@ -29,8 +30,9 @@ pub(super) fn is_int(code: Code) -> bool {
         // dup/cpy/insr/sel
             | SveDupScalar | SveInsrScalar | SveInsrVec | SveDupIdx | SveCpyScalar | SveCpyVec
             | SveSelZpzz | SveRbitZpz
-        // index / addvl / rdvl
+        // index / addvl / rdvl (+ SME streaming addsvl / addspl / rdsvl)
             | SveIndexImmImm | SveIndexRi | SveIndexIr | SveIndexRr | SveAddvl | SveAddpl | SveRdvl
+            | SveAddsvl | SveAddspl | SveRdsvl
         // shift unpred
             | SveAsrWide | SveLsrWide | SveLslWide | SveAsrZi | SveLsrZi | SveLslZi
         // adr / movprfx
@@ -57,6 +59,10 @@ pub(super) fn is_int(code: Code) -> bool {
             | SveSdot | SveUdot | SveSdotIdx | SveUdotIdx | SveDotMixed
             | SveSdotH | SveUdotH | SveSdotHIdx | SveUdotHIdx
             | SveZipqUzpq | SveTblq
+        // sve2.1 misc + quadword reductions to vector
+            | SveExpand | SveDupq | SveExtq | SvePmov
+            | SveAddqv | SveSmaxqv | SveUmaxqv | SveSminqv | SveUminqv
+            | SveOrqv | SveEorqv | SveAndqv
             | SveAddptPred | SveSubptPred | SveAddptUnpred | SveSubptUnpred
             | SveCdot | SveCdotIdx | SveCmla | SveCmlaIdx | SveSqrdcmlah | SveSqrdcmlahIdx
             | SveMlaIdx | SveMlsIdx | SveMulIdx
@@ -244,7 +250,10 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            fld(0b00000101, 24) | fld(size, 22) | fld(1, 21) | fld(0b00111, 16) | fld(0b100, 13)
+            // `<15:13>` is 100 for the merging (`/m`) form, 101 for the
+            // FEAT_SVE2p1 zeroing (`/z`) form.
+            let sel = if matches!(pred_qual(insn, 1), Some(PredQual::Zeroing)) { 0b101 } else { 0b100 };
+            fld(0b00000101, 24) | fld(size, 22) | fld(1, 21) | fld(0b00111, 16) | fld(sel, 13)
                 | fld(pg, 10)
                 | fld(zn, 5)
                 | zd
@@ -291,6 +300,19 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let rd = reg(insn, 0)?;
             let imm6 = (simm(insn, 1)? as u32) & 0x3f;
             base04(1, 0b010) | fld(0b10, 22) | fld(0b100, 10) | fld(0b11111, 16) | fld(imm6, 5) | rd
+        }
+        // SME streaming analogues: word<11>=1 (the `0b110` in the bits<12:10> slot).
+        SveAddsvl | SveAddspl => {
+            let op22 = if matches!(code, SveAddsvl) { 0b00 } else { 0b01 };
+            let rd = reg(insn, 0)?;
+            let rn = reg(insn, 1)?;
+            let imm6 = (simm(insn, 2)? as u32) & 0x3f;
+            base04(1, 0b010) | fld(op22, 22) | fld(0b110, 10) | fld(rn, 16) | fld(imm6, 5) | rd
+        }
+        SveRdsvl => {
+            let rd = reg(insn, 0)?;
+            let imm6 = (simm(insn, 1)? as u32) & 0x3f;
+            base04(1, 0b010) | fld(0b10, 22) | fld(0b110, 10) | fld(0b11111, 16) | fld(imm6, 5) | rd
         }
         // ---- shift unpred (0x04, <15:13>=100) ----
         SveAsrWide | SveLsrWide | SveLslWide => {
@@ -412,6 +434,89 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zn = z(insn, 2)?;
             base04(0, 0b001) | fld(size, 22) | fld(opc, 16) | fld(pg, 10) | fld(zn, 5) | dd
         }
+        // ---- SVE2.1 quadword reductions to a NEON `V` register (0x04) ----
+        SveAddqv | SveSmaxqv | SveUmaxqv | SveSminqv | SveUminqv | SveOrqv | SveEorqv | SveAndqv => {
+            let opc = match code {
+                SveAddqv => 0b00101,
+                SveSmaxqv => 0b01100,
+                SveUmaxqv => 0b01101,
+                SveSminqv => 0b01110,
+                SveUminqv => 0b01111,
+                SveOrqv => 0b11100,
+                SveEorqv => 0b11101,
+                _ => 0b11110,
+            };
+            let size = esize(insn, 2)?; // element size from the source `Zn`
+            let vd = reg(insn, 0)?; // destination `Vd`
+            let pg = p(insn, 1)?;
+            let zn = z(insn, 2)?;
+            base04(0, 0b001) | fld(size, 22) | fld(opc, 16) | fld(pg, 10) | fld(zn, 5) | vd
+        }
+        // ---- SVE2.1 misc (0x05): EXPAND / DUPQ / EXTQ / PMOV ----
+        SveExpand => {
+            let size = esize(insn, 0)?;
+            let zd = z(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let zn = z(insn, 2)?;
+            fld(0b00000101, 24) | fld(size, 22) | fld(1, 21) | fld(0b10001, 16) | fld(0b100, 13)
+                | fld(pg, 10)
+                | fld(zn, 5)
+                | zd
+        }
+        SveDupq => {
+            let zd = z(insn, 0)?;
+            let size = esize(insn, 0)?; // 0=.b .. 3=.d
+            let zn = z(insn, 1)?;
+            let idx = lane(insn, 1)?;
+            let tsz = (idx << (size + 1)) | (1u32 << size);
+            if tsz > 0x1f {
+                return Err(EncodeError::InvalidImmediate);
+            }
+            fld(0b00000101, 24) | fld(1, 21) | fld(tsz, 16) | fld(0b001, 13) | fld(0b001, 10)
+                | fld(zn, 5)
+                | zd
+        }
+        SveExtq => {
+            let zd = z(insn, 0)?;
+            let zm = z(insn, 2)?;
+            let imm4 = (imm(insn, 3)? as u32) & 0xf;
+            fld(0b00000101, 24) | fld(0b01, 22) | fld(1, 21) | fld(imm4, 16) | fld(0b001, 13)
+                | fld(0b001, 10)
+                | fld(zm, 5)
+                | zd
+        }
+        SvePmov => {
+            // bits<4:0> = destination (Pd or Zd); bits<9:5> = source (Zn or Pn).
+            let d4_0 = reg(insn, 0)?;
+            let s9_5 = reg(insn, 1)?;
+            // The predicate carries the arrangement; the vector carries the lane.
+            let (dbit, a, lane) = match insn.op(0) {
+                Operand::Reg { reg, arr: Some(a), .. } if reg.class() == RegClass::Predicate => {
+                    (0u32, a, pmov_lane(insn, 1)) // P <- Z
+                }
+                _ => {
+                    let a = match insn.op(1) {
+                        Operand::Reg { arr: Some(a), .. } => a,
+                        _ => return Err(EncodeError::InvalidOperand),
+                    };
+                    (1u32, a, pmov_lane(insn, 0)) // Z <- P
+                }
+            };
+            let pos = arr_size(a)?;
+            let t = (1u32 << pos) | (lane & ((1u32 << pos) - 1));
+            fld(0b00000101, 24)
+                | fld((t >> 3) & 1, 23)
+                | fld((t >> 2) & 1, 22)
+                | fld(1, 21)
+                | fld(1, 19)
+                | fld((t >> 1) & 1, 18)
+                | fld(t & 1, 17)
+                | fld(dbit, 16)
+                | fld(0b001, 13)
+                | fld(0b110, 10)
+                | fld(s9_5, 5)
+                | d4_0
+        }
         // ---- MLA / MLS / MAD / MSB (0x04) ----
         SveMlaZpzzz | SveMlsZpzzz => {
             let sel = if matches!(code, SveMlsZpzzz) { 0b011 } else { 0b010 };
@@ -477,6 +582,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 SveCntZpz => 0b11010,
                 SveCnotZpz => 0b11011,
                 _ => 0b11110,
+            };
+            // `<20>` selects merging (`/m`) vs the FEAT_SVE2p1 zeroing (`/z`) form.
+            let opc = if matches!(pred_qual(insn, 1), Some(PredQual::Zeroing)) {
+                opc & 0b0_1111
+            } else {
+                opc
             };
             let size = esize(insn, 0)?;
             let zd = z(insn, 0)?;
@@ -550,6 +661,15 @@ fn arr_of(insn: &Instruction, n: usize) -> Result<VA, EncodeError> {
 #[inline]
 fn base04(b21: u32, sel: u32) -> u32 {
     fld(0b00000100, 24) | fld(b21, 21) | fld(sel, 13)
+}
+
+/// The lane index of operand `n` (0 when it carries none), for PMOV's vector.
+#[inline]
+fn pmov_lane(insn: &Instruction, n: usize) -> u32 {
+    match insn.op(n) {
+        Operand::Reg { lane: Some(l), .. } => l as u32,
+        _ => 0,
+    }
 }
 
 /// Base word for the 0x05 `<15:13>=001` family with `<20:16>=opc2016`. These

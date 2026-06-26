@@ -1544,6 +1544,9 @@ codes! {
     SveAddvl => Addvl, Sve, "`ADDVL <Xd|SP>, <Xn|SP>, #imm` (SVE).";
     SveAddpl => Addpl, Sve, "`ADDPL <Xd|SP>, <Xn|SP>, #imm` (SVE).";
     SveRdvl => Rdvl, Sve, "`RDVL <Xd>, #imm` (SVE).";
+    SveAddsvl => Addsvl, Sme, "`ADDSVL <Xd|SP>, <Xn|SP>, #imm` (SME streaming VL).";
+    SveAddspl => Addspl, Sme, "`ADDSPL <Xd|SP>, <Xn|SP>, #imm` (SME streaming PL).";
+    SveRdsvl => Rdsvl, Sme, "`RDSVL <Xd>, #imm` (SME streaming VL).";
 
     // --- SVE: DUP / MOV / CPY / SEL / INSR ---
     SveDupImm => Mov, Sve, "`DUP <Zd>.<T>, #imm{, shift}` (SVE, alias MOV).";
@@ -1709,6 +1712,23 @@ codes! {
     SveZipqUzpq => Zipq1, Sve2p1, "`{ZIPQ,UZPQ}{1,2} <Zd>.<T>, <Zn>.<T>, <Zm>.<T>` (SVE2.1 128-bit-segment permute).";
     SveTblq => Tblq, Sve2p1, "`TBLQ <Zd>.<T>, {<Zn>.<T>}, <Zm>.<T>` (SVE2.1 128-bit-segment table lookup).";
     SveTbxq => Tbxq, Sve2p1, "`TBXQ <Zd>.<T>, <Zn>.<T>, <Zm>.<T>` (SVE2.1 128-bit-segment table lookup, keep).";
+    SveExpand => Expand, Sve2p1, "`EXPAND <Zd>.<T>, <Pg>, <Zn>.<T>` (SVE2.1 expand active elements).";
+    SveDupq => Dupq, Sve2p1, "`DUPQ <Zd>.<T>, <Zn>.<T>[<index>]` (SVE2.1 indexed broadcast within 128-bit segments).";
+    SveExtq => Extq, Sve2p1, "`EXTQ <Zdn>.B, <Zdn>.B, <Zm>.B, #imm` (SVE2.1 extract within 128-bit segments).";
+    SvePmov => Pmov, Sve2p1, "`PMOV <Pd>.<T>, <Zn>[<index>]` / `PMOV <Zd>[<index>], <Pn>.<T>` (SVE2.1 predicate<->vector move).";
+    SveAddqv => Addqv, Sve2p1, "`ADDQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword add reduction).";
+    SveSmaxqv => Smaxqv, Sve2p1, "`SMAXQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword signed-max reduction).";
+    SveUmaxqv => Umaxqv, Sve2p1, "`UMAXQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword unsigned-max reduction).";
+    SveSminqv => Sminqv, Sve2p1, "`SMINQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword signed-min reduction).";
+    SveUminqv => Uminqv, Sve2p1, "`UMINQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword unsigned-min reduction).";
+    SveOrqv => Orqv, Sve2p1, "`ORQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword OR reduction).";
+    SveEorqv => Eorqv, Sve2p1, "`EORQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword EOR reduction).";
+    SveAndqv => Andqv, Sve2p1, "`ANDQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword AND reduction).";
+    SveFaddqv => Faddqv, Sve2p1, "`FADDQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword FP add reduction).";
+    SveFmaxnmqv => Fmaxnmqv, Sve2p1, "`FMAXNMQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword FP max-number reduction).";
+    SveFminnmqv => Fminnmqv, Sve2p1, "`FMINNMQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword FP min-number reduction).";
+    SveFmaxqv => Fmaxqv, Sve2p1, "`FMAXQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword FP max reduction).";
+    SveFminqv => Fminqv, Sve2p1, "`FMINQV <Vd>.<T>, <Pg>, <Zn>.<Tb>` (SVE2.1 quadword FP min reduction).";
     SveLuti2 => Luti2, Lut, "`LUTI2 <Zd>.<T>, {<Zn>.<T>}, <Zm>[<index>]` (SVE FEAT_LUT lookup table, 2-bit indices, `.B`/`.H`).";
     SveLuti4 => Luti4, Lut, "`LUTI4 <Zd>.<T>, {<Zn>.<T>}, <Zm>[<index>]` (SVE FEAT_LUT lookup table, 4-bit indices, `.B`/`.H`).";
     SveLuti4Two => Luti4, Lut, "`LUTI4 <Zd>.<T>, {<Zn1>.<T>, <Zn2>.<T>}, <Zm>[<index>]` (SVE FEAT_LUT two-table lookup, `.H`).";
@@ -2495,6 +2515,25 @@ codes! {
     FmlallbtVec => Fmlallbt, Fp8, "`FMLALLBT <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
     FmlalltbVec => Fmlalltb, Fp8, "`FMLALLTB <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
     FmlallttVec => Fmlalltt, Fp8, "`FMLALLTT <Vd>.4S, <Vn>.16B, <Vm>.16B` / `.B[i]` (Advanced SIMD FP8 widening ×4 MLAL).";
+    // --- NEON Advanced-SIMD FEAT_FAMINMAX / FEAT_FP8 / FEAT_LUT (FP8 family) ---
+    FamaxVec => Famax, Faminmax, "`FAMAX <Vd>.<T>, <Vn>.<T>, <Vm>.<T>` (Advanced SIMD FP absolute maximum, FEAT_FAMINMAX).";
+    FaminVec => Famin, Faminmax, "`FAMIN <Vd>.<T>, <Vn>.<T>, <Vm>.<T>` (Advanced SIMD FP absolute minimum, FEAT_FAMINMAX).";
+    FscaleVec => Fscale, Fp8, "`FSCALE <Vd>.<T>, <Vn>.<T>, <Vm>.<T>` (Advanced SIMD FP scale, FEAT_FP8).";
+    FcvtnFp8 => Fcvtn, Fp8, "`FCVTN <Vd>.<8b/16b>, <Vn>.<T>, <Vm>.<T>` (Advanced SIMD two-vector convert+narrow to FP8, FEAT_FP8).";
+    Fcvtn2Fp8 => Fcvtn2, Fp8, "`FCVTN2 <Vd>.16b, <Vn>.4s, <Vm>.4s` (Advanced SIMD two-vector convert+narrow to FP8 high, FEAT_FP8).";
+    BfcvtnVec => Bfcvtn, Bf16, "`BFCVTN <Vd>.4h, <Vn>.4s` (Advanced SIMD convert+narrow FP32 to BF16).";
+    Bfcvtn2Vec => Bfcvtn2, Bf16, "`BFCVTN2 <Vd>.8h, <Vn>.4s` (Advanced SIMD convert+narrow FP32 to BF16 high).";
+    F1cvtlVec => F1cvtl, Fp8, "`F1CVTL <Vd>.8h, <Vn>.8b` (Advanced SIMD FP8 to FP16 widen, FEAT_FP8).";
+    F1cvtl2Vec => F1cvtl2, Fp8, "`F1CVTL2 <Vd>.8h, <Vn>.16b` (Advanced SIMD FP8 to FP16 widen high, FEAT_FP8).";
+    F2cvtlVec => F2cvtl, Fp8, "`F2CVTL <Vd>.8h, <Vn>.8b` (Advanced SIMD FP8 to FP16 widen, FEAT_FP8).";
+    F2cvtl2Vec => F2cvtl2, Fp8, "`F2CVTL2 <Vd>.8h, <Vn>.16b` (Advanced SIMD FP8 to FP16 widen high, FEAT_FP8).";
+    Bf1cvtlVec => Bf1cvtl, Fp8, "`BF1CVTL <Vd>.8h, <Vn>.8b` (Advanced SIMD FP8 to BF16 widen, FEAT_FP8).";
+    Bf1cvtl2Vec => Bf1cvtl2, Fp8, "`BF1CVTL2 <Vd>.8h, <Vn>.16b` (Advanced SIMD FP8 to BF16 widen high, FEAT_FP8).";
+    Bf2cvtlVec => Bf2cvtl, Fp8, "`BF2CVTL <Vd>.8h, <Vn>.8b` (Advanced SIMD FP8 to BF16 widen, FEAT_FP8).";
+    Bf2cvtl2Vec => Bf2cvtl2, Fp8, "`BF2CVTL2 <Vd>.8h, <Vn>.16b` (Advanced SIMD FP8 to BF16 widen high, FEAT_FP8).";
+    Luti2Vec => Luti2, Lut, "`LUTI2 <Vd>.<T>, {<Vn>.<T>}, <Vm>[<index>]` (Advanced SIMD FEAT_LUT lookup table, 2-bit indices, `.16b`/`.8h`).";
+    Luti4Vec => Luti4, Lut, "`LUTI4 <Vd>.16b, {<Vn>.16b}, <Vm>[<index>]` (Advanced SIMD FEAT_LUT lookup table, single-register `.16b`).";
+    Luti4TwoVec => Luti4, Lut, "`LUTI4 <Vd>.8h, {<Vn1>.8h, <Vn2>.8h}, <Vm>[<index>]` (Advanced SIMD FEAT_LUT two-register lookup, `.8h`).";
     SmeAddDDV2Gg => Add, Sme2, "`add za.d[w8, 0, vgx2], { z0.d, z1.d }, { z0.d, z1.d }` (SME2).";
     SmeAddDDV2Go => Add, Sme2, "`add za.d[w8, 0, vgx2], { z0.d, z1.d }` (SME2).";
     SmeAddDDV2Gs => Add, Sme2, "`add za.d[w8, 0, vgx2], { z0.d, z1.d }, z0.d` (SME2).";
@@ -2664,6 +2703,14 @@ codes! {
     SmeStnt1hMV => Stnt1h, Sme2, "`stnt1h { z0.h, z1.h }, pn8, [x0, x0, lsl #1]` (SME2 multi-vector).";
     SmeStnt1wMV => Stnt1w, Sme2, "`stnt1w { z0.s, z1.s }, pn8, [x0, x0, lsl #2]` (SME2 multi-vector).";
     SmeStnt1dMV => Stnt1d, Sme2, "`stnt1d { z0.d, z1.d }, pn8, [x0, x0, lsl #3]` (SME2 multi-vector).";
+
+    // --- SME2 multi-vector saturating rounding shift right narrow by immediate ---
+    SmeSqrshr => Sqrshr, Sme2, "`sqrshr z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
+    SmeUqrshr => Uqrshr, Sme2, "`uqrshr z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
+    SmeSqrshrn => Sqrshrn, Sme2, "`sqrshrn z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
+    SmeUqrshrn => Uqrshrn, Sme2, "`uqrshrn z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
+    SmeSqrshru => Sqrshru, Sme2, "`sqrshru z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
+    SmeSqrshrun => Sqrshrun, Sme2, "`sqrshrun z0.b, { z8.s - z11.s }, #32` (SME2 multi-vector, narrow).";
 }
 
 impl Code {
@@ -4283,6 +4330,30 @@ pub enum Mnemonic {
     Fcvtn,
     /// `FCVTN2` (Advanced SIMD).
     Fcvtn2,
+    /// `FAMAX` (Advanced SIMD, FEAT_FAMINMAX).
+    Famax,
+    /// `FAMIN` (Advanced SIMD, FEAT_FAMINMAX).
+    Famin,
+    /// `BFCVTN` (Advanced SIMD).
+    Bfcvtn,
+    /// `BFCVTN2` (Advanced SIMD).
+    Bfcvtn2,
+    /// `F1CVTL` (Advanced SIMD, FEAT_FP8).
+    F1cvtl,
+    /// `F1CVTL2` (Advanced SIMD, FEAT_FP8).
+    F1cvtl2,
+    /// `F2CVTL` (Advanced SIMD, FEAT_FP8).
+    F2cvtl,
+    /// `F2CVTL2` (Advanced SIMD, FEAT_FP8).
+    F2cvtl2,
+    /// `BF1CVTL` (Advanced SIMD, FEAT_FP8).
+    Bf1cvtl,
+    /// `BF1CVTL2` (Advanced SIMD, FEAT_FP8).
+    Bf1cvtl2,
+    /// `BF2CVTL` (Advanced SIMD, FEAT_FP8).
+    Bf2cvtl,
+    /// `BF2CVTL2` (Advanced SIMD, FEAT_FP8).
+    Bf2cvtl2,
     /// `FCVTXN` (Advanced SIMD).
     Fcvtxn,
     /// `FCVTXN2` (Advanced SIMD).
@@ -4967,6 +5038,38 @@ pub enum Mnemonic {
     Ctermne,
     /// `PMOV` (SVE move predicate to/from vector, SME2/SVE2p1).
     Pmov,
+    /// `EXPAND` (SVE2.1 expand active elements).
+    Expand,
+    /// `DUPQ` (SVE2.1 broadcast indexed element within 128-bit segments).
+    Dupq,
+    /// `EXTQ` (SVE2.1 extract vector from pair within 128-bit segments).
+    Extq,
+    /// `ADDQV` (SVE2.1 quadword add reduction to vector).
+    Addqv,
+    /// `SMAXQV` (SVE2.1 quadword signed-max reduction to vector).
+    Smaxqv,
+    /// `UMAXQV` (SVE2.1 quadword unsigned-max reduction to vector).
+    Umaxqv,
+    /// `SMINQV` (SVE2.1 quadword signed-min reduction to vector).
+    Sminqv,
+    /// `UMINQV` (SVE2.1 quadword unsigned-min reduction to vector).
+    Uminqv,
+    /// `ORQV` (SVE2.1 quadword OR reduction to vector).
+    Orqv,
+    /// `EORQV` (SVE2.1 quadword EOR reduction to vector).
+    Eorqv,
+    /// `ANDQV` (SVE2.1 quadword AND reduction to vector).
+    Andqv,
+    /// `FADDQV` (SVE2.1 quadword FP add reduction to vector).
+    Faddqv,
+    /// `FMAXNMQV` (SVE2.1 quadword FP max-number reduction to vector).
+    Fmaxnmqv,
+    /// `FMINNMQV` (SVE2.1 quadword FP min-number reduction to vector).
+    Fminnmqv,
+    /// `FMAXQV` (SVE2.1 quadword FP max reduction to vector).
+    Fmaxqv,
+    /// `FMINQV` (SVE2.1 quadword FP min reduction to vector).
+    Fminqv,
 
     // --- SVE floating-point (multiply-add, scale, reductions, converts) ---
     /// `FMAD` (SVE fused multiply-add, destructive multiplicand).
@@ -5636,6 +5739,18 @@ pub enum Mnemonic {
     Casplt,
     /// `CASPALT` (FEAT_LSUI unprivileged compare-and-swap pair, acquire-release).
     Caspalt,
+    /// `ADDSVL` (SME streaming-mode add multiple of streaming SVE vector length).
+    Addsvl,
+    /// `ADDSPL` (SME streaming-mode add multiple of streaming SVE predicate length).
+    Addspl,
+    /// `RDSVL` (SME read streaming SVE vector length, scaled immediate).
+    Rdsvl,
+    /// `SQRSHR` (SME2 multi-vector saturating rounding shift right narrow).
+    Sqrshr,
+    /// `UQRSHR` (SME2 multi-vector unsigned saturating rounding shift right narrow).
+    Uqrshr,
+    /// `SQRSHRU` (SME2 multi-vector signed→unsigned saturating rounding shift right narrow).
+    Sqrshru,
 }
 
 impl Mnemonic {

@@ -359,20 +359,30 @@ pub enum Operand {
     /// `{ z0.b, z1.b }` (a comma list) or `{ z0.b - z3.b }` (a range).
     ///
     /// [`first`](Operand::SveVecGroup::first) is the lowest `Z` register;
-    /// [`count`](Operand::SveVecGroup::count) is how many consecutive registers
-    /// (`2` or `4`); [`arr`](Operand::SveVecGroup::arr) is the shared element-size
-    /// suffix; and [`range`](Operand::SveVecGroup::range) selects the ` - ` range
-    /// rendering (LLVM uses the range for 4-register groups and the comma list for
-    /// 2-register groups).
+    /// [`count`](Operand::SveVecGroup::count) is how many registers (`2` or `4`);
+    /// [`arr`](Operand::SveVecGroup::arr) is the shared element-size suffix; and
+    /// [`range`](Operand::SveVecGroup::range) selects the ` - ` range rendering
+    /// (LLVM uses the range for consecutive 4-register groups and the comma list
+    /// for 2-register groups).
+    ///
+    /// [`stride`](Operand::SveVecGroup::stride) is the register-number step between
+    /// successive group members: `1` for the usual *consecutive* group
+    /// (`{ z8.s - z11.s }`), or the larger step of the SME2 *strided* multi-vector
+    /// load/store lists — `8` for a 2-register strided group (`{ z16.d, z24.d }`)
+    /// and `4` for a 4-register strided group (`{ z1.h, z5.h, z9.h, z13.h }`). A
+    /// strided group always renders as a comma list (`range == false`).
     SveVecGroup {
-        /// The lowest `Z` register of the consecutive group.
+        /// The lowest `Z` register of the group.
         first: Register,
-        /// Number of consecutive registers (`2` or `4`).
+        /// Number of registers (`2` or `4`).
         count: u8,
         /// Shared element-size arrangement (`.b`/`.h`/`.s`/`.d`).
         arr: Option<VectorArrangement>,
         /// Render as a ` - ` range (`{ z0.b - z3.b }`) rather than a comma list.
         range: bool,
+        /// Register-number step between successive members (`1` consecutive, `8`
+        /// or `4` for the strided multi-vector lists).
+        stride: u8,
     },
 
     /// An SME2 / SVE2.1 **predicate-as-counter** governing operand (`PNg`), as

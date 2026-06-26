@@ -15,6 +15,7 @@ mod simd_data {
             Uzp1 | Uzp2 | Trn1 | Trn2 | Zip1 | Zip2 => enc_permute(insn, code)?,
             Ext => enc_ext(insn)?,
             Tbl | Tbx => enc_table(insn, code)?,
+            Luti2Vec | Luti4Vec | Luti4TwoVec => enc_luti_neon(insn, code)?,
             MoviVector | MvniVector | MoviScalarD | MoviVec2D | OrrVecImm | BicVecImm
             | FmovVecImmS | FmovVecImmH | FmovVecImmD2 => enc_modified_immediate(insn, code)?,
             SshrVec | UshrVec | SsraVec | UsraVec | SrshrVec | UrshrVec | SrsraVec | UrsraVec
@@ -316,6 +317,46 @@ mod simd_data {
             | (rm << 16)
             | (len << 13)
             | (op << 12)
+            | (rn << 5)
+            | rd;
+        Ok(word)
+    }
+
+    /// LUTI2/LUTI4 (FEAT_LUT, NEON) — inverse of `decode_luti_neon`. Layout:
+    /// `0 1 0 01110 size 0 Rm 0 <14:12> 00 Rn Rd` (Q fixed to 1). `size` and the
+    /// `<14:12>` field are recovered from the destination arrangement (op0), the
+    /// `Code` and the table index (the lane on op2).
+    fn enc_luti_neon(insn: &Instruction, code: Code) -> R {
+        use Code::*;
+        let rd = reg_num(insn, 0)?;
+        // Table register-list operand (op1): first register number.
+        let rn = match insn.op(1) {
+            Operand::MultiReg { regs, .. } => regs[0].number() as u32,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Vector-element selector (op2): Vm register + bracketed table index.
+        let rm = reg_num(insn, 2)?;
+        let index = lane_of(insn, 2)? as u32;
+        let dst = arr_of(insn, 0)?;
+        let (size, b14, b13, b12) = match code {
+            Luti2Vec => match dst {
+                VA::V16B => (0b10u32, (index >> 1) & 1, index & 1, 1u32),
+                VA::V8H => (0b11, (index >> 2) & 1, (index >> 1) & 1, index & 1),
+                _ => return Err(EncodeError::InvalidOperand),
+            },
+            // .16b single-register table: 1-bit index at <14>; <13>=1, <12>=0.
+            Luti4Vec => (0b01, index & 1, 1, 0),
+            // .8h two-register table: 2-bit index at <14:13>; <12>=1.
+            Luti4TwoVec => (0b01, (index >> 1) & 1, index & 1, 1),
+            _ => return Err(EncodeError::Unsupported),
+        };
+        let word = (1u32 << 30) // Q == 1 (128-bit only)
+            | (0b01110 << 24)
+            | (size << 22)
+            | (rm << 16)
+            | (b14 << 14)
+            | (b13 << 13)
+            | (b12 << 12)
             | (rn << 5)
             | rd;
         Ok(word)

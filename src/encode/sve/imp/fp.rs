@@ -1,12 +1,12 @@
 //! Inverse of [`crate::decode::sve::sve_fp`] — SVE/SVE2 floating-point family.
 
-use super::{esize, fld, lane, p, sfp, z};
+use super::{esize, fld, lane, p, pred_qual, reg, sfp, z};
 use crate::encode::bits::encode_vfp_imm;
 use crate::encode::EncodeError;
 use crate::enums::VectorArrangement as VA;
 use crate::instruction::Instruction;
 use crate::mnemonic::Code;
-use crate::operand::Operand;
+use crate::operand::{Operand, PredQual};
 
 use Code::*;
 
@@ -45,6 +45,8 @@ pub(super) fn is_fp(code: Code) -> bool {
             | SveFmlalbIdx | SveFmlaltIdx | SveFmlslbIdx | SveFmlsltIdx
         // 0x04 / 0x05 / 0x25 leaves
             | SveFabsZpz | SveFnegZpz | SveFexpa | SveFtssel | SveFcpy | SveFdup
+        // sve2.1 quadword FP reductions
+            | SveFaddqv | SveFmaxnmqv | SveFminnmqv | SveFmaxqv | SveFminqv
     )
 }
 
@@ -333,6 +335,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         // ---- 0x04 FABS / FNEG ----
         SveFabsZpz | SveFnegZpz => {
             let opc = if matches!(code, SveFabsZpz) { 0b11100 } else { 0b11101 };
+            // `<20>` selects merging (`/m`) vs FEAT_SVE2p1 zeroing (`/z`).
+            let opc = if matches!(pred_qual(insn, 1), Some(PredQual::Zeroing)) {
+                opc & 0b0_1111
+            } else {
+                opc
+            };
             let size = esize(insn, 0)?;
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
@@ -340,6 +348,23 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             fld(0b00000100, 24) | fld(size, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10)
                 | fld(zn, 5)
                 | zd
+        }
+        // ---- 0x64 SVE2.1 quadword FP reductions to a NEON `V` register ----
+        SveFaddqv | SveFmaxnmqv | SveFminnmqv | SveFmaxqv | SveFminqv => {
+            let opc = match code {
+                SveFaddqv => 0b10000,
+                SveFmaxnmqv => 0b10100,
+                SveFminnmqv => 0b10101,
+                SveFmaxqv => 0b10110,
+                _ => 0b10111,
+            };
+            let size = esize(insn, 2)?; // element size from the source `Zn`
+            let vd = reg(insn, 0)?; // destination `Vd`
+            let pg = p(insn, 1)?;
+            let zn = z(insn, 2)?;
+            fld(0b01100100, 24) | fld(size, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10)
+                | fld(zn, 5)
+                | vd
         }
         // ---- 0x04 FEXPA / FTSSEL ----
         SveFexpa => {

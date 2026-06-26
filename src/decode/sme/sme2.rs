@@ -195,6 +195,7 @@ fn zgroup(first: u32, count: u8, arr: VA) -> Operand {
         // not wrap past z31; a wrapping 4-group (and every 2-group) prints as a
         // comma list.
         range: count == 4 && (first + 3) < 32,
+        stride: 1,
     }
 }
 
@@ -289,13 +290,71 @@ pub fn decode_tmopa(word: u32, out: &mut Instruction) {
 /// The `0xC1` region also holds the SME2 multi-vector ALU family (`SEL`, the
 /// `S/U/F CLAMP`s, and `ZIP`/`UZP`); those use a separate, conflict-free
 /// [`AluForm`] table and are tried only when no multiply-into-ZA [`Form`]
-/// matches (the two key sets are disjoint, so the order is immaterial).
+/// matches (the two key sets are disjoint, so the order is immaterial). The
+/// multi-vector saturating-rounding shift-right-narrow family
+/// ([`decode_narrow_shift`]) shares the `word<15:11> == 11011` slot with `SDOT`/
+/// `FDOT`/... but is distinguished by its size field (`word<23:21>`), so it is
+/// tried first with a strict size validation that rejects the neighbours.
 pub fn decode_mul(word: u32, out: &mut Instruction) {
-    if let Some(f) = lookup(word) {
+    if decode_narrow_shift(word, out) {
+        // matched the shift-right-narrow family
+    } else if let Some(f) = lookup(word) {
         build(f, word, out);
     } else if let Some(f) = alu_lookup(word) {
         build_alu(f, word, out);
     }
+}
+
+/// Decode the SME2 multi-vector saturating rounding shift-right-narrow-by-
+/// immediate family: `SQRSHR`/`UQRSHR`/`SQRSHRN`/`UQRSHRN`/`SQRSHRU`/`SQRSHRUN`.
+///
+/// Shape: a single destination `Zd.<b|h>`, a 4-register consecutive source group
+/// `{ Zn.s - Zn+3.s }` (or `.d`), and a `#shift` immediate. The destination
+/// element / source element / shift range come from `word<23:21>` (a `tsz`-style
+/// "highest set bit" size selector): `011` → `.b`/`.s`, shift `1..32`; `101` →
+/// `.h`/`.d`, shift `33..64`; `111` → `.h`/`.d`, shift `1..32`. The mnemonic is
+/// chosen by `word<10>` (`n` interleave), `word<6>` (unsigned result) and
+/// `word<5>` (unsigned input); `word<6> == word<5> == 1` is unallocated.
+///
+/// Returns `true` (and fills `out`) on a match, `false` otherwise (leaving `out`
+/// untouched so the caller can fall through to the multiply / ALU tables).
+fn decode_narrow_shift(word: u32, out: &mut Instruction) -> bool {
+    // Family key: `word<31:24> == 0xC1` and `word<15:11> == 11011`.
+    if word & 0xff00_f800 != 0xc100_d800 {
+        return false;
+    }
+    let n = bit(word, 10);
+    let uresult = bit(word, 6);
+    let uinput = bit(word, 5);
+    // Unsigned result is only defined for a signed input (`SQRSHRU`/`SQRSHRUN`).
+    if uresult == 1 && uinput == 1 {
+        return false;
+    }
+    // Size + shift amount (`tsz`-style); an out-of-set size rejects the word so a
+    // neighbouring `SDOT`/`FDOT`/... (other sizes) falls through.
+    let imm5 = bits(word, 16, 5);
+    let (dst, src, shift) = match bits(word, 21, 3) {
+        0b011 => (VA::Sb, VA::Ss, 32 - imm5),
+        0b101 => (VA::Sh, VA::Sd, 64 - imm5),
+        0b111 => (VA::Sh, VA::Sd, 32 - imm5),
+        _ => return false,
+    };
+    let code = match (uresult, uinput, n) {
+        (0, 0, 0) => Code::SmeSqrshr,
+        (0, 1, 0) => Code::SmeUqrshr,
+        (0, 0, 1) => Code::SmeSqrshrn,
+        (0, 1, 1) => Code::SmeUqrshrn,
+        (1, 0, 0) => Code::SmeSqrshru,
+        _ /* (1, 0, 1) */ => Code::SmeSqrshrun,
+    };
+    let zd = bits(word, 0, 5);
+    // Source 4-register consecutive group, base = `word<9:7> * 4`.
+    let zn = bits(word, 7, 3) * 4;
+    out.set(code);
+    out.push_operand(zsrc(zd, dst));
+    out.push_operand(zgroup(zn, 4, src));
+    out.push_operand(Operand::ShiftAmount(shift as u8));
+    true
 }
 
 /// Encode a matched SME2 [`Code`] by scattering its operand fields back into the
@@ -426,6 +485,21 @@ fn alu_group(first: u32, count: u8, arr: VA) -> Operand {
         count,
         arr: Some(arr),
         range: count == 4 && (first + 3) < 32,
+        stride: 1,
+    }
+}
+
+/// `{ Z<first>, Z<first+stride>, .. }` *strided* multi-vector group (the SME2
+/// non-consecutive load/store lists). `stride` is `8` for a 2-register group and
+/// `4` for a 4-register group; these always render as a comma list.
+#[inline]
+fn strided_group(first: u32, count: u8, arr: VA, stride: u8) -> Operand {
+    Operand::SveVecGroup {
+        first: sve_register(first as u8),
+        count,
+        arr: Some(arr),
+        range: false,
+        stride,
     }
 }
 
@@ -526,34 +600,51 @@ pub static SME2_ALU_FORMS: &[AluForm] = &[
 // the SVE group (`op0 == 0b0010`, the `0xA5`/`0xE4` regions) and are untouched.
 // ===========================================================================
 
-/// Decode an SME2 contiguous multi-vector load/store (`word<31:29> == 101`,
-/// `word<23> == 0`). Leaves the instruction `Invalid` for words outside the
-/// handled `LD1*/LDNT1*/ST1*/STNT1*` set.
+/// Decode an SME2 contiguous *or* strided multi-vector load/store
+/// (`word<31:29> == 101`, `word<23> == 0`). `word<24>` selects the strided family
+/// (the non-consecutive register lists). Leaves the instruction `Invalid` for
+/// words outside the handled `LD1*/LDNT1*/ST1*/STNT1*` set.
 pub fn decode_mem(word: u32, out: &mut Instruction) {
-    // `word<24> == 1` selects the *strided* multi-vector lists (`{ z0.s, z8.s }`),
-    // a distinct family that does not use the consecutive `SveVecGroup`; leave it
-    // for a future batch (out of scope here, so left `Invalid`).
-    if bit(word, 24) != 0 {
-        return;
-    }
+    let strided = bit(word, 24) == 1;
     let is_imm = bit(word, 22) == 1;
     let is_store = bit(word, 21) == 1;
-    let is_nt = bit(word, 0) == 1;
     let msz = bits(word, 13, 2);
     let count: u8 = if bit(word, 15) == 1 { 4 } else { 2 };
     let pn = bits(word, 10, 3);
     let rn = bits(word, 5, 5);
     let arr = size_to_va(msz);
 
-    // Data register group: vgx2 packs the base in bits<4:1> (stride 2), vgx4 in
-    // bits<4:2> (stride 4). bit<0> is the nontemporal flag, never part of Zt.
-    let (zt_mask, lo_reserved) = if count == 4 { (0x1cu32, 0x2u32) } else { (0x1eu32, 0x0u32) };
-    // vgx4 leaves bit<1> reserved (must be zero); reject a stray set bit so the
-    // accepted set matches LLVM exactly.
-    if word & lo_reserved != 0 {
-        return;
-    }
-    let zt = group_base(word, zt_mask);
+    // Data register group + nontemporal flag. The two families pack these
+    // differently:
+    //   * consecutive (`word<24> == 0`): base in `word<4:1>` (vgx2, stride-2) or
+    //     `word<4:2>` (vgx4, stride-4); `NT = word<0>`.
+    //   * strided (`word<24> == 1`): base = `word<4>:word<2:0>` (vgx2) or
+    //     `word<4>:word<1:0>` (vgx4) — a `{z0..7,z16..23}` / `{z0..3,z16..19}`
+    //     base whose group steps by 8 / 4; `NT = word<3>`.
+    let (group, is_nt) = if strided {
+        let is_nt = bit(word, 3) == 1;
+        if count == 4 {
+            // vgx4 leaves bit<2> reserved (must be zero).
+            if bit(word, 2) != 0 {
+                return;
+            }
+            let base = (bit(word, 4) << 4) | bits(word, 0, 2);
+            (strided_group(base, 4, arr, 4), is_nt)
+        } else {
+            let base = (bit(word, 4) << 4) | bits(word, 0, 3);
+            (strided_group(base, 2, arr, 8), is_nt)
+        }
+    } else {
+        let is_nt = bit(word, 0) == 1;
+        // vgx2 packs the base in bits<4:1> (stride 2), vgx4 in bits<4:2> (stride
+        // 4); bit<0> is the nontemporal flag. vgx4 leaves bit<1> reserved (must be
+        // zero); reject a stray set bit so the accepted set matches LLVM exactly.
+        let (zt_mask, lo_reserved) = if count == 4 { (0x1cu32, 0x2u32) } else { (0x1eu32, 0x0u32) };
+        if word & lo_reserved != 0 {
+            return;
+        }
+        (alu_group(group_base(word, zt_mask), count, arr), is_nt)
+    };
 
     let code = match (is_store, is_nt, msz) {
         (false, false, 0) => Code::SmeLd1bMV,
@@ -606,7 +697,7 @@ pub fn decode_mem(word: u32, out: &mut Instruction) {
     };
 
     out.set(code);
-    out.push_operand(alu_group(zt, count, arr));
+    out.push_operand(group);
     out.push_operand(pn_counter(pn, !is_store));
     out.push_operand(mem);
 }

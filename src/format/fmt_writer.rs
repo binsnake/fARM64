@@ -439,8 +439,9 @@ impl Formatter for FmtFormatter {
                 count,
                 arr,
                 range,
+                stride,
             } => {
-                self.emit_sve_vec_group(first, count, arr, range, out);
+                self.emit_sve_vec_group(first, count, arr, range, stride, out);
             }
 
             Operand::PredCounter { reg, zeroing } => {
@@ -926,16 +927,20 @@ impl FmtFormatter {
     /// Emit an SME2/SVE2 multi-vector register group
     /// ([`Operand::SveVecGroup`](crate::operand::Operand::SveVecGroup)):
     /// `{ z0.b, z1.b }` (comma list) or `{ z0.b - z3.b }` (range). LLVM puts a
-    /// space just inside each brace.
+    /// space just inside each brace. `stride` is the register-number step between
+    /// members (`1` consecutive; `8`/`4` for the strided multi-vector lists, which
+    /// always render as a comma list).
     fn emit_sve_vec_group(
         &self,
         first: Register,
         count: u8,
         arr: Option<crate::enums::VectorArrangement>,
         range: bool,
+        stride: u8,
         out: &mut dyn FormatterOutput,
     ) {
         let count = count.clamp(1, 4);
+        let stride = stride.max(1);
         let suf = arr.map(|a| a.suffix(true)).unwrap_or("");
         let first_n = first.number();
         let emit_one = |this: &Self, n: u8, out: &mut dyn FormatterOutput| {
@@ -946,17 +951,18 @@ impl FmtFormatter {
         };
         out.write("{ ", TokenKind::Punctuation);
         if range && count > 1 {
-            // `{ z0.b - z3.b }` — only the first and last registers are shown.
+            // `{ z0.b - z3.b }` — only the first and last registers are shown
+            // (consecutive range; the strided lists never take this path).
             emit_one(self, first_n, out);
             out.write(" - ", TokenKind::Punctuation);
-            emit_one(self, first_n.wrapping_add(count - 1) & 0x1f, out);
+            emit_one(self, first_n.wrapping_add((count - 1) * stride) & 0x1f, out);
         } else {
-            // `{ z0.b, z1.b }` — each consecutive register, comma-separated.
+            // `{ z0.b, z1.b }` — each register at `first + i*stride`, comma-separated.
             for i in 0..count {
                 if i != 0 {
                     self.write_raw_separator(out);
                 }
-                emit_one(self, first_n.wrapping_add(i) & 0x1f, out);
+                emit_one(self, first_n.wrapping_add(i * stride) & 0x1f, out);
             }
         }
         out.write(" }", TokenKind::Punctuation);

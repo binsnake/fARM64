@@ -107,6 +107,9 @@ pub enum Feature {
     /// reads — single- and two-register table forms with `.b`/`.h` element
     /// variants, indexed by a vector-element selector (`<Zm>[<index>]`).
     Lut,
+    /// Floating-point absolute maximum/minimum (`FEAT_FAMINMAX`): the Advanced
+    /// SIMD `FAMAX`/`FAMIN` vector forms (`.4h`/`.8h`/`.2s`/`.4s`/`.2d`).
+    Faminmax,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

@@ -309,7 +309,9 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            base05(size) | fld(1, 21) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zn, 5) | zd
+            // `<15:13>` is 100 for merging (`/m`), 101 for FEAT_SVE2p1 zeroing (`/z`).
+            let sel = if matches!(pred_qual(insn, 1), Some(PredQual::Zeroing)) { 0b101 } else { 0b100 };
+            base05(size) | fld(1, 21) | fld(opc, 16) | fld(sel, 13) | fld(pg, 10) | fld(zn, 5) | zd
         }
         RevdZPZ => {
             let zd = z(insn, 0)?;

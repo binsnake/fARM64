@@ -83,11 +83,13 @@ mod imp {
                 | SmeLd1bZa | SmeLd1hZa | SmeLd1wZa | SmeLd1dZa | SmeLd1qZa
                 | SmeSt1bZa | SmeSt1hZa | SmeSt1wZa | SmeSt1dZa | SmeSt1qZa
                 | SmeLdrZa | SmeStrZa
-            // SME2/SVE2.1 contiguous multi-vector load/store.
+            // SME2/SVE2.1 contiguous/strided multi-vector load/store.
                 | SmeLd1bMV | SmeLd1hMV | SmeLd1wMV | SmeLd1dMV
                 | SmeLdnt1bMV | SmeLdnt1hMV | SmeLdnt1wMV | SmeLdnt1dMV
                 | SmeSt1bMV | SmeSt1hMV | SmeSt1wMV | SmeSt1dMV
                 | SmeStnt1bMV | SmeStnt1hMV | SmeStnt1wMV | SmeStnt1dMV
+            // SME2 multi-vector shift-right-narrow.
+                | SmeSqrshr | SmeUqrshr | SmeSqrshrn | SmeUqrshrn | SmeSqrshru | SmeSqrshrun
         ) {
             return true;
         }
@@ -115,6 +117,9 @@ mod imp {
             SmeLd1bMV | SmeLd1hMV | SmeLd1wMV | SmeLd1dMV | SmeLdnt1bMV | SmeLdnt1hMV
             | SmeLdnt1wMV | SmeLdnt1dMV | SmeSt1bMV | SmeSt1hMV | SmeSt1wMV | SmeSt1dMV
             | SmeStnt1bMV | SmeStnt1hMV | SmeStnt1wMV | SmeStnt1dMV => enc_mem(insn),
+            SmeSqrshr | SmeUqrshr | SmeSqrshrn | SmeUqrshrn | SmeSqrshru | SmeSqrshrun => {
+                enc_narrow_shift(insn)
+            }
             other => {
                 // Multi-vector ALU (SEL/CLAMP/ZIP/UZP) is table-driven; fall back
                 // to the multiply-into-ZA / *TMOPA table otherwise.
@@ -892,29 +897,46 @@ mod imp {
         };
         let arr = msz_to_va(msz);
 
-        // Operand 0: the data vector group. Its count selects vgx2/vgx4 (and the
-        // base-register stride encoded in `zt_mask`).
-        let count = match insn.op(0) {
-            Operand::SveVecGroup { count, .. } => count,
+        // Operand 0: the data vector group. `count` selects vgx2/vgx4; `stride`
+        // selects the consecutive (`1`) or strided (`8`/`4`) family.
+        let (first, count, group_arr, stride) = match insn.op(0) {
+            Operand::SveVecGroup { first, count, arr: Some(a), stride, .. } => (first, count, a, stride),
             _ => return Err(EncodeError::InvalidOperand),
         };
-        let (zt_mask, num_bit) = match count {
-            2 => (0x1eu32, 0u32),
-            4 => (0x1cu32, 1u32 << 15),
+        if first.class() != RegClass::Sve || group_arr != arr {
+            return Err(EncodeError::InvalidOperand);
+        }
+        let num_bit = match count {
+            2 => 0u32,
+            4 => 1u32 << 15,
             _ => return Err(EncodeError::InvalidOperand),
         };
-        let zt = group_field(insn, 0, count, arr, zt_mask)?;
 
         // Operand 1: the predicate-as-counter (loads `/z`, stores bare).
         let pn = pn_field(insn, 1, is_store == 0)?;
 
-        let mut word = 0xA000_0000
-            | (is_store << 21)
-            | num_bit
-            | (msz << 13)
-            | (pn << 10)
-            | is_nt
-            | pdep(zt, zt_mask);
+        let mut word = 0xA000_0000 | (is_store << 21) | num_bit | (msz << 13) | (pn << 10);
+
+        // Data register group + nontemporal flag — packed differently per family.
+        if stride == 1 {
+            // Consecutive: base packed with stride 2 (vgx2) / 4 (vgx4); `NT` at
+            // bit0.
+            let zt_mask = if count == 4 { 0x1cu32 } else { 0x1eu32 };
+            let zt = group_field(insn, 0, count, arr, zt_mask)?;
+            word |= is_nt | pdep(zt, zt_mask);
+        } else {
+            // Strided: base = `word<4>:word<2:0>` (vgx2, step 8) or
+            // `word<4>:word<1:0>` (vgx4, step 4); `NT` at bit3. The base lives in a
+            // `{z0..7,z16..23}` / `{z0..3,z16..19}` window (bit3 always clear, so it
+            // never collides with the `NT` bit).
+            let base = first.number() as u32;
+            let want_stride = if count == 4 { 4u8 } else { 8u8 };
+            let allowed = if count == 4 { 0x13u32 } else { 0x17u32 };
+            if stride != want_stride || base & !allowed != 0 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            word |= (1 << 24) | (is_nt << 3) | base;
+        }
 
         // Operand 2: the addressing mode.
         match insn.op(2) {
@@ -952,6 +974,64 @@ mod imp {
             }
             _ => return Err(EncodeError::InvalidOperand),
         }
+        Ok(word)
+    }
+
+    // -----------------------------------------------------------------------
+    // SME2 multi-vector saturating-rounding shift-right-narrow, inverse of
+    // `decode::sme::sme2::decode_narrow_shift`.
+    // -----------------------------------------------------------------------
+
+    /// Encode an SME2 multi-vector shift-right-narrow. Operands: a single
+    /// destination `Zd.<b|h>`, a 4-register source group `{ Zn.s/d - .. }`, and a
+    /// `#shift` immediate. The destination element + shift range pick the
+    /// `tsz`-style size field (`word<23:21>`).
+    fn enc_narrow_shift(insn: &Instruction) -> R {
+        use Code::*;
+        let (uresult, uinput, n) = match insn.code() {
+            SmeSqrshr => (0u32, 0u32, 0u32),
+            SmeUqrshr => (0, 1, 0),
+            SmeSqrshrn => (0, 0, 1),
+            SmeUqrshrn => (0, 1, 1),
+            SmeSqrshru => (1, 0, 0),
+            _ /* SmeSqrshrun */ => (1, 0, 1),
+        };
+        // Operand 0: the single destination vector `Zd.<b|h>`.
+        let (zd, dst) = match insn.op(0) {
+            Operand::Reg { reg, arr: Some(a), lane: None, .. } if reg.class() == RegClass::Sve => {
+                (reg.number() as u32, a)
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Operand 2: the `#shift` immediate.
+        let shift = match insn.op(2) {
+            Operand::ShiftAmount(s) => s as u32,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Destination element + shift range select the source element and the
+        // `tsz` size field / 5-bit immediate.
+        let (src, size3, imm5) = match dst {
+            VA::Sb => {
+                if !(1..=32).contains(&shift) {
+                    return Err(EncodeError::InvalidImmediate);
+                }
+                (VA::Ss, 0b011u32, 32 - shift)
+            }
+            VA::Sh if (1..=32).contains(&shift) => (VA::Sd, 0b111u32, 32 - shift),
+            VA::Sh if (33..=64).contains(&shift) => (VA::Sd, 0b101u32, 64 - shift),
+            VA::Sh => return Err(EncodeError::InvalidImmediate),
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        // Operand 1: the 4-register consecutive source group, base in `word<9:7>`.
+        let zn = group_field(insn, 1, 4, src, 0x380)?;
+        let word = 0xc100_d800
+            | (size3 << 21)
+            | (imm5 << 16)
+            | (n << 10)
+            | (zn << 7)
+            | (uresult << 6)
+            | (uinput << 5)
+            | zd;
         Ok(word)
     }
 
@@ -1099,15 +1179,44 @@ mod imp {
             rt(0xA00043E0 | (31 << 5)); // ld1d ... [sp, ...] style base
         }
 
+        #[test]
+        fn sme2_multivector_strided_known_words() {
+            // Strided (word<24>==1) register lists: 2-reg step 8, 4-reg step 4.
+            rt(0xA1206710); // st1d { z16.d, z24.d }, pn9, [x24, x0, lsl #3]
+            rt(0xA1204983); // st1w { z3.s, z11.s }, pn10, [x12, x0, lsl #2]
+            rt(0xA1004DB1); // ld1w { z17.s, z25.s }, pn11/z, [x13, x0, lsl #2]
+            rt(0xA120A541); // st1h { z1.h, z5.h, z9.h, z13.h }, pn9, [x10, x0, lsl #1]
+            rt(0xA1206718); // stnt1d { z16.d, z24.d }, pn9, ... (NT = word<3>)
+            rt(0xA1004000); // ld1w { z0.s, z8.s }, pn8/z, [x0, x0, lsl #2]
+            rt(0xA1606710); // st1d { z16.d, z24.d }, pn9, [x24]  (imm == 0)
+            rt(0xA1414000); // ld1w { z0.s, z8.s }, pn8/z, [x0, #2, mul vl]
+        }
+
+        #[test]
+        fn sme2_shift_narrow_known_words() {
+            // 4-vector -> 1-vector saturating rounding shift right narrow.
+            rt(0xC161D920); // uqrshr z0.b, { z8.s - z11.s }, #31
+            rt(0xC161D998); // sqrshr z24.b, { z12.s - z15.s }, #31
+            rt(0xC160DC9A); // sqrshrn z26.b, { z4.s - z7.s }, #32
+            rt(0xC161DE2B); // uqrshrn z11.b, { z16.s - z19.s }, #31
+            rt(0xC164DB5D); // sqrshru z29.b, { z24.s - z27.s }, #28
+            rt(0xC162DFD7); // sqrshrun z23.b, { z28.s - z31.s }, #30
+            rt(0xC1A0D900); // sqrshr z0.h, { z8.d - z11.d }, #64
+            rt(0xC1E0D900); // sqrshr z0.h, { z8.d - z11.d }, #32
+            rt(0xC1FFDD3F); // uqrshrn z31.h, { z24.d - z27.d }, #1 (max fields)
+        }
+
         /// Exhaustive structural round-trip sweep of the multi-vector ALU and
         /// load/store carve: every word the decoder accepts must re-encode to the
         /// exact same word.
         #[test]
         fn sme2_multivector_roundtrip_sweep() {
             let mut checked = 0u64;
-            // Memory carve: quadrant 101, word<24:23> == 00. Iterate every
-            // structural bit (imm/store/reserved/num/msz/reserved/N) and the
-            // predicate, striding the register/offset fields.
+            // Memory carve: quadrant 101, word<23> == 0, both the consecutive
+            // (`word<24> == 0`) and strided (`word<24> == 1`) families. Iterate
+            // every structural bit (strided/imm/store/reserved/num/msz/reserved/N)
+            // and the predicate, striding the register/offset fields.
+            for b24 in 0..2u32 {
             for b22 in 0..2u32 {
                 for b21 in 0..2u32 {
                     for b20 in 0..2u32 {
@@ -1115,11 +1224,13 @@ mod imp {
                             for msz in 0..4u32 {
                                 for b1 in 0..2u32 {
                                     for b0 in 0..2u32 {
+                                        for b3 in 0..2u32 {
                                         for pn in [0u32, 3, 7] {
                                             for hi16 in [0u32, 1, 7, 17, 31] {
                                                 for rn in [0u32, 5, 31] {
                                                     for zt in [0u32, 2, 12, 28] {
                                                         let word = 0xA000_0000
+                                                            | (b24 << 24)
                                                             | (b22 << 22)
                                                             | (b21 << 21)
                                                             | (b20 << 20)
@@ -1129,6 +1240,7 @@ mod imp {
                                                             | (pn << 10)
                                                             | (rn << 5)
                                                             | zt
+                                                            | (b3 << 3)
                                                             | (b1 << 1)
                                                             | b0;
                                                         let insn = dec(word);
@@ -1152,12 +1264,14 @@ mod imp {
                                                 }
                                             }
                                         }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
             }
             assert!(checked > 0, "swept no memory encodings");
 

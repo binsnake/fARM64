@@ -122,6 +122,31 @@ fn preg_sz(n: u32, a: VA) -> Operand {
     Operand::Reg { reg: P[(n & 0xf) as usize], arr: Some(a), lane: None, shift: None, extend: None, pred: None }
 }
 
+/// A NEON `V{n}` operand with a full-128-bit arrangement (`v0.8h`/`.4s`/`.2d`),
+/// the destination of the SVE2.1 quadword FP reductions.
+#[inline]
+fn vreg(n: u32, a: VA) -> Operand {
+    Operand::Reg {
+        reg: crate::register::v_numbered((n & 0x1f) as u8),
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
+}
+
+/// The full-128-bit NEON arrangement matching FP element `size`
+/// (`1`=`.8h`, `2`=`.4s`, `3`=`.2d`).
+#[inline]
+fn va_neon(size: u32) -> VA {
+    match size & 3 {
+        1 => VA::V8H,
+        2 => VA::V4S,
+        _ => VA::V2D,
+    }
+}
+
 /// A scalar SIMD `B/H/S/D` operand of the element width for `size`.
 #[inline]
 fn scalar_fp(n: u32, size: u32) -> Operand {
@@ -673,7 +698,12 @@ fn decode_64(word: u32, features: FeatureSet, out: &mut Instruction) {
             }
         }
         if bits(word, 13, 3) == 0b101 {
-            decode_64_narrow_convert(word, features, out);
+            // SVE2.1 quadword FP reductions to a NEON `V` register come first;
+            // the narrow/long converts share this sel=101 slot.
+            decode_64_fp_qv_reduction(word, out);
+            if out.is_invalid() {
+                decode_64_narrow_convert(word, features, out);
+            }
         }
         return;
     }
@@ -705,6 +735,32 @@ fn decode_64_pairwise(word: u32, out: &mut Instruction) {
     };
     out.set(code);
     push_pred_binary(out, zdn, pg, zm, a);
+}
+
+/// SVE2.1 quadword FP reductions (`0x64`, `<21>=0`, `<15:13>=101`,
+/// `<20:16>=10000/10100/10101/10110/10111`): `op <Vd>.<T>, <Pg>, <Zn>.<T>`,
+/// reducing each 128-bit segment into a NEON `V` register. `.h`/`.s`/`.d` only.
+#[inline]
+fn decode_64_fp_qv_reduction(word: u32, out: &mut Instruction) {
+    let size = bits(word, 22, 2);
+    if size == 0 {
+        return; // no `.b` FP form.
+    }
+    let code = match bits(word, 16, 5) {
+        0b10000 => Code::SveFaddqv,
+        0b10100 => Code::SveFmaxnmqv,
+        0b10101 => Code::SveFminnmqv,
+        0b10110 => Code::SveFmaxqv,
+        0b10111 => Code::SveFminqv,
+        _ => return,
+    };
+    let pg = bits(word, 10, 3);
+    let zn = bits(word, 5, 5);
+    let vd = bits(word, 0, 5);
+    out.set(code);
+    out.push_operand(vreg(vd, va_neon(size)));
+    out.push_operand(preg(pg));
+    out.push_operand(zreg(zn, arr(size)));
 }
 
 /// SVE2 narrow / long FP converts (`0x64`, `<21>=0`, `<15:13>=101`):
@@ -1051,19 +1107,20 @@ pub fn decode_fp_misc_04(word: u32, features: FeatureSet, out: &mut Instruction)
     let zd = bits(word, 0, 5);
     let zn = bits(word, 5, 5);
 
-    // FABS: 00000100 size 011100 101 Pg Zn Zd  (<20:16>=11100, <15:13>=101).
-    // FNEG: 00000100 size 011101 101 Pg Zn Zd  (<20:16>=11101).
+    // FABS/FNEG predicated (`<15:13>=101`): operation in `<19:16>` (1100/1101),
+    // with `<20>` selecting merging (`/m`, SVE) vs zeroing (`/z`, FEAT_SVE2p1).
     if bit(word, 21) == 0 && bits(word, 13, 3) == 0b101 {
-        let opc = bits(word, 16, 5);
+        let op4 = bits(word, 16, 4);
+        let merging = bit(word, 20) == 1;
         let pg = bits(word, 10, 3);
-        let code = match opc {
-            0b11100 => Code::SveFabsZpz,
-            0b11101 => Code::SveFnegZpz,
+        let code = match op4 {
+            0b1100 => Code::SveFabsZpz,
+            0b1101 => Code::SveFnegZpz,
             _ => return,
         };
         out.set(code);
         out.push_operand(zreg(zd, a));
-        out.push_operand(preg_q(pg, PredQual::Merging));
+        out.push_operand(preg_q(pg, if merging { PredQual::Merging } else { PredQual::Zeroing }));
         out.push_operand(zreg(zn, a));
         return;
     }
@@ -1326,6 +1383,39 @@ mod tests {
     fn fabs_pred() {
         // 045CBAF7 fabs z23.h, p6/m, z23.h
         check(0x045CBAF7, "fabs    z23.h, p6/m, z23.h");
+    }
+
+    #[track_caller]
+    fn rt(word: u32) {
+        let bytes = word.to_le_bytes();
+        let mut dec = crate::Decoder::new(&bytes, 0x1000, crate::DecoderOptions::default());
+        let insn = dec.decode();
+        assert!(!insn.is_invalid(), "decode left Invalid: word={word:#010x}");
+        let enc = crate::encode::encode(&insn).expect("encode failed");
+        assert_eq!(enc, word, "round-trip mismatch word={word:#010x}");
+    }
+
+    #[test]
+    fn fabs_fneg_zeroing_sve2p1() {
+        check(0x044CA180, "fabs    z0.h, p0/z, z12.h");
+        check(0x044DA00C, "fneg    z12.h, p0/z, z0.h");
+        rt(0x044CA180);
+        rt(0x044DA00C);
+        rt(0x045CBAF7); // merging still round-trips
+    }
+
+    #[test]
+    fn quadword_reductions_fp() {
+        check(0x6450ADE5, "faddqv  v5.8h, p3, z15.h");
+        check(0x6457ABCA, "fminqv  v10.8h, p2, z30.h");
+        check(0x6454A000, "fmaxnmqv v0.8h, p0, z0.h");
+        check(0x6455A000, "fminnmqv v0.8h, p0, z0.h");
+        check(0x6456A000, "fmaxqv  v0.8h, p0, z0.h");
+        check(0x6490A000, "faddqv  v0.4s, p0, z0.s");
+        check(0x64D0A000, "faddqv  v0.2d, p0, z0.d");
+        for w in [0x6450ADE5, 0x6457ABCA, 0x6454A000, 0x6455A000, 0x6456A000, 0x6490A000, 0x64D0A000] {
+            rt(w);
+        }
     }
 
     #[test]

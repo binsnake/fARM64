@@ -141,6 +141,52 @@ fn vlist_16b(first: u32, count: u8) -> Operand {
     }
 }
 
+/// A single-register `V{n}` list `{v{n}.<T>}` (the LUTI single-table form).
+#[inline]
+fn vlist1(first: u32, arr: VectorArrangement) -> Operand {
+    Operand::MultiReg {
+        regs: [
+            V_BANK[(first & 0x1f) as usize],
+            Register::None,
+            Register::None,
+            Register::None,
+        ],
+        count: 1,
+        arr: Some(arr),
+        lane: None,
+    }
+}
+
+/// A two-register `V{n}` list `{v{n}.<T>, v{n+1}.<T>}` (consecutive, wrapping).
+#[inline]
+fn vlist2(first: u32, arr: VectorArrangement) -> Operand {
+    Operand::MultiReg {
+        regs: [
+            V_BANK[(first & 0x1f) as usize],
+            V_BANK[((first + 1) & 0x1f) as usize],
+            Register::None,
+            Register::None,
+        ],
+        count: 2,
+        arr: Some(arr),
+        lane: None,
+    }
+}
+
+/// A `V{m}` vector-element selector `v{m}[index]` (no arrangement suffix; the
+/// LUTI table index operand).
+#[inline]
+fn vidx(m: u32, index: u32) -> Operand {
+    Operand::Reg {
+        reg: V_BANK[(m & 0x1f) as usize],
+        arr: None,
+        lane: Some(index as u8),
+        shift: None,
+        extend: None,
+        pred: None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Top-level dispatch.
 // ---------------------------------------------------------------------------
@@ -218,10 +264,91 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         match bits(word, 10, 2) {
             // Table (asimdtbl): word<23:21>==000.
             0b00 if bits(word, 21, 3) == 0b000 => decode_table(word, out),
+            // LUTI2/LUTI4 (FEAT_LUT, NEON): word<11:10>==00, word<21>==0 with a
+            // non-zero size field (size==00 is the TBL/TBX form matched above).
+            0b00 if bit(word, 21) == 0 => decode_luti_neon(word, features, out),
             // Permute (asimdperm): word<21>==0 (size in word<23:22>).
             0b10 if bit(word, 21) == 0 => decode_permute(word, out),
             _ => {}
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LUTI2 / LUTI4 (FEAT_LUT, Advanced SIMD / NEON).
+// ---------------------------------------------------------------------------
+
+/// Decode the Advanced SIMD (`V`-register) `LUTI2`/`LUTI4` lookup-table reads
+/// (FEAT_LUT) into `out`. Reached from the copy/permute region for
+/// `word<11:10>==00`, `word<21>==0` with a non-zero `size` (`word<23:22>`); the
+/// destination is always 128-bit (`Q==1`).
+///
+/// The `size` field selects the family and element size; the table index is
+/// spread across `word<14:12>` (its width growing with the element size). Cross-
+/// checked against `llvm-mc --mattr=+all`:
+///
+/// | `size` | `<12>` | form | index bits (msb..lsb) |
+/// |-|-|-|-|
+/// | `01` | `1` | `LUTI4 .8h` two-table | `<14>:<13>`      |
+/// | `01` | `0` | `LUTI4 .16b` (needs `<13>==1`) | `<14>` |
+/// | `10` | `1` | `LUTI2 .16b`          | `<14>:<13>`      |
+/// | `11` | -   | `LUTI2 .8h`           | `<14>:<13>:<12>` |
+#[inline]
+fn decode_luti_neon(word: u32, features: FeatureSet, out: &mut Instruction) {
+    if !features.has(Feature::Lut) {
+        return;
+    }
+    // 128-bit destination only.
+    if bit(word, 30) != 1 {
+        return;
+    }
+    let b14 = bit(word, 14);
+    let b13 = bit(word, 13);
+    let b12 = bit(word, 12);
+    let rm = bits(word, 16, 5);
+    let rn = bits(word, 5, 5);
+    let rd = bits(word, 0, 5);
+
+    match bits(word, 22, 2) {
+        0b01 => {
+            if b12 == 1 {
+                // LUTI4 .8h, two-register table; 2-bit index.
+                let index = (b14 << 1) | b13;
+                out.set(Code::Luti4TwoVec);
+                out.set_mnemonic(Mnemonic::Luti4);
+                out.push_operand(vreg(rd, VectorArrangement::V8H));
+                out.push_operand(vlist2(rn, VectorArrangement::V8H));
+                out.push_operand(vidx(rm, index));
+            } else if b13 == 1 {
+                // LUTI4 .16b, single-register table; 1-bit index.
+                out.set(Code::Luti4Vec);
+                out.set_mnemonic(Mnemonic::Luti4);
+                out.push_operand(vreg(rd, VectorArrangement::V16B));
+                out.push_operand(vlist1(rn, VectorArrangement::V16B));
+                out.push_operand(vidx(rm, b14));
+            }
+        }
+        0b10 => {
+            if b12 == 1 {
+                // LUTI2 .16b, single-register table; 2-bit index.
+                let index = (b14 << 1) | b13;
+                out.set(Code::Luti2Vec);
+                out.set_mnemonic(Mnemonic::Luti2);
+                out.push_operand(vreg(rd, VectorArrangement::V16B));
+                out.push_operand(vlist1(rn, VectorArrangement::V16B));
+                out.push_operand(vidx(rm, index));
+            }
+        }
+        0b11 => {
+            // LUTI2 .8h, single-register table; 3-bit index.
+            let index = (b14 << 2) | (b13 << 1) | b12;
+            out.set(Code::Luti2Vec);
+            out.set_mnemonic(Mnemonic::Luti2);
+            out.push_operand(vreg(rd, VectorArrangement::V8H));
+            out.push_operand(vlist1(rn, VectorArrangement::V8H));
+            out.push_operand(vidx(rm, index));
+        }
+        _ => {}
     }
 }
 
@@ -1198,6 +1325,43 @@ mod tests {
         FmtFormatter::new().format(&insn, &mut sink);
         assert!(!sink.overflowed(), "overflow rendering {expected:?}");
         assert_eq!(sink.as_str(), expected, "word={word:#010x}");
+    }
+
+    /// Decode then re-encode and require the exact same word back.
+    #[track_caller]
+    fn rt(word: u32) {
+        let mut insn = Instruction::default();
+        crate::decode::decode_into(word, 0x1000, FeatureSet::ALL, &mut insn);
+        assert!(!insn.is_invalid(), "word {word:#010x} failed to decode");
+        let got = insn.encode().expect("encode");
+        assert_eq!(got, word, "round-trip mismatch for {word:#010x}: got {got:#010x}");
+    }
+
+    #[test]
+    fn luti_neon() {
+        // LUTI2 .16b (2-bit index) / .8h (3-bit index).
+        render(0x4E801081, "luti2   v1.16b, {v4.16b}, v0[0]");
+        render(0x4E807081, "luti2   v1.16b, {v4.16b}, v0[3]");
+        render(0x4EC00081, "luti2   v1.8h, {v4.8h}, v0[0]");
+        render(0x4EC07081, "luti2   v1.8h, {v4.8h}, v0[7]");
+        // LUTI4 .16b single-table (1-bit index).
+        render(0x4E402081, "luti4   v1.16b, {v4.16b}, v0[0]");
+        render(0x4E406081, "luti4   v1.16b, {v4.16b}, v0[1]");
+        // LUTI4 .8h two-table (2-bit index).
+        render(0x4E401015, "luti4   v21.8h, {v0.8h, v1.8h}, v0[0]");
+        render(0x4E407081, "luti4   v1.8h, {v4.8h, v5.8h}, v0[3]");
+        for w in [
+            0x4E801081, 0x4E803081, 0x4E805081, 0x4E807081, 0x4EC00081, 0x4EC07081, 0x4E402081,
+            0x4E406081, 0x4E401015, 0x4E407081,
+        ] {
+            rt(w);
+        }
+        // Gated off without FEAT_LUT; the slot is otherwise unallocated.
+        let mut insn = Instruction::default();
+        crate::decode::simd_fp::decode(0x4E801081, 0, FeatureSet::BASE, &mut insn);
+        assert!(insn.is_invalid());
+        // TBL (size==00) in the adjacent slot is unaffected.
+        render(0x4E1101A3, "tbl     v3.16b, {v13.16b}, v17.16b");
     }
 
     #[test]

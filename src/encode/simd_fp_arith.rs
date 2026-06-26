@@ -287,6 +287,10 @@ mod simd_arith {
             FcmgtVec => (1, 1, 0b11100),
             FacgtVec => (1, 1, 0b11101),
             FminpVec => (1, 1, 0b11110),
+            // FEAT_FAMINMAX / FEAT_FP8 (o1==size<1>==1 group).
+            FamaxVec => (0, 1, 0b11011),
+            FaminVec => (1, 1, 0b11011),
+            FscaleVec => (1, 1, 0b11111),
             _ => return None,
         };
         Some(v)
@@ -321,6 +325,10 @@ mod simd_arith {
             (1, 1, FcmgtVec) => 0b100,
             (1, 1, FacgtVec) => 0b101,
             (1, 1, FminpVec) => 0b110,
+            // FEAT_FAMINMAX / FEAT_FP8 (half), a==size<1>==1 group.
+            (0, 1, FamaxVec) => 0b011,
+            (1, 1, FaminVec) => 0b011,
+            (1, 1, FscaleVec) => 0b111,
             _ => return None,
         };
         Some(v)
@@ -546,6 +554,19 @@ mod simd_arith {
             FmlallbtVec => (0, 0b01, 0, 0b110001),
             FmlalltbVec => (0, 0b00, 1, 0b110001),
             FmlallttVec => (0, 0b01, 1, 0b110001),
+            // FP8 FCVTN (FEAT_FP8): two-source convert+narrow to FP8 (lo=111101).
+            // size==00 -> FP32 sources `.4s`; size==01 -> FP16 sources. Q selects
+            // the destination width (.8b/.16b). FCVTN2 is the size==00, Q==1 form.
+            FcvtnFp8 => {
+                let (size, q) = match (arr_of(insn, 0)?, arr_of(insn, 1)?) {
+                    (VA::V8B, VA::V4S) => (0b00u32, 0u32),
+                    (VA::V8B, VA::V4H) => (0b01, 0),
+                    (VA::V16B, VA::V8H) => (0b01, 1),
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                (0u32, size, q, 0b111101u32)
+            }
+            Fcvtn2Fp8 => (0, 0b00, 1, 0b111101),
             _ => return Ok(None),
         };
         let rm = reg_num(insn, 2)?;
@@ -938,6 +959,9 @@ mod simd_arith {
             FcvtlVec | Fcvtl2Vec => return Ok(Some(enc_fcvtl(insn, code)?)),
             FcvtnVec | Fcvtn2Vec => return Ok(Some(enc_fcvtn(insn, code)?)),
             FcvtxnVec | Fcvtxn2Vec => return Ok(Some(enc_fcvtxn(insn, code)?)),
+            BfcvtnVec | Bfcvtn2Vec => return Ok(Some(enc_bfcvtn(insn, code)?)),
+            F1cvtlVec | F1cvtl2Vec | F2cvtlVec | F2cvtl2Vec | Bf1cvtlVec | Bf1cvtl2Vec
+            | Bf2cvtlVec | Bf2cvtl2Vec => return Ok(Some(enc_fp8_cvtl(insn, code)?)),
             _ => {}
         }
 
@@ -1091,6 +1115,36 @@ mod simd_arith {
         let rd = reg_num(insn, 0)?;
         // sz=1 (single<->double family).
         Ok(misc_word(false, q, 1, 0b1, 0b10110, rn, rd))
+    }
+
+    /// BFCVTN{2}: U=0, opcode 10110, size=10 (a=1, sz=0). Vd.4h/.8h, Vn.4s.
+    /// Q selects the low (`.4h`, BFCVTN) vs high (`.8h`, BFCVTN2) result half.
+    fn enc_bfcvtn(insn: &Instruction, code: Code) -> R {
+        let q = if code == Code::Bfcvtn2Vec { 1u32 } else { 0 };
+        let rn = reg_num(insn, 1)?;
+        let rd = reg_num(insn, 0)?;
+        Ok(misc_word(false, q, 0, 0b10, 0b10110, rn, rd))
+    }
+
+    /// F1CVTL/F2CVTL/BF1CVTL/BF2CVTL (+L2): U=1, opcode 10111. Vd.8h, Vn.8b/.16b.
+    /// `size` selects the variant; Q selects the low (`.8b`) vs high (`.16b`, the
+    /// `2`-suffixed) source half.
+    fn enc_fp8_cvtl(insn: &Instruction, code: Code) -> R {
+        use Code::*;
+        let (size, q) = match code {
+            F1cvtlVec => (0b00u32, 0u32),
+            F1cvtl2Vec => (0b00, 1),
+            F2cvtlVec => (0b01, 0),
+            F2cvtl2Vec => (0b01, 1),
+            Bf1cvtlVec => (0b10, 0),
+            Bf1cvtl2Vec => (0b10, 1),
+            Bf2cvtlVec => (0b11, 0),
+            Bf2cvtl2Vec => (0b11, 1),
+            _ => return Err(EncodeError::Unsupported),
+        };
+        let rn = reg_num(insn, 1)?;
+        let rd = reg_num(insn, 0)?;
+        Ok(misc_word(false, q, 1, size, 0b10111, rn, rd))
     }
 
     // =======================================================================

@@ -386,14 +386,25 @@ fn three_same_logical(q: u32, u: u32, size: u32, rm: u32, rn: u32, rd: u32, out:
 }
 
 /// Whether an integer three-same `(U, opcode, size)` vector form is allocated
-/// for `(size, Q)`. PMUL is byte-only; MUL/MLA/MLS/max/min/abd/aba/pairwise/
-/// SQDMUL[H]/CMHI/CMHS are not defined for D; the elementwise add/sub/cmp/shift
-/// and saturating ops accept D (but never `.1d`, i.e. D with `Q==0`).
+/// for `(size, Q)`. PMUL is byte-only; SQDMULH/SQRDMULH are H/S only (size
+/// 01/10); MUL/MLA/MLS/max/min/abd/aba/pairwise/CMHI/CMHS are not defined for D;
+/// the elementwise add/sub/cmp/shift and saturating ops accept D (but never
+/// `.1d`, i.e. D with `Q==0`).
 #[inline]
 fn int_three_same_size_ok(opcode: u32, u: u32, size: u32, q: u32) -> bool {
     // PMUL (U=1, opcode 10011) is byte-only.
     if u == 1 && opcode == 0b10011 {
         return size == 0b00;
+    }
+    // SQDMULH (U=0) / SQRDMULH (U=1), opcode 10110: defined only for the 16/32-bit
+    // element forms `.4h`/`.8h` (size==01) and `.2s`/`.4s` (size==10). The byte
+    // forms `.8b`/`.16b` (size==00) and doubleword forms `.1d`/`.2d` (size==11)
+    // are reserved → UNDEFINED. (size==11 also falls out of the `.2d` allow-list
+    // below, but size==00 would otherwise reach the unconditional `true`.)
+    // Verified by an LLVM size×Q sweep: `0E24B4A8` fARM64 `sqdmulh v8.8b,…` and
+    // `2E24B4A8` `sqrdmulh v8.8b,…` are `<unknown>`, as are the size==11 words.
+    if opcode == 0b10110 {
+        return size == 0b01 || size == 0b10;
     }
     if size == 0b11 {
         if q == 0 {
@@ -421,8 +432,10 @@ fn int_three_same_size_ok(opcode: u32, u: u32, size: u32, q: u32) -> bool {
 }
 
 /// Width (bits) of a scalar three-same form, or `None` if not a scalar form.
-/// Scalar three-same is defined for the saturating add/sub, the four shifts,
-/// SQDMULH/SQRDMULH (H/S only), and ADD/SUB/CMP/CMTST (doubleword only).
+/// Scalar three-same is defined for the saturating add/sub, the *saturating*
+/// shifts (any width), the non-saturating shifts SSHL/USHL/SRSHL/URSHL
+/// (doubleword only), SQDMULH/SQRDMULH (H/S only), and ADD/SUB/CMP/CMTST
+/// (doubleword only).
 #[inline]
 fn scalar_three_same_width(opcode: u32, size: u32) -> Option<u16> {
     match opcode {
@@ -435,12 +448,25 @@ fn scalar_three_same_width(opcode: u32, size: u32) -> Option<u16> {
                 None
             }
         }
-        // Saturating add/sub and the four shifts: any element size.
+        // SSHL/USHL (01000) and SRSHL/URSHL (01010): the *non-saturating* scalar
+        // shifts are doubleword only — the `b`/`h`/`s` forms (`size != 11`) are
+        // reserved → UNDEFINED. (Their saturating siblings SQSHL/SQRSHL/UQSHL/
+        // UQRSHL below *do* accept every element width.) Verified by an LLVM
+        // size sweep over `0x5E`/`0x7E`: `5E2F577F` fARM64 `srshl b31,…`,
+        // `5E2B4666` `sshl b6,…`, `7E2F577F` `urshl`, `7E2B4666` `ushl` are all
+        // `<unknown>`, while only the `d` form (`5EEF477F`/`5EEF577F` etc.)
+        // decodes.
+        0b01000 | 0b01010 => {
+            if size == 0b11 {
+                Some(64)
+            } else {
+                None
+            }
+        }
+        // Saturating add/sub and the saturating shifts: any element size.
         0b00001 // SQADD/UQADD
         | 0b00101 // SQSUB/UQSUB
-        | 0b01000 // SSHL/USHL
         | 0b01001 // SQSHL/UQSHL
-        | 0b01010 // SRSHL/URSHL
         | 0b01011 // SQRSHL/UQRSHL
             => Some(esize(size)),
         // SQDMULH/SQRDMULH: H or S only.

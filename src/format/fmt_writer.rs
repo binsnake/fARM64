@@ -460,6 +460,14 @@ impl Formatter for FmtFormatter {
                 self.emit_cased("vlx", self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
                 self.emit_dec_kind(n as u64, TokenKind::Decorator, out);
             }
+
+            Operand::SmeZaMask { mask, zt0 } => {
+                self.emit_sme_za_mask(mask, zt0, out);
+            }
+
+            Operand::SmeZt0Index { index, mul_vl } => {
+                self.emit_sme_zt0_index(index, mul_vl, out);
+            }
         }
     }
 
@@ -1031,6 +1039,108 @@ impl FmtFormatter {
         if zeroing {
             self.emit_cased("/z", self.opts.uppercase_registers, TokenKind::Decorator, out);
         }
+    }
+
+    /// Emit the SME `ZERO` tile-mask brace list
+    /// ([`Operand::SmeZaMask`](crate::operand::Operand::SmeZaMask)):
+    /// `{}`, `{ za }`, `{ zt0 }`, or `{ za0.d, za5.d }`.
+    ///
+    /// The list is the largest-element-width tiling of the 8-bit `mask`: `.h`
+    /// (`za0.h == 0x55`, `za1.h == 0xAA`), else `.s` (`za<i>.s == 0x11 << i`,
+    /// `i` in `0..4`), else `.d` (`za<i>.d == 1 << i`, `i` in `0..8`). Members are
+    /// emitted in the canonical `{ a, b }` brace-list style of the neighbouring
+    /// multi-vector forms.
+    fn emit_sme_za_mask(&self, mask: u8, zt0: bool, out: &mut dyn FormatterOutput) {
+        if zt0 {
+            out.write("{ ", TokenKind::Punctuation);
+            out.write("zt0", TokenKind::Register);
+            out.write(" }", TokenKind::Punctuation);
+            return;
+        }
+        if mask == 0 {
+            // The empty mask renders as a bare pair of braces.
+            out.write("{}", TokenKind::Punctuation);
+            return;
+        }
+        if mask == 0xFF {
+            // The all-tiles mask renders as the whole-array `za`.
+            out.write("{ ", TokenKind::Punctuation);
+            out.write("za", TokenKind::Register);
+            out.write(" }", TokenKind::Punctuation);
+            return;
+        }
+        out.write("{ ", TokenKind::Punctuation);
+        // Pick the largest element width that cleanly tiles the mask: `.h` (2
+        // tiles, pattern `0x55 << i`), then `.s` (4 tiles, `0x11 << i`); fall back
+        // to `.d` (8 single-bit tiles).
+        let try_size = |patbase: u8, n: u8| -> Option<[u8; 8]> {
+            let mut tiles = [0u8; 8];
+            let mut count = 0usize;
+            let mut covered = 0u8;
+            for i in 0..n {
+                let pat = patbase.wrapping_shl(i as u32);
+                if mask & pat == pat {
+                    tiles[count] = i;
+                    count += 1;
+                    covered |= pat;
+                }
+            }
+            if covered == mask && count > 0 {
+                tiles[7] = count as u8; // stash the count in the last slot
+                Some(tiles)
+            } else {
+                None
+            }
+        };
+        let (suffix, tiles) = if let Some(t) = try_size(0x55, 2) {
+            ("h", t)
+        } else if let Some(t) = try_size(0x11, 4) {
+            ("s", t)
+        } else {
+            // `.d`: every set bit is its own tile.
+            let mut t = [0u8; 8];
+            let mut count = 0usize;
+            for i in 0..8u8 {
+                if mask & (1 << i) != 0 {
+                    t[count] = i;
+                    count += 1;
+                }
+            }
+            t[7] = count as u8;
+            ("d", t)
+        };
+        let count = tiles[7] as usize;
+        for (k, &tile) in tiles.iter().take(count).enumerate() {
+            if k != 0 {
+                self.write_raw_separator(out);
+            }
+            out.write("za", TokenKind::Register);
+            self.emit_dec_kind(tile as u64, TokenKind::Register, out);
+            out.write(".", TokenKind::Register);
+            self.emit_cased(suffix, self.opts.uppercase_registers, TokenKind::Register, out);
+        }
+        out.write(" }", TokenKind::Punctuation);
+    }
+
+    /// Emit the SME2 `MOVT` `ZT0` indexed lookup-table operand
+    /// ([`Operand::SmeZt0Index`](crate::operand::Operand::SmeZt0Index)):
+    /// `zt0` (index 0, `mul vl` form), `zt0[<index>, mul vl]` (the `Z`-register
+    /// vector form), or `zt0[<index>]` (the GP byte-offset form).
+    fn emit_sme_zt0_index(&self, index: u8, mul_vl: bool, out: &mut dyn FormatterOutput) {
+        out.write("zt0", TokenKind::Register);
+        // The `mul vl` (Z-register) form omits the bracket entirely when the index
+        // is 0 (matching LLVM's `movt zt0, z0`); the GP byte-offset form always
+        // shows `[<index>]`.
+        if mul_vl && index == 0 {
+            return;
+        }
+        out.write("[", TokenKind::BeginMemory);
+        self.emit_dec_kind(index as u64, TokenKind::Number, out);
+        if mul_vl {
+            self.write_raw_separator(out);
+            self.emit_cased("mul vl", self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+        }
+        out.write("]", TokenKind::EndMemory);
     }
 
     /// Emit a system-register reference, falling back to the generic

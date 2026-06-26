@@ -146,6 +146,9 @@ mod imp {
                 | SmeBf1cvtWiden | SmeBf1cvtlWiden | SmeBf2cvtWiden | SmeBf2cvtlWiden
                 | SmeFrintn | SmeFrintp | SmeFrintm | SmeFrinta
                 | SmeScvtf | SmeUcvtf | SmeFcvtzs | SmeFcvtzu
+            // R2: SME ZERO (ZA mask / ZT0 / ZA array) + MOVT (ZT0 move).
+                | SmeZeroMask | SmeZeroZt0 | SmeZeroArray
+                | SmeMovtZt0Z | SmeMovtZt0X | SmeMovtXZt0
         ) {
             return true;
         }
@@ -218,6 +221,8 @@ mod imp {
             SmeMovaArrayToVec | SmeMovazArrayToVec | SmeMovaVecToArray => {
                 enc_za_array_move(insn)
             }
+            SmeZeroMask | SmeZeroZt0 | SmeZeroArray => enc_zero(insn),
+            SmeMovtZt0Z | SmeMovtZt0X | SmeMovtXZt0 => enc_movt(insn),
             other => {
                 // Multi-vector ALU (SEL/CLAMP/ZIP/UZP) is table-driven; fall back
                 // to the multiply-into-ZA / *TMOPA table otherwise.
@@ -2159,6 +2164,136 @@ mod imp {
             word |= zfield | off;
         }
         Ok(word)
+    }
+
+    /// Encode the SME `ZERO` family (R2): the ZA tile-mask brace list
+    /// (`zero { za0.d, .. }` / `{ za }` / `{}`), the `zero { zt0 }` form, and the
+    /// SME2 ZA-array `.d` slice-group form (`zero za.d[Ws, ..]`).
+    fn enc_zero(insn: &Instruction) -> R {
+        use Code::*;
+        match insn.code() {
+            SmeZeroZt0 => {
+                // Exactly `zero { zt0 }`.
+                match insn.op(0) {
+                    Operand::SmeZaMask { zt0: true, .. } => Ok(0xC048_0001),
+                    _ => Err(EncodeError::InvalidOperand),
+                }
+            }
+            SmeZeroMask => {
+                // `word<23:16> == 0x08`, mask in `word<7:0>`.
+                let mask = match insn.op(0) {
+                    Operand::SmeZaMask { mask, zt0: false } => mask as u32,
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                Ok(0xC008_0000 | mask)
+            }
+            SmeZeroArray => {
+                // `zero za.d[Ws, off{:off+span-1}{, vgxN}]`: `.d` only.
+                let (sel, off, span, vg) = match insn.op(0) {
+                    Operand::SmeZaSlice {
+                        arr: Some(VA::Sd),
+                        sel,
+                        off,
+                        span,
+                        vg,
+                        tile: 0,
+                        slice: SliceIndicator::None,
+                    } => (sel, off as u32, span, vg),
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                // Ws select: w8..w11.
+                if sel.class() != RegClass::Gp {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                let wn = sel.number() as u32;
+                if !(8..=11).contains(&wn) {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                let ws = wn - 8;
+                // (span, vg) -> (g = word<17>, v = word<16>, r = word<15>, max_field).
+                let (g, v, r, max_field): (u32, u32, u32, u32) = match (span, vg) {
+                    (1, 2) => (0, 0, 0, 7),
+                    (1, 4) => (1, 0, 0, 7),
+                    (2, 0) => (0, 0, 1, 7),
+                    (4, 0) => (1, 0, 1, 3),
+                    (2, 2) => (0, 1, 0, 3),
+                    (2, 4) => (0, 1, 1, 3),
+                    (4, 2) => (1, 1, 0, 1),
+                    (4, 4) => (1, 1, 1, 1),
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                // The offset is `fld * span`; recover and range-check `fld`.
+                if off % span as u32 != 0 {
+                    return Err(EncodeError::InvalidImmediate);
+                }
+                let fld = off / span as u32;
+                if fld > max_field {
+                    return Err(EncodeError::InvalidImmediate);
+                }
+                // Shell: `word<23:16> == 0x0C..0x0F` (`word<19:18> == 11`).
+                Ok(0xC00C_0000 | (g << 17) | (v << 16) | (r << 15) | (ws << 13) | fld)
+            }
+            _ => Err(EncodeError::InvalidOperand),
+        }
+    }
+
+    /// Encode the SME2 `MOVT` family (R2): the three ZT0-move directions.
+    fn enc_movt(insn: &Instruction) -> R {
+        use Code::*;
+        match insn.code() {
+            SmeMovtZt0Z => {
+                // `movt zt0[idx, mul vl], Zt`: idx = word<13:12>, Zt = word<4:0>.
+                let index = match insn.op(0) {
+                    Operand::SmeZt0Index { index, mul_vl: true } => index as u32,
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                if index > 3 {
+                    return Err(EncodeError::InvalidImmediate);
+                }
+                let zt = z(insn, 1)?;
+                Ok(0xC04F_03E0 | (index << 12) | zt)
+            }
+            SmeMovtZt0X => {
+                // `movt zt0[off], Xt`: off = word<14:12>*8, Xt = word<4:0>.
+                let off = match insn.op(0) {
+                    Operand::SmeZt0Index { index, mul_vl: false } => index as u32,
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                let xt = xgp(insn, 1)?;
+                let field = movt_offset_field(off)?;
+                Ok(0xC04E_03E0 | (field << 12) | xt)
+            }
+            SmeMovtXZt0 => {
+                // `movt Xt, zt0[off]`: off = word<14:12>*8, Xt = word<4:0>.
+                let off = match insn.op(1) {
+                    Operand::SmeZt0Index { index, mul_vl: false } => index as u32,
+                    _ => return Err(EncodeError::InvalidOperand),
+                };
+                let xt = xgp(insn, 0)?;
+                let field = movt_offset_field(off)?;
+                Ok(0xC04C_03E0 | (field << 12) | xt)
+            }
+            _ => Err(EncodeError::InvalidOperand),
+        }
+    }
+
+    /// The 3-bit `word<14:12>` field of a `MOVT` GP byte offset (`0`/`8`/.../`56`).
+    #[inline]
+    fn movt_offset_field(off: u32) -> Result<u32, EncodeError> {
+        if off % 8 != 0 || off / 8 > 7 {
+            return Err(EncodeError::InvalidImmediate);
+        }
+        Ok(off / 8)
+    }
+
+    /// A 64-bit GP register number (`Xt`) at operand `n`, accepting the SP/ZR
+    /// view of reg 31 (`xzr`).
+    #[inline]
+    fn xgp(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
+        match insn.op(n) {
+            Operand::Reg { reg, .. } if reg.class() == RegClass::Gp => Ok(reg.number() as u32),
+            _ => Err(EncodeError::InvalidOperand),
+        }
     }
 
     #[cfg(test)]

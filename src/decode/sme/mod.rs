@@ -33,6 +33,7 @@ use crate::register::{gp_register, Register, RegWidth};
 pub(crate) mod sme2;
 pub(crate) mod sme_lut;
 pub(crate) mod sme_za_move;
+pub(crate) mod sme_zero_movt;
 
 // ---------------------------------------------------------------------------
 // Register-bank tables (local, mirroring the SVE decoders).
@@ -617,6 +618,15 @@ fn decode_mova_add(word: u32, features: FeatureSet, out: &mut Instruction) {
         && bit(word, 12) == 0
     {
         sme_za_move::decode_array(word, out);
+        return;
+    }
+    // SME `ZERO` (ZA tile mask / ZT0 / ZA array) and SME2 `MOVT` (move to/from
+    // the ZT0 lookup table) carve `word<23> == 0`, `word<19> == 1`. This shell is
+    // disjoint from the LUTI ZT0 (`word<23> == 1`) and the ZA-tile-slice /
+    // ZA-array `MOV`/`MOVAZ` (`word<19> == 0`) families routed above, and from the
+    // base `MOVA`/`ADDHA`/`ADDVA` (`word<19> == 0` / `word<23> == 1`) below.
+    if bit(word, 23) == 0 && bit(word, 19) == 1 {
+        sme_zero_movt::decode(word, features, out);
         return;
     }
     // Opcode `word<21:17>`: ADDHA/ADDVA are `01000`; MOVA is `0000x`.

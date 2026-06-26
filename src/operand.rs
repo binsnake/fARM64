@@ -434,6 +434,36 @@ pub enum Operand {
     /// operand of the `WHILE<cc>` predicate-as-counter forms
     /// (`WHILE<cc> <PNd>.<T>, <Xn>, <Xm>, VLx2`). The value is `2` or `4`.
     VlMul(u8),
+
+    /// The SME `ZERO` (ZA tile mask) brace-list operand, as LLVM/Binary Ninja
+    /// render the `ZERO` instruction's destination:
+    ///
+    /// * `{}` (empty), `{ za }` (the all-tiles `mask == 0xFF` form), or a list of
+    ///   ZA tiles `{ za0.d, za5.d }` selected by the 8-bit `mask`. The element
+    ///   width per tile is the *largest* width that cleanly tiles the mask: `.h`
+    ///   (`za0.h == 0x55`, `za1.h == 0xAA`), else `.s` (`za<i>.s == 0x11 << i`),
+    ///   else `.d` (`za<i>.d == 1 << i`); when [`zt0`](Operand::SmeZaMask::zt0) is
+    ///   set the list is the single lookup-table register `{ zt0 }` instead.
+    SmeZaMask {
+        /// The 8-bit tile-selection mask (`word<7:0>` of the `ZERO` encoding).
+        mask: u8,
+        /// `true` for the `{ zt0 }` lookup-table form (the `mask` is then unused).
+        zt0: bool,
+    },
+
+    /// The SME2 `ZT0` lookup-table operand with an index, as LLVM renders the
+    /// `MOVT` (move to/from ZT0) operand: `zt0` (index 0), `zt0[<index>, mul vl]`
+    /// (the `Z`-register form, vector-length-scaled index), or `zt0[<index>]` (the
+    /// general-purpose-register byte-offset form). The underlying register is
+    /// always [`Register::Zt0`].
+    SmeZt0Index {
+        /// The lookup-table index (`0..=3` for the `mul vl` form; a byte offset
+        /// `0`/`8`/.../`56` for the GP form).
+        index: u8,
+        /// `true` renders the `, mul vl` decorator (the `Z`-register vector form);
+        /// `false` is the plain `zt0[<index>]` byte-offset (GP) form.
+        mul_vl: bool,
+    },
 }
 
 impl Operand {
@@ -472,6 +502,8 @@ impl Operand {
             Operand::SveVecGroup { .. } => OpKind::SveVecGroup,
             Operand::PredCounter { .. } => OpKind::PredCounter,
             Operand::VlMul(_) => OpKind::VlMul,
+            Operand::SmeZaMask { .. } => OpKind::SmeZaMask,
+            Operand::SmeZt0Index { .. } => OpKind::SmeZt0Index,
         }
     }
 }
@@ -548,4 +580,8 @@ pub enum OpKind {
     PredCounter,
     /// [`Operand::VlMul`].
     VlMul,
+    /// [`Operand::SmeZaMask`].
+    SmeZaMask,
+    /// [`Operand::SmeZt0Index`].
+    SmeZt0Index,
 }

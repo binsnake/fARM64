@@ -3390,6 +3390,16 @@ codes! {
     SvePextSingle => Pext, Sve2p1, "`PEXT <Pd>.<T>, <PNn>[<imm>]` (SVE2.1 predicate extract from predicate-as-counter, single).";
     SvePextPair => Pext, Sve2p1, "`PEXT {<Pd1>.<T>, <Pd2>.<T>}, <PNn>[<imm>]` (SVE2.1 predicate extract from predicate-as-counter, pair).";
     SvePtruePn => Ptrue, Sve2p1, "`PTRUE <PNd>.<T>` (SVE2.1 initialise predicate-as-counter).";
+
+    // --- R2: SME `ZERO` (ZA tile mask / ZT0) and SME2 `ZERO` (ZA array) + `MOVT`
+    // (move to/from the ZT0 lookup table). All in the `110` quadrant, top byte
+    // `0xC0`, `word<24> == 0`, `word<23> == 0`, `word<19> == 1`. ---
+    SmeZeroMask => Zero, Sme, "`zero { za0.d, za5.d }` (SME zero a ZA tile mask; the 8-bit mask selects `.h`/`.s`/`.d` tiles or the whole `za`).";
+    SmeZeroZt0 => Zero, Sme2, "`zero { zt0 }` (SME2 zero the ZT0 lookup table, FEAT_SME2).";
+    SmeZeroArray => Zero, Sme2, "`zero za.d[w8, 0, vgx2]` (SME2 zero a ZA-array `.d` slice group, FEAT_SME2).";
+    SmeMovtZt0Z => Movt, Sme2, "`movt zt0[0, mul vl], z0` (SME2 move a `Z` vector into the ZT0 table at a VL-scaled index, FEAT_SME2).";
+    SmeMovtZt0X => Movt, Sme2, "`movt zt0[0], x0` (SME2 move a GP register into the ZT0 table at a byte offset, FEAT_SME2).";
+    SmeMovtXZt0 => Movt, Sme2, "`movt x0, zt0[0]` (SME2 move from the ZT0 table at a byte offset into a GP register, FEAT_SME2).";
 }
 
 impl Code {
@@ -6631,6 +6641,8 @@ pub enum Mnemonic {
     Ucvtflt,
     /// `PEXT` (SVE2.1 predicate extract from a predicate-as-counter).
     Pext,
+    /// `MOVT` (SME2 move to/from the ZT0 lookup table).
+    Movt,
 }
 
 impl Mnemonic {

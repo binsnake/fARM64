@@ -34,9 +34,19 @@ LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 | 205 / 54 | 45 / 34 |
 LLVM **REVERSE** (fARM64 decodes, LLVM rejects) | 19,199 / 264 | 9,199 / 228 | 2,577 / 169 | 1,756 / 162 | 146 / 50 | **10 / 1 — all `tcancel` (0 real)**
 **DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | 69 / 14 | 69 / 14 | 65 / 13 | 55 / 7 | **55 / 7  (all intentional aliases)**
 
-**The fARM64 decoder now matches LLVM across the entire AArch64 surface in the 614k sample.** The only
-"REVERSE" residue is the 10 `tcancel` words — a case where fARM64 is *more* complete than LLVM (this clang's
-assembler doesn't recognise the TME `TCANCEL` mnemonic), so it is correctly left decoded, not an over-decode.
+**The fARM64 decoder now matches LLVM across the entire AArch64 surface.** Two measures:
+- the 614k random sample above (0 gaps, 0 real over-decodes — the 10 `tcancel` are an LLVM *limitation*, not an
+  over-decode: this clang's assembler doesn't recognise the TME `TCANCEL` mnemonic, so fARM64 is correctly more
+  complete);
+- a **focused 3.3M-word fine-stride sweep across all 22 SVE+SME top bytes** (the sparsest multi-vector space,
+  which the random sample under-covers): **GAPS = 0, OVERDECODE = 0**.
+
+The M–S batches closed the last tail by *focused per-region sweeps* (random sampling misses rare multi-vector
+forms): `M` (RCW-pairs, SVE DUP/sub-imm, MOVPRFX, LS64-Rt, NEON-FP16-misc, PMOV), `N` (scalar 2-reg-misc,
+extract-narrow-top, SVE small), `O`/`P`/`Q` (SVE2.2+SME2 multi-vector convert + the whole SME2 0xC1 multi×multi
+ALU / ZA-array MOV / FP-convert cluster), `R1` (SVE-predicate PEXT/PTRUE-pn + PTRUE/CTERM/RDFFR/WRFFR guards),
+`R2` (SME ZERO tile-mask/ZT0 + MOVT), `S` (LUTI6 register-group source). The 55 DISAGREEMENTS are all
+intentional alias spellings (`mova`/`mov`, `bfc`/`bfi`, `sxtl`/`sshll #0`) and should stay.
 
 `a8a5779` **J** SME single-vector MOVAZ (correctness+mnemonic) + SVE gather/CPY/EXT/ZIP guards.
 `aab3c39`..`cfd3460` **K1-K4** SVE int-compare/CPY/logical-imm/PSEL, NEON FP16-3same/.2d-byelem/FCMLA/

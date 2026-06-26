@@ -3242,6 +3242,15 @@ codes! {
     // { Zn, Zn+1 }.H, { Zt, Zt+1 }[index]`; `word<15:10> == 111101`, `word<21> == 1`,
     // index `word<22>`. FEAT_LUT. ---
     SmeLuti6Consec => Luti6, Lut, "`luti6 { z0.h - z3.h }, { z0.h, z1.h }, { z0, z1 }[0]` (SME2 multi-vector lookup, consecutive dest).";
+
+    // --- O: SVE2.2 multi-vector FP-to-int convert-narrow (`FCVTZSN`/`FCVTZUN`):
+    // a single half-width-element destination `Zd.<Tn>` from a consecutive
+    // 2-register source group `{ Zn.<T>, Zn+1.<T> }` whose first register is even.
+    // Top byte 0x65, `<21>=0`, `<15:13>=001`, `<20:16>=01101`, `<12:11>=10`;
+    // `<10>` selects signed(0)/unsigned(1). `<23:22>` size: 01=.b<-{.h}, 10=.h<-{.s},
+    // 11=.s<-{.d} (00 reserved). FEAT_SVE2p2. ---
+    SveFcvtzsn => Fcvtzsn, Sve2p2, "`FCVTZSN Zd.h, { Zn.s, Zn+1.s }` (SVE2.2 multi-vector FP-to-signed-int convert-narrow).";
+    SveFcvtzun => Fcvtzun, Sve2p2, "`FCVTZUN Zd.h, { Zn.s, Zn+1.s }` (SVE2.2 multi-vector FP-to-unsigned-int convert-narrow).";
 }
 
 impl Code {
@@ -6457,6 +6466,11 @@ pub enum Mnemonic {
     Uqcvt,
     /// `SQCVTU` (SME2 multi-vector signed→unsigned saturating extract-narrow).
     Sqcvtu,
+    // --- O: SVE2.2 multi-vector FP-to-int convert-narrow ---
+    /// `FCVTZSN` (SVE2.2 multi-vector FP-to-signed-int convert-narrow).
+    Fcvtzsn,
+    /// `FCVTZUN` (SVE2.2 multi-vector FP-to-unsigned-int convert-narrow).
+    Fcvtzun,
 }
 
 impl Mnemonic {

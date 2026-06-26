@@ -168,6 +168,21 @@ fn fpimm_bits(bits: u64) -> Operand {
     Operand::FpImm(f32::from_bits(bits as u32))
 }
 
+/// A consecutive SVE multi-vector register group `{ Zfirst.<T>, ... }` (2-reg
+/// groups render as a comma list). Mirrors `sve_int::zgroup` for the multi-vector
+/// FP-to-int convert-narrow sources.
+#[inline]
+fn zgroup(first: u32, count: u8, a: VA) -> Operand {
+    Operand::SveVecGroup {
+        first: Z[(first & 0x1f) as usize],
+        count,
+        arr: Some(a),
+        range: count == 4,
+        stride: 1,
+        lane: None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point.
 // ---------------------------------------------------------------------------
@@ -297,6 +312,35 @@ fn decode_65_unary_misc(word: u32, features: FeatureSet, out: &mut Instruction) 
             return;
         }
     }
+
+    // SVE2.2 multi-vector FP-to-int convert-narrow (`FCVTZSN`/`FCVTZUN`,
+    // FEAT_SVE2p2): a single half-width-element destination `Zd.<Tn>` from a
+    // consecutive 2-register source group `{ Zn.<T>, Zn+1.<T> }`. `<20:16>=01101`,
+    // `<12:11>=10` (the `<12:10>` field is `10D`), `<10>` selects signed(0)/
+    // unsigned(1). `<23:22>` size selects the element widths (00 reserved); the
+    // source group's first register must be even.
+    if bits(word, 16, 5) == 0b01101 && bits(word, 11, 2) == 0b10 {
+        if !features.has(Feature::Sve2p2) {
+            return;
+        }
+        let zn = bits(word, 5, 5);
+        let zd = bits(word, 0, 5);
+        // Destination element / source group element: .b<-{.h}, .h<-{.s}, .s<-{.d}.
+        let (da, sa) = match size {
+            0b01 => (VA::Sb, VA::Sh),
+            0b10 => (VA::Sh, VA::Ss),
+            0b11 => (VA::Ss, VA::Sd),
+            _ => return, // size==00 reserved.
+        };
+        if zn & 1 != 0 {
+            return; // source pair base must be even.
+        }
+        out.set(if bit(word, 10) == 0 { Code::SveFcvtzsn } else { Code::SveFcvtzun });
+        out.push_operand(zreg(zd, da));
+        out.push_operand(zgroup(zn, 2, sa));
+        return;
+    }
+
     if size == 0 {
         return;
     }

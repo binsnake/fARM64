@@ -63,6 +63,8 @@ pub(super) fn is_fp(code: Code) -> bool {
             | SveBfmaxZpzz | SveBfminZpzz | SveBfmlaZpzzz | SveBfmlsZpzzz | SveBfclamp
         // L1: SVE2.2 BFloat16 scale + FP8/int down-converts
             | SveBfscale | SveBf2cvt | SveScvtflt
+        // O: SVE2.2 multi-vector FP-to-int convert-narrow
+            | SveFcvtzsn | SveFcvtzun
         // H3: FCLAMP + FDOT + FP8 vector MLAL/MMLA + BFMMLA.h + BFMLSL
             | SveFclamp
             | SveFdotShVec | SveFdotShIdx | SveFdotHbVec | SveFdotHbIdx | SveFdotSbVec | SveFdotSbIdx
@@ -503,6 +505,26 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             };
             base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b001, 13) | fld(op210, 10) | fld(zn, 5) | zd
         }
+        // ---- O: SVE2.2 multi-vector FP-to-int convert-narrow ----
+        // `FCVTZSN`/`FCVTZUN Zd.<Tn>, { Zn.<T>, Zn+1.<T> }`. <15:13>=001,
+        // <20:16>=01101, <12:11>=10, <10> signed(0)/unsigned(1). The size field
+        // comes from the destination (narrow) element: .b=01, .h=10, .s=11.
+        SveFcvtzsn | SveFcvtzun => {
+            let zd = z(insn, 0)?;
+            let size = match arr_of(insn, 0)? {
+                VA::Sb => 0b01,
+                VA::Sh => 0b10,
+                VA::Ss => 0b11,
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            let (zn, count) = group_first(insn, 1)?;
+            if count != 2 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            let sign = if matches!(code, SveFcvtzsn) { 0 } else { 1 };
+            base65(0) | fld(size, 22) | fld(0b01101, 16) | fld(0b001, 13) | fld(0b10, 11)
+                | fld(sign, 10) | fld(zn, 5) | zd
+        }
         // Predicated multiply-add `<Zda>.H, <Pg>/M, <Zn>.H, <Zm>.H`.
         SveBfmlaZpzzz | SveBfmlsZpzzz => {
             let op = if matches!(code, SveBfmlsZpzzz) { 0b001 } else { 0b000 };
@@ -695,6 +717,16 @@ fn base64(b21: u32) -> u32 {
 fn arr_of(insn: &Instruction, n: usize) -> Result<VA, EncodeError> {
     match insn.op(n) {
         Operand::Reg { arr: Some(a), .. } => Ok(a),
+        _ => Err(EncodeError::InvalidOperand),
+    }
+}
+
+/// The first register number and member count of an [`Operand::SveVecGroup`] at
+/// operand `n` (the consecutive multi-vector convert-narrow source).
+#[inline]
+fn group_first(insn: &Instruction, n: usize) -> Result<(u32, u8), EncodeError> {
+    match insn.op(n) {
+        Operand::SveVecGroup { first, count, .. } => Ok((first.number() as u32, count)),
         _ => Err(EncodeError::InvalidOperand),
     }
 }

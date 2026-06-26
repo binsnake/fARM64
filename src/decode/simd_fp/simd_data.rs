@@ -486,7 +486,13 @@ fn decode_dup_general(q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instruction
 /// `INS <Vd>.<Ts>[index], <R><n>` (general register). Rendered as the `MOV`
 /// alias to match the corpus.
 #[inline]
-fn decode_ins_general(_q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instruction) {
+fn decode_ins_general(q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instruction) {
+    // INS is a 128-bit insert: `Q` is a fixed `1`. `Q==0` is reserved →
+    // UNDEFINED (verified vs LLVM: `0E051C11` over-decoded as `mov v17.b[2],w0`,
+    // `<unknown>`, vs the canonical `4E051C11` with `Q==1`).
+    if q != 1 {
+        return;
+    }
     let (esize, index) = match imm5_size_index(imm5) {
         Some(v) => v,
         None => return,
@@ -500,7 +506,13 @@ fn decode_ins_general(_q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instructio
 
 /// `INS <Vd>.<Ts>[index1], <Vn>.<Ts>[index2]` (element). Rendered as `MOV`.
 #[inline]
-fn decode_ins_element(_q: u32, imm5: u32, imm4: u32, rn: u32, rd: u32, out: &mut Instruction) {
+fn decode_ins_element(q: u32, imm5: u32, imm4: u32, rn: u32, rd: u32, out: &mut Instruction) {
+    // INS is a 128-bit insert: `Q` is a fixed `1`. `Q==0` is reserved →
+    // UNDEFINED (verified vs LLVM: `2E010411` over-decoded as `mov v17.b[0],
+    // v0.b[0]`, `<unknown>`, vs the canonical `6E010411` with `Q==1`).
+    if q != 1 {
+        return;
+    }
     let (esize, dst_index) = match imm5_size_index(imm5) {
         Some(v) => v,
         None => return,

@@ -2662,12 +2662,18 @@ fn decode_45(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b1111 => (Code::SveMulLong, Mnemonic::Umullt),
         _ => return,
     };
-    // Source elements widen 2x. The integer MULL forms allow size 01/10/11
-    // (.h<-.b / .s<-.h / .d<-.s). PMULL additionally has the `.q<-.d` crypto
-    // form at size==00 (and uses the same widening table otherwise).
+    // Source elements widen 2x. The integer MULL / SQDMULL forms allow size
+    // 01/10/11 (.h<-.b / .s<-.h / .d<-.s). PMULL is *different*: it is allocated
+    // only for `.h` (size==01), `.d` (size==11), and the `.q<-.d` crypto form
+    // (size==00); the `.s` form (size==10) is reserved → UNDEFINED (verified vs
+    // LLVM: `45896FE8` over-decoded as `pmullt z8.s,z31.h,z9.h`, `<unknown>`, vs
+    // the valid `.h`/`.d`/`.q` PMULL forms). SQDMULL/MULL have no `.q` form, so
+    // size==00 is reserved for them (handled by the `_ => return` fall-through).
+    let is_pmull = matches!(code, Code::SvePmulLong);
     let (da, sa) = match size {
-        0b00 if matches!(code, Code::SvePmulLong) => (VA::Sq, VA::Sd),
+        0b00 if is_pmull => (VA::Sq, VA::Sd),
         0b01 => (VA::Sh, VA::Sb),
+        0b10 if is_pmull => return,
         0b10 => (VA::Ss, VA::Sh),
         0b11 => (VA::Sd, VA::Ss),
         _ => return,
@@ -3244,9 +3250,14 @@ fn decode_45_addsub(word: u32, out: &mut Instruction) {
             let Some((da, sa)) = widen2(size) else { return };
             let s = bit(word, 11);
             let tb = bit(word, 10);
-            // S=0 -> SADDLBT; S=1 -> SSUBLBT (tb=0) / SSUBLTB (tb=1).
+            // The `<11:10>` field has only three allocated values: `00`=SADDLBT,
+            // `10`=SSUBLBT, `11`=SSUBLTB. SADDLBT fixes `<10>=0` — the `01` slot
+            // (`s=0,tb=1`) is reserved → UNDEFINED (verified vs LLVM: `455386AB`
+            // over-decoded as `saddlbt z11.h,z21.b,z19.b`, `<unknown>` at every
+            // size, vs the canonical `455382AB` with `<10>=0`).
             let mnem = match (s, tb) {
-                (0, _) => Mnemonic::Saddlbt,
+                (0, 0) => Mnemonic::Saddlbt,
+                (0, _) => return,
                 (1, 0) => Mnemonic::Ssublbt,
                 _ => Mnemonic::Ssubltb,
             };

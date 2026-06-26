@@ -419,7 +419,13 @@ fn decode_65_pred_binary(word: u32, features: FeatureSet, out: &mut Instruction)
     // <20:19> in {00,01} (so `<20>=0` distinguishes the two destructive halves).
     if bits(word, 19, 2) == 0b11 {
         // immediate forms: 01100101 size 011 opc<2:0> 100 i1 0000 Zdn  (the i1
-        // is word<5>, with the rest of the source field zero).
+        // is word<5>, with the rest of the source field zero). `<9:6>` is a fixed
+        // `0000`; a non-zero value is reserved → UNDEFINED (verified vs LLVM:
+        // `655A9DE5` over-decoded as `fmul z5.h,p7/m,z5.h,#2.0`, `<unknown>`, vs
+        // the canonical `655A9C25` with `<9:6>=0000`).
+        if bits(word, 6, 4) != 0 {
+            return;
+        }
         let opc3 = bits(word, 16, 3); // word<18:16>
         let i1 = bit(word, 5);
         let (code, imm) = match opc3 {

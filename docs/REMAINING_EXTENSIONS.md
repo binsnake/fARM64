@@ -28,14 +28,28 @@ Commit | What
 `ff7bab4` | **H4** over-decode hardening: add/sub extended `opt!=00`, NEON ld/st-structure `.1d`/reserved, FP16-MLAL `size<0>`; + FEAT_RPRFM
 
 ### Measured impact (identical 614,400-word random+structured sample, `--mattr=+all`)
-Metric | Session start | After G+FMMLA+H | After I | **Final (after J)**
-|-|-|-|-|-|
-LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 | 205 / 54 | 45 / 34 | **45 / 34  (−93%)**
-LLVM **REVERSE** (fARM64 decodes, LLVM rejects = over-decode) | 19,199 / 264 | 9,199 / 228 | 2,577 / 169 | **1,756 / 162  (−91%)**
-**DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | 69 / 14 | 69 / 14 | **65 / 13  (−96%)**
+Metric | Session start | After G+FMMLA+H | After I | After J | **Final (after K+L)**
+|-|-|-|-|-|-|
+LLVM **GAPS** (LLVM decodes, fARM64 `Invalid`) | 662 / 87 | 205 / 54 | 45 / 34 | 45 / 34 | **1 / 1  (−99.8%)**
+LLVM **REVERSE** (fARM64 decodes, LLVM rejects = over-decode) | 19,199 / 264 | 9,199 / 228 | 2,577 / 169 | 1,756 / 162 | **146 / 50  (−99.2%)**
+**DISAGREEMENTS** (mnemonic differs) | 1,653 / 52 | 69 / 14 | 69 / 14 | 65 / 13 | **55 / 7  (all intentional aliases)**
 
-`a8a5779` **J** SME single-vector MOVAZ (correctness+mnemonic) + SVE 64-bit-gather signed-dword,
-CPY-imm `.b` LSL#8, EXT-imm, ZIP/UZP/TRN leaf reserved guards.
+`a8a5779` **J** SME single-vector MOVAZ (correctness+mnemonic) + SVE gather/CPY/EXT/ZIP guards.
+`aab3c39`..`cfd3460` **K1-K4** SVE int-compare/CPY/logical-imm/PSEL, NEON FP16-3same/.2d-byelem/FCMLA/
+scalar-3same, SME ADDHA/ADDVA + SME2 multi-vec gaps, SVE FP-convert /z + AES2 + FPRCVT + MOPS/TCHANGE.
+`5dec6a0`..`a9fb9ec` **L1-L4** SVE narrowing-shift/widening/INCP/index-broadcast/min-max-imm/RDVL,
+NEON scalar D-only-shift + SQDMULH-byte, SME2 multi-vec multi×single/UNPK/convert-narrow/LUTI6,
+NEON INS-Q0 + SVE2 SADDLBT/PMULL + SVE FP-immediate guards.
+
+### Near-complete. The remaining tail (in-sample):
+- **1 GAP** (essentially full instruction coverage). The single residual is the deepest SME2 multi×multi
+  in-place slot variant; plus, beyond the random sample, a handful of ≤1-occurrence forms.
+- **146 over-decodes / 50 distinct**, all small: FEAT_THE/LSE128 **RCW-pair** ops (`rcwsetpa`/`rcwswpp`/
+  `rcwclrp`… ~60, reserved field), `tcancel` imm16 (10), SVE `mov`/`sub` DUP/CPY-imm residue (~31),
+  `st64bv0` (5), SVE `movprfx` (4), NEON `fcvtns/frint64z .4h` (~12), SVE `pmov` (2).
+- **55 DISAGREEMENTS / 7 distinct — ALL intentional alias choices** (not bugs): `mova` vs `mov` (38,
+  + the binja `z`-prefix ZA spelling), `bfc` vs `bfi …,wzr` (12), `sxtl`/`uxtl` vs `sshll`/`ushll #0` (4),
+  `hint #0x2d` vs `msr S0_1_C2_C5_5` (1).
 
 Plus the **I-batch** (over-decode + remaining-gap closure):
 Commit | What

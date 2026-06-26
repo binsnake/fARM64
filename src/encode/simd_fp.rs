@@ -90,6 +90,8 @@ pub fn is_simd_fp(code: Code) -> bool {
         | BfmlalbVec | BfmlaltVec | FmlalbVec | FmlaltVec
         | FmlallbbVec | FmlallbtVec | FmlalltbVec | FmlallttVec
         | SmmlaVec | UmmlaVec | UsmmlaVec
+        // --- FP/BF16/FP8 matrix multiply-accumulate (FMMLA/BFMMLA, NEON) ---
+        | FmmlaVecF16F32 | FmmlaVecF16 | FmmlaVecF8F16 | FmmlaVecF8F32 | BfmmlaVec
         // --- FEAT_FAMINMAX / FEAT_FP8 / FEAT_LUT (NEON) ---
         | FamaxVec | FaminVec | FscaleVec | FcvtnFp8 | Fcvtn2Fp8 | BfcvtnVec | Bfcvtn2Vec
         | F1cvtlVec | F1cvtl2Vec | F2cvtlVec | F2cvtl2Vec | Bf1cvtlVec | Bf1cvtl2Vec

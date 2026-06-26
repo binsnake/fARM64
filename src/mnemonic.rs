@@ -2841,6 +2841,13 @@ codes! {
     SmeMovaMultiZToTile => Mov, Sme2, "`MOV ZA<tile><HV>.<T>[<Ws>, <off>:<off+N-1>], {<Zn>...}` (SME2, vectors to ZA tile slice).";
     SmeMovaMultiTileToZ => Mov, Sme2, "`MOV {<Zd>...}, ZA<tile><HV>.<T>[<Ws>, <off>:<off+N-1>]` (SME2, ZA tile slice to vectors).";
     SmeMovazMultiTileToZ => Movaz, Sme2, "`MOVAZ {<Zd>...}, ZA<tile><HV>.<T>[<Ws>, <off>:<off+N-1>]` (SME2, ZA tile slice to vectors, zeroing).";
+
+    // --- NEON FP matrix-multiply-accumulate (three-register, lo=111011, Q=1) ---
+    FmmlaVecF16F32 => Fmmla, F16f32mm, "`FMMLA <Vd>.4S, <Vn>.8H, <Vm>.8H` (FEAT_F16F32MM, FP16→FP32 matrix).";
+    FmmlaVecF16 => Fmmla, F16mm, "`FMMLA <Vd>.8H, <Vn>.8H, <Vm>.8H` (FEAT_F16MM, non-widening FP16 matrix).";
+    FmmlaVecF8F16 => Fmmla, F8f16mm, "`FMMLA <Vd>.8H, <Vn>.16B, <Vm>.16B` (FEAT_F8F16MM, FP8→FP16 matrix).";
+    FmmlaVecF8F32 => Fmmla, F8f32mm, "`FMMLA <Vd>.4S, <Vn>.16B, <Vm>.16B` (FEAT_F8F32MM, FP8→FP32 matrix).";
+    BfmmlaVec => Bfmmla, Bf16, "`BFMMLA <Vd>.4S, <Vn>.8H, <Vm>.8H` (FEAT_BF16, NEON BF16 matrix).";
 }
 
 impl Code {

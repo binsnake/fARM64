@@ -114,6 +114,18 @@ pub enum Feature {
     /// atomic float read-modify-write memory ops (H/S/D + BF16, a/l/al ordering).
     Lsfe,
     Faminmax,
+    /// FP16-to-FP32 Advanced SIMD matrix multiply-accumulate (`FEAT_F16F32MM`):
+    /// the NEON `FMMLA <Vd>.4S, <Vn>.8H, <Vm>.8H` widening matrix product.
+    F16f32mm,
+    /// Non-widening half-precision Advanced SIMD matrix multiply-accumulate
+    /// (`FEAT_F16MM`): the NEON `FMMLA <Vd>.8H, <Vn>.8H, <Vm>.8H`.
+    F16mm,
+    /// FP8-to-half Advanced SIMD matrix multiply-accumulate (`FEAT_F8F16MM`):
+    /// the NEON `FMMLA <Vd>.8H, <Vn>.16B, <Vm>.16B`.
+    F8f16mm,
+    /// FP8-to-single Advanced SIMD matrix multiply-accumulate (`FEAT_F8F32MM`):
+    /// the NEON `FMMLA <Vd>.4S, <Vn>.16B, <Vm>.16B`.
+    F8f32mm,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

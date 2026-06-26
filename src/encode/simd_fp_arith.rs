@@ -572,6 +572,12 @@ mod simd_arith {
             SmmlaVec => (0, 0b10, 1, 0b101001),
             UmmlaVec => (1, 0b10, 1, 0b101001),
             UsmmlaVec => (0, 0b10, 1, 0b101011),
+            // FP/BF16/FP8 matrix multiply-accumulate (FMMLA/BFMMLA), lo=111011, Q=1.
+            FmmlaVecF16F32 => (0, 0b01, 1, 0b111011),
+            FmmlaVecF16 => (0, 0b11, 1, 0b111011),
+            FmmlaVecF8F16 => (1, 0b00, 1, 0b111011),
+            FmmlaVecF8F32 => (1, 0b10, 1, 0b111011),
+            BfmmlaVec => (1, 0b01, 1, 0b111011),
             _ => return Ok(None),
         };
         let rm = reg_num(insn, 2)?;

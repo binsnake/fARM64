@@ -891,6 +891,39 @@ fn simd_three_reg_ext(word: u32, features: FeatureSet, out: &mut Instruction) ->
             }
             true
         }
+        0b111011 => {
+            // FP/BF16/FP8 matrix multiply-accumulate (FMMLA / BFMMLA). The whole
+            // `lo=111011` opcode block is owned here: it is FMMLA/BFMMLA for `Q==1`
+            // with a specific `(U,size)`, and architecturally UNDEFINED for every
+            // other combination (all `Q==0`, and the unallocated `(U,size)`). We
+            // claim the slot (return `true`) so the FCADD decoder below — whose
+            // mask is `1110x1` and would otherwise over-decode these words — never
+            // sees them. Real FCADD uses `lo=111001`/`111101`, never `111011`.
+            //   (0,01) FMMLA .4s,.8h,.8h  (F16F32MM)   (0,11) FMMLA .8h,.8h,.8h  (F16MM)
+            //   (1,00) FMMLA .8h,.16b,.16b (F8F16MM)   (1,10) FMMLA .4s,.16b,.16b (F8F32MM)
+            //   (1,01) BFMMLA .4s,.8h,.8h (BF16)
+            if q == 1 {
+                match (u, size) {
+                    (0, 0b01) if features.has(Feature::F16f32mm) => {
+                        emit3(out, Code::FmmlaVecF16F32, rd, VA::V4S, rn, VA::V8H, rm, VA::V8H);
+                    }
+                    (0, 0b11) if features.has(Feature::F16mm) => {
+                        emit3(out, Code::FmmlaVecF16, rd, VA::V8H, rn, VA::V8H, rm, VA::V8H);
+                    }
+                    (1, 0b00) if features.has(Feature::F8f16mm) => {
+                        emit3(out, Code::FmmlaVecF8F16, rd, VA::V8H, rn, VA::V16B, rm, VA::V16B);
+                    }
+                    (1, 0b10) if features.has(Feature::F8f32mm) => {
+                        emit3(out, Code::FmmlaVecF8F32, rd, VA::V4S, rn, VA::V16B, rm, VA::V16B);
+                    }
+                    (1, 0b01) if features.has(Feature::Bf16) => {
+                        emit3(out, Code::BfmmlaVec, rd, VA::V4S, rn, VA::V8H, rm, VA::V8H);
+                    }
+                    _ => {}
+                }
+            }
+            true
+        }
         0b101001 | 0b101011 if size == 0b10 && q == 1 => {
             // FEAT_I8MM integer matrix multiply-accumulate (Q=1 only): opcode
             // `word<15:12>==1010`, `word<10>==1`; the `B` bit `word<11>` is the

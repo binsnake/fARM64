@@ -154,7 +154,7 @@ pub use crate::features::{Feature, FeatureSet};
 pub use crate::format::{
     Formatter, FormatterOptions, FormatterOutput, SymbolResolver, SymbolResult, TokenKind,
 };
-pub use crate::info::{InstructionInfo, OpAccess, UsedMemory, UsedRegister};
+pub use crate::info::{instruction_info, InstructionInfo, OpAccess, UsedMemory, UsedRegister};
 pub use crate::instruction::Instruction;
 pub use crate::mnemonic::Code;
 pub use crate::mnemonic::Mnemonic;

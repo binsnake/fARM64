@@ -1709,6 +1709,9 @@ codes! {
     SveZipqUzpq => Zipq1, Sve2p1, "`{ZIPQ,UZPQ}{1,2} <Zd>.<T>, <Zn>.<T>, <Zm>.<T>` (SVE2.1 128-bit-segment permute).";
     SveTblq => Tblq, Sve2p1, "`TBLQ <Zd>.<T>, {<Zn>.<T>}, <Zm>.<T>` (SVE2.1 128-bit-segment table lookup).";
     SveTbxq => Tbxq, Sve2p1, "`TBXQ <Zd>.<T>, <Zn>.<T>, <Zm>.<T>` (SVE2.1 128-bit-segment table lookup, keep).";
+    SveLuti2 => Luti2, Lut, "`LUTI2 <Zd>.<T>, {<Zn>.<T>}, <Zm>[<index>]` (SVE FEAT_LUT lookup table, 2-bit indices, `.B`/`.H`).";
+    SveLuti4 => Luti4, Lut, "`LUTI4 <Zd>.<T>, {<Zn>.<T>}, <Zm>[<index>]` (SVE FEAT_LUT lookup table, 4-bit indices, `.B`/`.H`).";
+    SveLuti4Two => Luti4, Lut, "`LUTI4 <Zd>.<T>, {<Zn1>.<T>, <Zn2>.<T>}, <Zm>[<index>]` (SVE FEAT_LUT two-table lookup, `.H`).";
     SveClastV => Clasta, Sve, "`CLAST{A,B} <V><d>, <Pg>, <V><d>, <Zm>.<T>` (SVE).";
     SveClastR => Clasta, Sve, "`CLAST{A,B} <R><d>, <Pg>, <R><d>, <Zm>.<T>` (SVE).";
     SveClastZ => Clasta, Sve, "`CLAST{A,B} <Zdn>.<T>, <Pg>, <Zdn>.<T>, <Zm>.<T>` (SVE).";
@@ -2611,6 +2614,56 @@ codes! {
     SmeFvdotHBV2Gi => Fvdot, Sme2, "`fvdot za.h[w8, 0, vgx2], { z0.b, z1.b }, z0.b[0]` (SME2).";
     SmeSvdotSBV4Gi => Svdot, Sme2, "`svdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
     SmeUvdotSBV4Gi => Uvdot, Sme2, "`uvdot za.s[w8, 0, vgx4], { z0.b - z3.b }, z0.b[0]` (SME2).";
+    Ldtxr32 => Ldtxr, Lsui, "`LDTXR <Wt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged load-exclusive, 32-bit).";
+    Ldtxr64 => Ldtxr, Lsui, "`LDTXR <Xt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged load-exclusive, 64-bit).";
+    Ldatxr32 => Ldatxr, Lsui, "`LDATXR <Wt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged load-acquire-exclusive, 32-bit).";
+    Ldatxr64 => Ldatxr, Lsui, "`LDATXR <Xt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged load-acquire-exclusive, 64-bit).";
+    Sttxr32 => Sttxr, Lsui, "`STTXR <Ws>, <Wt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged store-exclusive, 32-bit).";
+    Sttxr64 => Sttxr, Lsui, "`STTXR <Ws>, <Xt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged store-exclusive, 64-bit).";
+    Stltxr32 => Stltxr, Lsui, "`STLTXR <Ws>, <Wt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged store-release-exclusive, 32-bit).";
+    Stltxr64 => Stltxr, Lsui, "`STLTXR <Ws>, <Xt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged store-release-exclusive, 64-bit).";
+    Cast64 => Cast, Lsui, "`CAST <Xs>, <Xt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged compare-and-swap, 64-bit).";
+    Casat64 => Casat, Lsui, "`CASAT <Xs>, <Xt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged compare-and-swap acquire, 64-bit).";
+    Caslt64 => Caslt, Lsui, "`CASLT <Xs>, <Xt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged compare-and-swap release, 64-bit).";
+    Casalt64 => Casalt, Lsui, "`CASALT <Xs>, <Xt>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged compare-and-swap acquire-release, 64-bit).";
+    Caspt64 => Caspt, Lsui, "`CASPT <Xs>, <X(s+1)>, <Xt>, <X(t+1)>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged compare-and-swap pair, 64-bit).";
+    Caspat64 => Caspat, Lsui, "`CASPAT <Xs>, <X(s+1)>, <Xt>, <X(t+1)>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged compare-and-swap pair acquire, 64-bit).";
+    Casplt64 => Casplt, Lsui, "`CASPLT <Xs>, <X(s+1)>, <Xt>, <X(t+1)>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged compare-and-swap pair release, 64-bit).";
+    Caspalt64 => Caspalt, Lsui, "`CASPALT <Xs>, <X(s+1)>, <Xt>, <X(t+1)>, [<Xn|SP>{, #0}]` (FEAT_LSUI, unprivileged compare-and-swap pair acquire-release, 64-bit).";
+
+    // --- SME2 / SVE2.1 multi-vector ALU (predicate-as-counter SEL; CLAMP; ZIP/UZP) ---
+    SmeSelMV2 => Sel, Sme2, "`sel { z0.b, z1.b }, pn8, { z0.b, z1.b }, { z0.b, z1.b }` (SME2 multi-vector, vgx2).";
+    SmeSelMV4 => Sel, Sme2, "`sel { z0.b - z3.b }, pn8, { z0.b - z3.b }, { z0.b - z3.b }` (SME2 multi-vector, vgx4).";
+    SmeUclampMV2 => Uclamp, Sme2, "`uclamp { z0.b, z1.b }, z0.b, z0.b` (SME2 multi-vector, vgx2).";
+    SmeUclampMV4 => Uclamp, Sme2, "`uclamp { z0.b - z3.b }, z0.b, z0.b` (SME2 multi-vector, vgx4).";
+    SmeSclampMV2 => Sclamp, Sme2, "`sclamp { z0.b, z1.b }, z0.b, z0.b` (SME2 multi-vector, vgx2).";
+    SmeSclampMV4 => Sclamp, Sme2, "`sclamp { z0.b - z3.b }, z0.b, z0.b` (SME2 multi-vector, vgx4).";
+    SmeFclampMV2 => Fclamp, Sme2, "`fclamp { z0.h, z1.h }, z0.h, z0.h` (SME2 multi-vector, vgx2).";
+    SmeFclampMV4 => Fclamp, Sme2, "`fclamp { z0.h - z3.h }, z0.h, z0.h` (SME2 multi-vector, vgx4).";
+    SmeBfclampMV2 => Bfclamp, Sme2, "`bfclamp { z0.h, z1.h }, z0.h, z0.h` (SME2 multi-vector, vgx2).";
+    SmeBfclampMV4 => Bfclamp, Sme2, "`bfclamp { z0.h - z3.h }, z0.h, z0.h` (SME2 multi-vector, vgx4).";
+    SmeZipMV2 => Zip, Sme2, "`zip { z0.b, z1.b }, z0.b, z0.b` (SME2 multi-vector, vgx2).";
+    SmeZipMV4 => Zip, Sme2, "`zip { z0.b - z3.b }, { z0.b - z3.b }` (SME2 multi-vector, vgx4).";
+    SmeUzpMV2 => Uzp, Sme2, "`uzp { z0.b, z1.b }, z0.b, z0.b` (SME2 multi-vector, vgx2).";
+    SmeUzpMV4 => Uzp, Sme2, "`uzp { z0.b - z3.b }, { z0.b - z3.b }` (SME2 multi-vector, vgx4).";
+
+    // --- SME2 / SVE2.1 contiguous multi-vector load/store (predicate-as-counter) ---
+    SmeLd1bMV => Ld1b, Sme2, "`ld1b { z0.b, z1.b }, pn8/z, [x0, x0]` (SME2 multi-vector).";
+    SmeLd1hMV => Ld1h, Sme2, "`ld1h { z0.h, z1.h }, pn8/z, [x0, x0, lsl #1]` (SME2 multi-vector).";
+    SmeLd1wMV => Ld1w, Sme2, "`ld1w { z0.s, z1.s }, pn8/z, [x0, x0, lsl #2]` (SME2 multi-vector).";
+    SmeLd1dMV => Ld1d, Sme2, "`ld1d { z0.d, z1.d }, pn8/z, [x0, x0, lsl #3]` (SME2 multi-vector).";
+    SmeLdnt1bMV => Ldnt1b, Sme2, "`ldnt1b { z0.b, z1.b }, pn8/z, [x0, x0]` (SME2 multi-vector).";
+    SmeLdnt1hMV => Ldnt1h, Sme2, "`ldnt1h { z0.h, z1.h }, pn8/z, [x0, x0, lsl #1]` (SME2 multi-vector).";
+    SmeLdnt1wMV => Ldnt1w, Sme2, "`ldnt1w { z0.s, z1.s }, pn8/z, [x0, x0, lsl #2]` (SME2 multi-vector).";
+    SmeLdnt1dMV => Ldnt1d, Sme2, "`ldnt1d { z0.d, z1.d }, pn8/z, [x0, x0, lsl #3]` (SME2 multi-vector).";
+    SmeSt1bMV => St1b, Sme2, "`st1b { z0.b, z1.b }, pn8, [x0, x0]` (SME2 multi-vector).";
+    SmeSt1hMV => St1h, Sme2, "`st1h { z0.h, z1.h }, pn8, [x0, x0, lsl #1]` (SME2 multi-vector).";
+    SmeSt1wMV => St1w, Sme2, "`st1w { z0.s, z1.s }, pn8, [x0, x0, lsl #2]` (SME2 multi-vector).";
+    SmeSt1dMV => St1d, Sme2, "`st1d { z0.d, z1.d }, pn8, [x0, x0, lsl #3]` (SME2 multi-vector).";
+    SmeStnt1bMV => Stnt1b, Sme2, "`stnt1b { z0.b, z1.b }, pn8, [x0, x0]` (SME2 multi-vector).";
+    SmeStnt1hMV => Stnt1h, Sme2, "`stnt1h { z0.h, z1.h }, pn8, [x0, x0, lsl #1]` (SME2 multi-vector).";
+    SmeStnt1wMV => Stnt1w, Sme2, "`stnt1w { z0.s, z1.s }, pn8, [x0, x0, lsl #2]` (SME2 multi-vector).";
+    SmeStnt1dMV => Stnt1d, Sme2, "`stnt1d { z0.d, z1.d }, pn8, [x0, x0, lsl #3]` (SME2 multi-vector).";
 }
 
 impl Code {
@@ -4092,6 +4145,10 @@ pub enum Mnemonic {
     Tbl,
     /// `TBX`.
     Tbx,
+    /// `LUTI2`.
+    Luti2,
+    /// `LUTI4`.
+    Luti4,
     /// `EXT`.
     Ext,
     /// `ZIP1`.
@@ -4102,6 +4159,10 @@ pub enum Mnemonic {
     Uzp1,
     /// `UZP2`.
     Uzp2,
+    /// `ZIP` (SME2 multi-vector interleave).
+    Zip,
+    /// `UZP` (SME2 multi-vector de-interleave).
+    Uzp,
     /// `TRN1`.
     Trn1,
     /// `TRN2`.
@@ -5318,6 +5379,10 @@ pub enum Mnemonic {
     Sclamp,
     /// `UCLAMP` (SVE2/SME unsigned clamp to a range).
     Uclamp,
+    /// `FCLAMP` (SME2 floating-point clamp to a range, multi-vector).
+    Fclamp,
+    /// `BFCLAMP` (SME2 BFloat16 clamp to a range, multi-vector).
+    Bfclamp,
 
     // --- AdvSIMD crypto (FEAT_SHA1 / FEAT_SHA256 / FEAT_SHA512 / FEAT_SM3 /
     //     FEAT_SM4): the scalar/vector NEON cryptographic instructions. ---
@@ -5547,6 +5612,30 @@ pub enum Mnemonic {
     Fvdotb,
     /// `FVDOTT` (SME2 FP8 multi-vector vertical dot product into ZA, top).
     Fvdott,
+    /// `LDTXR` (FEAT_LSUI unprivileged load-exclusive register).
+    Ldtxr,
+    /// `LDATXR` (FEAT_LSUI unprivileged load-acquire-exclusive register).
+    Ldatxr,
+    /// `STTXR` (FEAT_LSUI unprivileged store-exclusive register).
+    Sttxr,
+    /// `STLTXR` (FEAT_LSUI unprivileged store-release-exclusive register).
+    Stltxr,
+    /// `CAST` (FEAT_LSUI unprivileged compare-and-swap).
+    Cast,
+    /// `CASAT` (FEAT_LSUI unprivileged compare-and-swap, acquire).
+    Casat,
+    /// `CASLT` (FEAT_LSUI unprivileged compare-and-swap, release).
+    Caslt,
+    /// `CASALT` (FEAT_LSUI unprivileged compare-and-swap, acquire-release).
+    Casalt,
+    /// `CASPT` (FEAT_LSUI unprivileged compare-and-swap pair).
+    Caspt,
+    /// `CASPAT` (FEAT_LSUI unprivileged compare-and-swap pair, acquire).
+    Caspat,
+    /// `CASPLT` (FEAT_LSUI unprivileged compare-and-swap pair, release).
+    Casplt,
+    /// `CASPALT` (FEAT_LSUI unprivileged compare-and-swap pair, acquire-release).
+    Caspalt,
 }
 
 impl Mnemonic {
@@ -6390,6 +6479,22 @@ mod tests {
         Code::Cbhhs,
         Code::Cbheq,
         Code::Cbhne,
+        Code::Ldtxr32,
+        Code::Ldtxr64,
+        Code::Ldatxr32,
+        Code::Ldatxr64,
+        Code::Sttxr32,
+        Code::Sttxr64,
+        Code::Stltxr32,
+        Code::Stltxr64,
+        Code::Cast64,
+        Code::Casat64,
+        Code::Caslt64,
+        Code::Casalt64,
+        Code::Caspt64,
+        Code::Caspat64,
+        Code::Casplt64,
+        Code::Caspalt64,
     ];
 
     #[test]

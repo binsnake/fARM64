@@ -26,12 +26,33 @@ pub struct DecoderOptions {
     pub features: FeatureSet,
 }
 
+impl DecoderOptions {
+    /// The "no special options" preset, mirroring iced-x86's
+    /// [`DecoderOptions::NONE`]. Equivalent to [`DecoderOptions::default`]: it
+    /// accepts every architecture extension ([`FeatureSet::ALL`]).
+    ///
+    /// Unlike iced-x86 there is **no invalid-instruction toggle** to set here:
+    /// fARM64 always surfaces an unrecognized or genuinely-undefined word as an
+    /// [`Instruction`] with [`Code::Invalid`] (and a recorded
+    /// [`Decoder::last_error`]). There is no option that changes that behaviour.
+    pub const NONE: DecoderOptions = DecoderOptions {
+        features: FeatureSet::ALL,
+    };
+
+    /// `const` constructor for the default options ([`FeatureSet::ALL`]) — the
+    /// `const fn` analog of [`DecoderOptions::default`], usable in `const`
+    /// contexts. Returns the same value as [`DecoderOptions::NONE`].
+    #[inline]
+    #[must_use]
+    pub const fn new() -> DecoderOptions {
+        DecoderOptions::NONE
+    }
+}
+
 impl Default for DecoderOptions {
     #[inline]
     fn default() -> Self {
-        DecoderOptions {
-            features: FeatureSet::default(),
-        }
+        DecoderOptions::NONE
     }
 }
 
@@ -123,6 +144,15 @@ impl<'a> Decoder<'a> {
         // Fixed-width ISA: always advance by one word.
         self.pos += INSN_LEN;
         self.ip = self.ip.wrapping_add(INSN_LEN as u64);
+    }
+
+    /// iced-x86-style alias for [`Decoder::decode_into`]: decode one instruction
+    /// into the caller-owned `out`, advancing the cursor and `ip` by
+    /// [`INSN_LEN`]. Provided for source compatibility with code written against
+    /// iced-x86's `decode_out`.
+    #[inline]
+    pub fn decode_out(&mut self, out: &mut Instruction) {
+        self.decode_into(out);
     }
 
     /// `true` if at least one full instruction (4 bytes) remains.
@@ -233,3 +263,35 @@ impl<'a, 'b> IntoIterator for &'b mut Decoder<'a> {
 
 // Keep `Code` referenced in this module's documented surface.
 const _: fn() -> Code = || Code::Invalid;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mnemonic::Mnemonic;
+
+    #[test]
+    fn options_none_and_new_equal_default() {
+        assert_eq!(DecoderOptions::NONE, DecoderOptions::default());
+        assert_eq!(DecoderOptions::new(), DecoderOptions::default());
+        assert_eq!(DecoderOptions::NONE.features, FeatureSet::ALL);
+        // `new()` is usable in a `const` context.
+        const OPTS: DecoderOptions = DecoderOptions::new();
+        assert_eq!(OPTS, DecoderOptions::NONE);
+    }
+
+    #[test]
+    fn decode_out_aliases_decode_into() {
+        // `nop` = 0xD503201F.
+        let bytes = 0xD503_201Fu32.to_le_bytes();
+        let mut a = Decoder::new(&bytes, 0, DecoderOptions::new());
+        let mut b = Decoder::new(&bytes, 0, DecoderOptions::NONE);
+        let mut via_out = Instruction::default();
+        let mut via_into = Instruction::default();
+        a.decode_out(&mut via_out);
+        b.decode_into(&mut via_into);
+        assert_eq!(via_out, via_into);
+        assert_eq!(via_out.mnemonic(), Mnemonic::Nop);
+        // The cursor advanced exactly one word.
+        assert_eq!(a.position(), INSN_LEN);
+    }
+}

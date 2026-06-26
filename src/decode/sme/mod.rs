@@ -72,7 +72,16 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
                 decode_mopa_fp(word, out);
             }
         }
-        0b101 => decode_mopa_int(word, out),
+        0b101 => {
+            // SME2/SVE2.1 contiguous multi-vector load/store carve the
+            // `word<23> == 0` sub-region (the integer outer products set
+            // `word<23>`); gated on FEAT_SME2.
+            if sme2 && bit(word, 23) == 0 {
+                sme2::decode_mem(word, out);
+            } else {
+                decode_mopa_int(word, out);
+            }
+        }
         0b110 => {
             if sme2 && bit(word, 24) == 1 {
                 sme2::decode_mul(word, out);
@@ -628,6 +637,48 @@ mod tests {
         check(0xD503477F, "smstart");
         check(0xD503467F, "smstop");
         check(0xD503447F, "smstop  za");
+    }
+
+    #[test]
+    fn sme2_multivector_alu() {
+        // SEL (predicate-as-counter): vgx2 comma-list, vgx4 range, plus sizes.
+        check(0xC1208452, "sel     { z18.b, z19.b }, pn9, { z2.b, z3.b }, { z0.b, z1.b }");
+        check(0xC1258010, "sel     { z16.b - z19.b }, pn8, { z0.b - z3.b }, { z4.b - z7.b }");
+        check(0xC1608452, "sel     { z18.h, z19.h }, pn9, { z2.h, z3.h }, { z0.h, z1.h }");
+        // S/U/F/BF clamp.
+        check(0xC120C40F, "uclamp  { z14.b, z15.b }, z0.b, z0.b");
+        check(0xC1A0CC0D, "uclamp  { z12.s - z15.s }, z0.s, z0.s");
+        check(0xC120C40E, "sclamp  { z14.b, z15.b }, z0.b, z0.b");
+        check(0xC160C00E, "fclamp  { z14.h, z15.h }, z0.h, z0.h");
+        check(0xC1A0C80C, "fclamp  { z12.s - z15.s }, z0.s, z0.s");
+        check(0xC120C000, "bfclamp { z0.h, z1.h }, z0.h, z0.h");
+        check(0xC120C800, "bfclamp { z0.h - z3.h }, z0.h, z0.h");
+        // ZIP/UZP: vgx2 (incl .q) and vgx4 (incl .q).
+        check(0xC120D000, "zip     { z0.b, z1.b }, z0.b, z0.b");
+        check(0xC120D400, "zip     { z0.q, z1.q }, z0.q, z0.q");
+        check(0xC120D001, "uzp     { z0.b, z1.b }, z0.b, z0.b");
+        check(0xC136E000, "zip     { z0.b - z3.b }, { z0.b - z3.b }");
+        check(0xC136E002, "uzp     { z0.b - z3.b }, { z0.b - z3.b }");
+        check(0xC137E000, "zip     { z0.q - z3.q }, { z0.q - z3.q }");
+    }
+
+    #[test]
+    fn sme2_multivector_mem() {
+        // Contiguous multi-vector loads/stores with a predicate-as-counter.
+        check(0xA0004014, "ld1w    { z20.s, z21.s }, pn8/z, [x0, x0, lsl #0x2]");
+        check(0xA000E814, "ld1d    { z20.d - z23.d }, pn10/z, [x0, x0, lsl #0x3]");
+        check(0xA0000000, "ld1b    { z0.b, z1.b }, pn8/z, [x0, x0]");
+        check(0xA0414000, "ld1w    { z0.s, z1.s }, pn8/z, [x0, #0x2, mul vl]");
+        check(0xA041E000, "ld1d    { z0.d - z3.d }, pn8/z, [x0, #0x4, mul vl]");
+        check(0xA0480000, "ld1b    { z0.b, z1.b }, pn8/z, [x0, #-16, mul vl]");
+        check(0xA0404000, "ld1w    { z0.s, z1.s }, pn8/z, [x0]");
+        check(0xA0004015, "ldnt1w  { z20.s, z21.s }, pn8/z, [x0, x0, lsl #0x2]");
+        check(0xA0200001, "stnt1b  { z0.b, z1.b }, pn8, [x0, x0]");
+        check(0xA0204014, "st1w    { z20.s, z21.s }, pn8, [x0, x0, lsl #0x2]");
+        // word<24> == 1 is the strided family (out of scope) -> Invalid.
+        let bytes = 0xA1004000u32.to_le_bytes();
+        let mut dec = Decoder::new(&bytes, 0x1000, DecoderOptions::default());
+        assert!(dec.decode().is_invalid());
     }
 
     #[test]

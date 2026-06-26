@@ -288,6 +288,21 @@ impl Register {
         }
     }
 
+    /// The full SIMD/vector parent register of a scalar-FP view.
+    ///
+    /// The scalar FP views `B`/`H`/`S`/`D`/`Q<n>` are narrow windows onto the
+    /// 128-bit SIMD register `V<n>`; this maps any of them — and `V<n>` itself —
+    /// to `V<n>`. Every non-FP register (GP, SVE `Z`/`P`, prefetch, and
+    /// [`Register::None`]) maps to itself. Mirrors iced-x86's
+    /// `Register::full_register`.
+    #[inline]
+    pub const fn full_register(self) -> Register {
+        match self.class() {
+            RegClass::ScalarFp | RegClass::Vector => v_numbered(self.number()),
+            _ => self,
+        }
+    }
+
     /// `true` for scalar-FP or 128-bit vector registers.
     #[inline]
     pub const fn is_simd(self) -> bool {
@@ -442,6 +457,24 @@ pub const fn sve_register(n: u8) -> Register {
     }
 }
 
+/// Map a 5-bit SIMD register number `0..=31` to the 128-bit vector `V{n}`.
+///
+/// Private helper for [`Register::full_register`] (the scalar-FP → `V` parent
+/// fold); `n` is taken modulo 32. Total and panic-free.
+#[inline]
+const fn v_numbered(n: u8) -> Register {
+    match n % 32 {
+        0 => Register::V0, 1 => Register::V1, 2 => Register::V2, 3 => Register::V3,
+        4 => Register::V4, 5 => Register::V5, 6 => Register::V6, 7 => Register::V7,
+        8 => Register::V8, 9 => Register::V9, 10 => Register::V10, 11 => Register::V11,
+        12 => Register::V12, 13 => Register::V13, 14 => Register::V14, 15 => Register::V15,
+        16 => Register::V16, 17 => Register::V17, 18 => Register::V18, 19 => Register::V19,
+        20 => Register::V20, 21 => Register::V21, 22 => Register::V22, 23 => Register::V23,
+        24 => Register::V24, 25 => Register::V25, 26 => Register::V26, 27 => Register::V27,
+        28 => Register::V28, 29 => Register::V29, 30 => Register::V30, _ => Register::V31,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,5 +619,29 @@ mod tests {
         for &(r, n) in classes {
             assert_eq!(r.number(), n);
         }
+    }
+
+    #[test]
+    fn full_register_folds_fp_views_to_vector() {
+        // Every scalar-FP width folds onto its V<n> parent.
+        assert_eq!(Register::B0.full_register(), Register::V0);
+        assert_eq!(Register::H5.full_register(), Register::V5);
+        assert_eq!(Register::S17.full_register(), Register::V17);
+        assert_eq!(Register::D1.full_register(), Register::V1);
+        assert_eq!(Register::Q31.full_register(), Register::V31);
+        // V<n> is its own full register.
+        assert_eq!(Register::V3.full_register(), Register::V3);
+        // Non-FP registers are identity (GP, SVE, predicate, prefetch, None).
+        assert_eq!(Register::X0.full_register(), Register::X0);
+        assert_eq!(Register::W30.full_register(), Register::W30);
+        assert_eq!(Register::Sp.full_register(), Register::Sp);
+        assert_eq!(Register::Wzr.full_register(), Register::Wzr);
+        assert_eq!(Register::Z0.full_register(), Register::Z0);
+        assert_eq!(Register::P15.full_register(), Register::P15);
+        assert_eq!(Register::Pf0.full_register(), Register::Pf0);
+        assert_eq!(Register::None.full_register(), Register::None);
+        // The B/H/S/D/Q views of the same number share one parent.
+        assert_eq!(Register::B9.full_register(), Register::S9.full_register());
+        assert_eq!(Register::D9.full_register(), Register::Q9.full_register());
     }
 }

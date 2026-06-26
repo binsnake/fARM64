@@ -270,6 +270,15 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         return;
     }
 
+    // 2b) FEAT_LSUI unprivileged atomics: word<29:24> == 0b001001. The same
+    //     exclusive/CAS layout but with the group's low bit (word<24>) set —
+    //     unprivileged load/store-exclusive (LDTXR/LDATXR/STTXR/STLTXR) and
+    //     unprivileged compare-and-swap (CAST/.../CASPT/...).
+    if bits(word, 24, 6) == 0b001001 {
+        decode_lsui(word, features, out);
+        return;
+    }
+
     // 3) Load/store ordered (LDAR/STLR/...): word<29:24> == 0b001000 already
     //    handled above (ordered shares the exclusive major class). Nothing here.
 
@@ -1367,6 +1376,133 @@ fn decode_casp(sz: u32, l: u32, o0: u32, rs: u32, rn: u32, rt: u32, features: Fe
     out.push_operand(gp(false, w, rs + 1));
     out.push_operand(gp(false, w, rt));
     out.push_operand(gp(false, w, rt + 1));
+    out.push_operand(mem_off(rn, 0));
+}
+
+// ---------------------------------------------------------------------------
+// FEAT_LSUI unprivileged atomics.
+// ---------------------------------------------------------------------------
+
+/// FEAT_LSUI unprivileged atomics, all under `sz 001001 o2 L o1 Rs o0 Rt2 Rn Rt`
+/// (the exclusive/CAS layout with the group's low bit `word<24>` set). `o2`
+/// selects between unprivileged load/store-exclusive (`o2==0`) and unprivileged
+/// compare-and-swap (`o2==1`); `o1` is always `0` (no unprivileged pair-exclusive
+/// form exists).
+#[inline]
+fn decode_lsui(word: u32, features: FeatureSet, out: &mut Instruction) {
+    if !features.has(Feature::Lsui) {
+        return;
+    }
+    let sz = bits(word, 30, 2);
+    let o2 = bit(word, 23);
+    let l = bit(word, 22);
+    let o1 = bit(word, 21);
+    let rs = bits(word, 16, 5);
+    let o0 = bit(word, 15);
+    let rn = bits(word, 5, 5);
+    let rt = bits(word, 0, 5);
+
+    // o1 is reserved-0 for every LSUI form (there is no unprivileged
+    // exclusive-pair); any other value is UNDEFINED.
+    if o1 != 0 {
+        return;
+    }
+
+    if o2 == 0 {
+        // Unprivileged load/store-exclusive register (W/X only).
+        decode_lsui_excl_single(sz, l, o0, rs, rn, rt, out);
+    } else {
+        // Unprivileged compare-and-swap. Unlike the standard CAS/CASP class, the
+        // LSUI forms treat the Rt2 field (bits<14:10>) as should-be-one but
+        // IGNORED on decode (LLVM flags non-all-ones as "potentially undefined"
+        // yet still decodes it), so it is not constrained here.
+        // sz<1>==1 -> single CAS (CAST...); sz<1>==0 -> pair CASP (CASPT...).
+        if bit(sz, 1) == 1 {
+            decode_lsui_cas(sz, l, o0, rs, rn, rt, out);
+        } else {
+            decode_lsui_casp(sz, l, o0, rs, rn, rt, out);
+        }
+    }
+}
+
+/// Unprivileged single-register exclusive (LDTXR/LDATXR/STTXR/STLTXR). Only the
+/// W (`sz==2`) and X (`sz==3`) forms exist — byte/half are not defined.
+#[inline]
+fn decode_lsui_excl_single(
+    sz: u32,
+    l: u32,
+    o0: u32,
+    rs: u32,
+    rn: u32,
+    rt: u32,
+    out: &mut Instruction,
+) {
+    let load = l == 1;
+    let acquire = o0 == 1;
+    let code = match (sz, load, acquire) {
+        (2, true, false) => Code::Ldtxr32,
+        (2, true, true) => Code::Ldatxr32,
+        (2, false, false) => Code::Sttxr32,
+        (2, false, true) => Code::Stltxr32,
+        (3, true, false) => Code::Ldtxr64,
+        (3, true, true) => Code::Ldatxr64,
+        (3, false, false) => Code::Sttxr64,
+        (3, false, true) => Code::Stltxr64,
+        _ => return, // byte/half (sz 0/1) are not allocated for LSUI.
+    };
+    out.set(code);
+    let rt_x = sz == 3;
+    if load {
+        out.push_operand(gp(false, w_of(rt_x as u32), rt));
+    } else {
+        // Store: Ws status register first, then Wt/Xt data.
+        out.push_operand(gp(false, RegWidth::W32, rs));
+        out.push_operand(gp(false, w_of(rt_x as u32), rt));
+    }
+    out.push_operand(mem_off(rn, 0));
+}
+
+/// Unprivileged compare-and-swap (CAST/CASAT/CASLT/CASALT). Only the 64-bit form
+/// (`sz==3`) is defined; the 32-bit slot (`sz==2`) is UNDEFINED.
+#[inline]
+fn decode_lsui_cas(sz: u32, l: u32, o0: u32, rs: u32, rn: u32, rt: u32, out: &mut Instruction) {
+    if sz != 3 {
+        return;
+    }
+    let code = match (l, o0) {
+        (0, 0) => Code::Cast64,
+        (1, 0) => Code::Casat64,
+        (0, 1) => Code::Caslt64,
+        _ => Code::Casalt64,
+    };
+    out.set(code);
+    out.push_operand(gp(false, RegWidth::X64, rs));
+    out.push_operand(gp(false, RegWidth::X64, rt));
+    out.push_operand(mem_off(rn, 0));
+}
+
+/// Unprivileged compare-and-swap pair (CASPT/CASPAT/CASPLT/CASPALT). Only the
+/// 64-bit pair (`sz==1`) is defined; the 32-bit slot (`sz==0`) is UNDEFINED.
+/// `Rs`/`Rt` must be even (the consecutive odd register is implied).
+#[inline]
+fn decode_lsui_casp(sz: u32, l: u32, o0: u32, rs: u32, rn: u32, rt: u32, out: &mut Instruction) {
+    if sz != 1 {
+        return;
+    }
+    if (rs & 1) != 0 || (rt & 1) != 0 {
+        return;
+    }
+    let code = match (l, o0) {
+        (0, 0) => Code::Caspt64,
+        (1, 0) => Code::Caspat64,
+        (0, 1) => Code::Casplt64,
+        _ => Code::Caspalt64,
+    };
+    out.set(code);
+    out.push_operand(gp(false, RegWidth::X64, rs));
+    out.push_operand(gp(false, RegWidth::X64, rs + 1));
+    out.push_operand(gp(false, RegWidth::X64, rt));
+    out.push_operand(gp(false, RegWidth::X64, rt + 1));
     out.push_operand(mem_off(rn, 0));
 }
 

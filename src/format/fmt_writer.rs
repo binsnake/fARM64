@@ -442,6 +442,10 @@ impl Formatter for FmtFormatter {
             } => {
                 self.emit_sve_vec_group(first, count, arr, range, out);
             }
+
+            Operand::PredCounter { reg, zeroing } => {
+                self.emit_pred_counter(reg, zeroing, out);
+            }
         }
     }
 
@@ -958,6 +962,20 @@ impl FmtFormatter {
         out.write(" }", TokenKind::Punctuation);
     }
 
+    /// Emit an SME2/SVE2.1 predicate-as-counter
+    /// ([`Operand::PredCounter`](crate::operand::Operand::PredCounter)):
+    /// `pn8`..`pn15`, optionally with a `/z` qualifier. The underlying register
+    /// is `P8`..`P15`; the `p` name is rewritten to `pn`.
+    fn emit_pred_counter(&self, reg: Register, zeroing: bool, out: &mut dyn FormatterOutput) {
+        self.emit_cased("pn", self.opts.uppercase_registers, TokenKind::Register, out);
+        // The architectural number (8..=15); written as a register-kind token so
+        // it groups with the `pn` prefix rather than reading as an immediate.
+        self.emit_dec_kind(reg.number() as u64, TokenKind::Register, out);
+        if zeroing {
+            self.emit_cased("/z", self.opts.uppercase_registers, TokenKind::Decorator, out);
+        }
+    }
+
     /// Emit a system-register reference, falling back to the generic
     /// `S<op0>_<op1>_c<CRn>_c<CRm>_<op2>` form for unknown encodings.
     fn emit_sysreg(&self, sr: crate::sysreg::SystemReg, out: &mut dyn FormatterOutput) {
@@ -1053,8 +1071,15 @@ impl FmtFormatter {
 
     /// Emit a decimal integer (used for lane indices and tile numbers).
     fn emit_dec(&self, value: u64, out: &mut dyn FormatterOutput) {
+        self.emit_dec_kind(value, TokenKind::Number, out);
+    }
+
+    /// Like [`emit_dec`](Self::emit_dec) but tags the digits with an explicit
+    /// [`TokenKind`] (used for the `pn8`..`pn15` predicate-as-counter spelling,
+    /// whose number is part of the register name rather than an immediate).
+    fn emit_dec_kind(&self, value: u64, kind: TokenKind, out: &mut dyn FormatterOutput) {
         if value == 0 {
-            out.write("0", TokenKind::Number);
+            out.write("0", kind);
             return;
         }
         let mut tmp = [0u8; 20]; // u64::MAX is 20 digits.
@@ -1066,7 +1091,7 @@ impl FmtFormatter {
             v /= 10;
         }
         let s = core::str::from_utf8(&tmp[i..]).unwrap_or("");
-        out.write(s, TokenKind::Number);
+        out.write(s, kind);
     }
 
     /// Emit a 32-bit float as the shortest exact decimal that round-trips,

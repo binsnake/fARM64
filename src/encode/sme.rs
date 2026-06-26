@@ -54,10 +54,10 @@ pub use imp::{encode, is_sme};
 #[cfg(feature = "sme")]
 mod imp {
     use crate::encode::EncodeError;
-    use crate::enums::VectorArrangement as VA;
+    use crate::enums::{ExtendType, VectorArrangement as VA};
     use crate::instruction::Instruction;
     use crate::mnemonic::Code;
-    use crate::operand::{Operand, SliceIndicator};
+    use crate::operand::{Operand, SliceIndicator, SveMemMode};
     use crate::register::{Register, RegClass};
 
     type R = Result<u32, EncodeError>;
@@ -83,11 +83,18 @@ mod imp {
                 | SmeLd1bZa | SmeLd1hZa | SmeLd1wZa | SmeLd1dZa | SmeLd1qZa
                 | SmeSt1bZa | SmeSt1hZa | SmeSt1wZa | SmeSt1dZa | SmeSt1qZa
                 | SmeLdrZa | SmeStrZa
+            // SME2/SVE2.1 contiguous multi-vector load/store.
+                | SmeLd1bMV | SmeLd1hMV | SmeLd1wMV | SmeLd1dMV
+                | SmeLdnt1bMV | SmeLdnt1hMV | SmeLdnt1wMV | SmeLdnt1dMV
+                | SmeSt1bMV | SmeSt1hMV | SmeSt1wMV | SmeSt1dMV
+                | SmeStnt1bMV | SmeStnt1hMV | SmeStnt1wMV | SmeStnt1dMV
         ) {
             return true;
         }
-        // SME2 multi-vector + *TMOPA forms are table-driven (one Code per row).
+        // SME2 multi-vector + *TMOPA forms are table-driven (one Code per row),
+        // as are the multi-vector ALU forms (SEL/CLAMP/ZIP/UZP).
         crate::decode::sme::sme2::form_for_code(code).is_some()
+            || crate::decode::sme::sme2::alu_form_for_code(code).is_some()
     }
 
     /// Encode an SME instruction by inverting its decoder.
@@ -105,7 +112,18 @@ mod imp {
             SmeLd1bZa | SmeLd1hZa | SmeLd1wZa | SmeLd1dZa | SmeLd1qZa | SmeSt1bZa | SmeSt1hZa
             | SmeSt1wZa | SmeSt1dZa | SmeSt1qZa => enc_ld1_st1_za(insn),
             SmeLdrZa | SmeStrZa => enc_ldr_str_za(insn),
-            other => enc_sme2(insn, other),
+            SmeLd1bMV | SmeLd1hMV | SmeLd1wMV | SmeLd1dMV | SmeLdnt1bMV | SmeLdnt1hMV
+            | SmeLdnt1wMV | SmeLdnt1dMV | SmeSt1bMV | SmeSt1hMV | SmeSt1wMV | SmeSt1dMV
+            | SmeStnt1bMV | SmeStnt1hMV | SmeStnt1wMV | SmeStnt1dMV => enc_mem(insn),
+            other => {
+                // Multi-vector ALU (SEL/CLAMP/ZIP/UZP) is table-driven; fall back
+                // to the multiply-into-ZA / *TMOPA table otherwise.
+                if crate::decode::sme::sme2::alu_form_for_code(other).is_some() {
+                    enc_alu(insn, other)
+                } else {
+                    enc_sme2(insn, other)
+                }
+            }
         }
     }
 
@@ -734,6 +752,209 @@ mod imp {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // SME2 / SVE2.1 multi-vector ALU (SEL / CLAMP / ZIP / UZP), inverse of
+    // `decode::sme::sme2::build_alu`.
+    // -----------------------------------------------------------------------
+
+    use crate::decode::sme::sme2::{alu_form_for_code, AluArr, AluForm, AluSh};
+
+    /// Encode a multi-vector ALU form by scattering its operand fields back into
+    /// the matched [`AluForm`]'s opcode template.
+    fn enc_alu(insn: &Instruction, code: Code) -> R {
+        let f = alu_form_for_code(code).ok_or(EncodeError::Unsupported)?;
+        // Operand 0 is always the destination vector group; its arrangement is
+        // the shared element size of the whole instruction.
+        let arr = match insn.op(0) {
+            Operand::SveVecGroup { arr: Some(a), .. } => a,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        let mut word = f.val;
+        word |= enc_alu_arr(f, arr)?;
+        word |= pdep(group_field(insn, 0, f.vg, arr, f.zd)?, f.zd);
+        match f.shape {
+            AluSh::SelGroup => {
+                word |= pdep(pn_field(insn, 1, false)?, f.pn);
+                word |= pdep(group_field(insn, 2, f.vg, arr, f.zn)?, f.zn);
+                word |= pdep(group_field(insn, 3, f.vg, arr, f.zm)?, f.zm);
+            }
+            AluSh::TwoSingle => {
+                word |= pdep(z_single(insn, 1, arr)?, f.zn);
+                word |= pdep(z_single(insn, 2, arr)?, f.zm);
+            }
+            AluSh::ZipGroup => {
+                word |= pdep(group_field(insn, 1, f.vg, arr, f.zn)?, f.zn);
+            }
+        }
+        Ok(word)
+    }
+
+    /// The element-size opcode bits (`size<23:22>`, or the `.q` bit) for an ALU
+    /// form's arrangement.
+    fn enc_alu_arr(f: &AluForm, arr: VA) -> Result<u32, EncodeError> {
+        let size = |a: VA| -> Result<u32, EncodeError> {
+            match a {
+                VA::Sb => Ok(0),
+                VA::Sh => Ok(1),
+                VA::Ss => Ok(2),
+                VA::Sd => Ok(3),
+                _ => Err(EncodeError::InvalidOperand),
+            }
+        };
+        match f.arr {
+            AluArr::Bhsd => Ok(size(arr)? << 22),
+            AluArr::Fp => {
+                let s = size(arr)?;
+                if s == 0 {
+                    return Err(EncodeError::InvalidOperand); // floating-point `.b` is invalid
+                }
+                Ok(s << 22)
+            }
+            AluArr::BfH => {
+                // BFloat16 clamp is `.h` only; the size field stays `00`.
+                if arr != VA::Sh {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                Ok(0)
+            }
+            AluArr::Zip2 => {
+                if arr == VA::Sq {
+                    Ok(1 << 10)
+                } else {
+                    Ok(size(arr)? << 22)
+                }
+            }
+            AluArr::Zip4 => {
+                if arr == VA::Sq {
+                    Ok(1 << 16)
+                } else {
+                    Ok(size(arr)? << 22)
+                }
+            }
+        }
+    }
+
+    /// The 3-bit `PNg` field (`PNg - 8`) from a predicate-as-counter operand,
+    /// requiring the `/z` qualifier to match `expect_zeroing`.
+    fn pn_field(insn: &Instruction, n: usize, expect_zeroing: bool) -> Result<u32, EncodeError> {
+        match insn.op(n) {
+            Operand::PredCounter { reg, zeroing }
+                if reg.class() == RegClass::Predicate && zeroing == expect_zeroing =>
+            {
+                let v = reg.number() as u32;
+                if !(8..=15).contains(&v) {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                Ok(v - 8)
+            }
+            _ => Err(EncodeError::InvalidOperand),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // SME2 / SVE2.1 contiguous multi-vector load/store, inverse of
+    // `decode::sme::sme2::decode_mem`.
+    // -----------------------------------------------------------------------
+
+    /// `msz<14:13>` → element arrangement.
+    #[inline]
+    fn msz_to_va(msz: u32) -> VA {
+        match msz & 3 {
+            0 => VA::Sb,
+            1 => VA::Sh,
+            2 => VA::Ss,
+            _ => VA::Sd,
+        }
+    }
+
+    /// Encode an SME2 contiguous multi-vector load/store. Operands:
+    /// `[{ Zt.. }, PNg{/z}, mem]`, with `mem` a `[Xn, Xm{, LSL #msz}]` register
+    /// index (scalar+scalar) or a `[Xn{, #imm, MUL VL}]` immediate (scalar+imm).
+    fn enc_mem(insn: &Instruction) -> R {
+        use Code::*;
+        let (msz, is_store, is_nt) = match insn.code() {
+            SmeLd1bMV => (0u32, 0u32, 0u32),
+            SmeLd1hMV => (1, 0, 0),
+            SmeLd1wMV => (2, 0, 0),
+            SmeLd1dMV => (3, 0, 0),
+            SmeLdnt1bMV => (0, 0, 1),
+            SmeLdnt1hMV => (1, 0, 1),
+            SmeLdnt1wMV => (2, 0, 1),
+            SmeLdnt1dMV => (3, 0, 1),
+            SmeSt1bMV => (0, 1, 0),
+            SmeSt1hMV => (1, 1, 0),
+            SmeSt1wMV => (2, 1, 0),
+            SmeSt1dMV => (3, 1, 0),
+            SmeStnt1bMV => (0, 1, 1),
+            SmeStnt1hMV => (1, 1, 1),
+            SmeStnt1wMV => (2, 1, 1),
+            _ /* SmeStnt1dMV */ => (3, 1, 1),
+        };
+        let arr = msz_to_va(msz);
+
+        // Operand 0: the data vector group. Its count selects vgx2/vgx4 (and the
+        // base-register stride encoded in `zt_mask`).
+        let count = match insn.op(0) {
+            Operand::SveVecGroup { count, .. } => count,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        let (zt_mask, num_bit) = match count {
+            2 => (0x1eu32, 0u32),
+            4 => (0x1cu32, 1u32 << 15),
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        let zt = group_field(insn, 0, count, arr, zt_mask)?;
+
+        // Operand 1: the predicate-as-counter (loads `/z`, stores bare).
+        let pn = pn_field(insn, 1, is_store == 0)?;
+
+        let mut word = 0xA000_0000
+            | (is_store << 21)
+            | num_bit
+            | (msz << 13)
+            | (pn << 10)
+            | is_nt
+            | pdep(zt, zt_mask);
+
+        // Operand 2: the addressing mode.
+        match insn.op(2) {
+            Operand::MemExt { base, index, extend, shift } => {
+                if base.class() != RegClass::Gp || index.class() != RegClass::Gp {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                if extend != ExtendType::Uxtx {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                let expected = if msz == 0 { 0 } else { 0x80 | msz as u8 };
+                if shift != expected {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                word |= (index.number() as u32) << 16; // bit22 == 0: scalar+scalar
+                word |= (base.number() as u32) << 5;
+            }
+            Operand::SveMem { base, imm, mode: SveMemMode::ScalarImmMulVl, .. } => {
+                if base.class() != RegClass::Gp {
+                    return Err(EncodeError::InvalidOperand);
+                }
+                // The displayed offset is `imm4 * count`; recover the 4-bit signed
+                // field and validate the range and divisibility.
+                let c = count as i32;
+                if imm % c != 0 {
+                    return Err(EncodeError::InvalidImmediate);
+                }
+                let imm4 = imm / c;
+                if !(-8..=7).contains(&imm4) {
+                    return Err(EncodeError::InvalidImmediate);
+                }
+                word |= 1 << 22; // scalar+imm
+                word |= ((imm4 as u32) & 0xf) << 16;
+                word |= (base.number() as u32) << 5;
+            }
+            _ => return Err(EncodeError::InvalidOperand),
+        }
+        Ok(word)
+    }
+
     #[cfg(test)]
     mod tests {
         use crate::features::FeatureSet;
@@ -831,6 +1052,177 @@ mod imp {
             rt(0xE1200106); // str za[w12,#6]
             rt(0xE10062A0); // ldr za[w15,#0] (imm4==0)
             rt(0xE10043EB); // ldr sp base
+        }
+
+        #[test]
+        fn sme2_multivector_alu_known_words() {
+            // SEL (predicate-as-counter), vgx2 and vgx4.
+            rt(0xC1208452); // sel { z18.b, z19.b }, pn9, { z2.b, z3.b }, { z0.b, z1.b }
+            rt(0xC1258010); // sel { z16.b - z19.b }, pn8, { z0.b - z3.b }, { z4.b - z7.b }
+            rt(0xC1608452); // sel .h
+            // CLAMP (S/U/F/BF), vgx2 and vgx4.
+            rt(0xC120C40F); // uclamp { z14.b, z15.b }, z0.b, z0.b
+            rt(0xC1A0CC0D); // uclamp { z12.s - z15.s }, z0.s, z0.s
+            rt(0xC120C40E); // sclamp { z14.b, z15.b }, z0.b, z0.b
+            rt(0xC160C00E); // fclamp { z14.h, z15.h }, z0.h, z0.h
+            rt(0xC1A0C80C); // fclamp { z12.s - z15.s }, z0.s, z0.s
+            rt(0xC120C000); // bfclamp { z0.h, z1.h }, z0.h, z0.h
+            rt(0xC120C800); // bfclamp { z0.h - z3.h }, z0.h, z0.h
+            // ZIP/UZP, vgx2 (incl .q) and vgx4 (incl .q).
+            rt(0xC120D000); // zip { z0.b, z1.b }, z0.b, z0.b
+            rt(0xC120D400); // zip { z0.q, z1.q }, z0.q, z0.q
+            rt(0xC120D001); // uzp { z0.b, z1.b }, z0.b, z0.b
+            rt(0xC136E000); // zip { z0.b - z3.b }, { z0.b - z3.b }
+            rt(0xC136E002); // uzp { z0.b - z3.b }, { z0.b - z3.b }
+            rt(0xC137E000); // zip { z0.q - z3.q }, { z0.q - z3.q }
+        }
+
+        #[test]
+        fn sme2_multivector_mem_known_words() {
+            // LD1/LDNT1/ST1/STNT1, vgx2 and vgx4, scalar+scalar and scalar+imm.
+            rt(0xA0004014); // ld1w { z20.s, z21.s }, pn8/z, [x0, x0, lsl #2]
+            rt(0xA000E814); // ld1d { z20.d - z23.d }, pn10/z, [x0, x0, lsl #3]
+            rt(0xA0000000); // ld1b { z0.b, z1.b }, pn8/z, [x0, x0]
+            rt(0xA0002000); // ld1h { z0.h, z1.h }, pn8/z, [x0, x0, lsl #1]
+            rt(0xA0404000); // ld1w { z0.s, z1.s }, pn8/z, [x0]  (imm == 0)
+            rt(0xA0414000); // ld1w { z0.s, z1.s }, pn8/z, [x0, #2, mul vl]
+            rt(0xA041E000); // ld1d { z0.d - z3.d }, pn8/z, [x0, #4, mul vl]
+            rt(0xA0480000); // ld1b { z0.b, z1.b }, pn8/z, [x0, #-16, mul vl]
+            rt(0xA0004015); // ldnt1w { z20.s, z21.s }, pn8/z, [x0, x0, lsl #2]
+            rt(0xA0000001); // ldnt1b { z0.b, z1.b }, pn8/z, [x0, x0]
+            rt(0xA0204014); // st1w { z20.s, z21.s }, pn8, [x0, x0, lsl #2]
+            rt(0xA0200000); // st1b { z0.b, z1.b }, pn8, [x0, x0]
+            rt(0xA0604000); // st1w { z0.s, z1.s }, pn8, [x0]
+            rt(0xA0204015); // stnt1w { z20.s, z21.s }, pn8, [x0, x0, lsl #2]
+            rt(0xA0200001); // stnt1b { z0.b, z1.b }, pn8, [x0, x0]
+            // SP base resolves and round-trips.
+            rt(0xA00043E0 | (31 << 5)); // ld1d ... [sp, ...] style base
+        }
+
+        /// Exhaustive structural round-trip sweep of the multi-vector ALU and
+        /// load/store carve: every word the decoder accepts must re-encode to the
+        /// exact same word.
+        #[test]
+        fn sme2_multivector_roundtrip_sweep() {
+            let mut checked = 0u64;
+            // Memory carve: quadrant 101, word<24:23> == 00. Iterate every
+            // structural bit (imm/store/reserved/num/msz/reserved/N) and the
+            // predicate, striding the register/offset fields.
+            for b22 in 0..2u32 {
+                for b21 in 0..2u32 {
+                    for b20 in 0..2u32 {
+                        for b15 in 0..2u32 {
+                            for msz in 0..4u32 {
+                                for b1 in 0..2u32 {
+                                    for b0 in 0..2u32 {
+                                        for pn in [0u32, 3, 7] {
+                                            for hi16 in [0u32, 1, 7, 17, 31] {
+                                                for rn in [0u32, 5, 31] {
+                                                    for zt in [0u32, 2, 12, 28] {
+                                                        let word = 0xA000_0000
+                                                            | (b22 << 22)
+                                                            | (b21 << 21)
+                                                            | (b20 << 20)
+                                                            | (hi16 << 16)
+                                                            | (b15 << 15)
+                                                            | (msz << 13)
+                                                            | (pn << 10)
+                                                            | (rn << 5)
+                                                            | zt
+                                                            | (b1 << 1)
+                                                            | b0;
+                                                        let insn = dec(word);
+                                                        if insn.is_invalid() {
+                                                            continue;
+                                                        }
+                                                        let got =
+                                                            insn.encode().unwrap_or_else(|e| {
+                                                                panic!(
+                                                                    "encode {word:#010x} ({:?}) failed: {e:?}",
+                                                                    insn.code()
+                                                                )
+                                                            });
+                                                        assert_eq!(
+                                                            got, word,
+                                                            "mem round-trip {word:#010x} ({:?})",
+                                                            insn.code()
+                                                        );
+                                                        checked += 1;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(checked > 0, "swept no memory encodings");
+
+            // ALU carve: drive every form's operand fields (Zd/Zn/Zm/PNg) and
+            // every legal element size directly through the table masks, so the
+            // round-trip is exercised across all forms and all field positions.
+            use crate::decode::sme::sme2::{pdep, AluArr, SME2_ALU_FORMS};
+            let mut alu_checked = 0u64;
+            for f in SME2_ALU_FORMS {
+                let sizes: &[u32] = match f.arr {
+                    AluArr::Bhsd | AluArr::Zip2 | AluArr::Zip4 => &[0, 1, 2, 3],
+                    AluArr::Fp => &[1, 2, 3],
+                    AluArr::BfH => &[0],
+                };
+                let qbits: &[u32] = match f.arr {
+                    AluArr::Zip2 => &[0, 1 << 10],
+                    AluArr::Zip4 => &[0, 1 << 16],
+                    _ => &[0],
+                };
+                for &sz in sizes {
+                    for &q in qbits {
+                        if q != 0 && sz != 0 {
+                            continue; // `.q` is valid only with size == 00
+                        }
+                        for zd in [0u32, 1, 3, 7, 0xf] {
+                            for zn in [0u32, 1, 2, 7] {
+                                for zm in [0u32, 1, 3] {
+                                    for pn in [0u32, 5, 7] {
+                                        let mut w = f.val | (sz << 22) | q;
+                                        w |= pdep(zd, f.zd);
+                                        w |= pdep(zn, f.zn);
+                                        if f.zm != 0 {
+                                            w |= pdep(zm, f.zm);
+                                        }
+                                        if f.pn != 0 {
+                                            w |= pdep(pn, f.pn);
+                                        }
+                                        let insn = dec(w);
+                                        if insn.is_invalid() {
+                                            continue;
+                                        }
+                                        assert_eq!(
+                                            insn.code(),
+                                            f.code,
+                                            "decode {w:#010x} -> {:?}, expected {:?}",
+                                            insn.code(),
+                                            f.code
+                                        );
+                                        let got = insn.encode().unwrap_or_else(|e| {
+                                            panic!("encode {w:#010x} ({:?}) failed: {e:?}", insn.code())
+                                        });
+                                        assert_eq!(
+                                            got, w,
+                                            "alu round-trip {w:#010x} ({:?})",
+                                            insn.code()
+                                        );
+                                        alu_checked += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(alu_checked > 0, "swept no ALU encodings");
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Inverse of [`crate::decode::sve::sve_perm`] — permute / predicate / compare.
 
-use super::{arr_size, esize, fld, g, imm, p, pred_qual, read_pattern_opt, sfp, z};
+use super::{arr_size, esize, fld, g, imm, lane, p, pred_qual, read_pattern_opt, sfp, z};
 use crate::encode::EncodeError;
 use crate::enums::VectorArrangement as VA;
 use crate::instruction::Instruction;
@@ -14,7 +14,8 @@ use Code::*;
 pub(super) fn is_perm(code: Code) -> bool {
     matches!(
         code,
-        SveZipUzpTrnZzz | SveZipUzpTrnQ | SveZipUzpTrnPpp | SveTbl | SveTbl2 | SveTbx | SveTbxq | SveRevZz
+        SveLuti2 | SveLuti4 | SveLuti4Two
+            | SveZipUzpTrnZzz | SveZipUzpTrnQ | SveZipUzpTrnPpp | SveTbl | SveTbl2 | SveTbx | SveTbxq | SveRevZz
             | SveRevP | SveUnpk | SvePunpk | SveExtDes | SveExtCon | SveCompact | SveSpliceDes
             | SveSpliceCon | SveClastZ | SveClastV | SveClastR | SveLastV | SveLastR | SveRevbhw
             | SveSelPred | SvePredLogical | SveBrkpPred | SveBrkPred | SveBrkn | SveRdffr
@@ -83,6 +84,83 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
             base05(size) | fld(1, 21) | fld(zm, 16) | fld(0b001101, 10) | fld(zn, 5) | zd
+        }
+        // ---- LUTI2 / LUTI4 (FEAT_LUT lookup table) ----
+        SveLuti2 => {
+            let size = esize(insn, 0)?;
+            let zd = z(insn, 0)?;
+            let zn = list_first(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let index = lane(insn, 2)?;
+            let common = base45() | fld(zm, 16) | fld(zn, 5) | zd;
+            match size {
+                // .B: 2-bit index at <23:22>; <12>=1, <11>=0.
+                0 => {
+                    if index > 3 {
+                        return Err(EncodeError::InvalidOperand);
+                    }
+                    common | fld((index >> 1) & 1, 23) | fld(index & 1, 22) | fld(1, 12)
+                }
+                // .H: 3-bit index = <23>:<22>:<12>; <11>=1.
+                1 => {
+                    if index > 7 {
+                        return Err(EncodeError::InvalidOperand);
+                    }
+                    common
+                        | fld((index >> 2) & 1, 23)
+                        | fld((index >> 1) & 1, 22)
+                        | fld(index & 1, 12)
+                        | fld(1, 11)
+                }
+                _ => return Err(EncodeError::InvalidOperand),
+            }
+        }
+        SveLuti4 => {
+            let size = esize(insn, 0)?;
+            let zd = z(insn, 0)?;
+            let zn = list_first(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let index = lane(insn, 2)?;
+            let common = base45() | fld(1, 10) | fld(zm, 16) | fld(zn, 5) | zd;
+            match size {
+                // .B: 1-bit index at <23>; <22>=1, <12>=0, <11>=0.
+                0 => {
+                    if index > 1 {
+                        return Err(EncodeError::InvalidOperand);
+                    }
+                    common | fld(index & 1, 23) | fld(1, 22)
+                }
+                // .H: 2-bit index at <23:22>; <12>=1, <11>=1.
+                1 => {
+                    if index > 3 {
+                        return Err(EncodeError::InvalidOperand);
+                    }
+                    common | fld((index >> 1) & 1, 23) | fld(index & 1, 22) | fld(1, 12) | fld(1, 11)
+                }
+                _ => return Err(EncodeError::InvalidOperand),
+            }
+        }
+        SveLuti4Two => {
+            // Two table registers; `.H` only. 2-bit index at <23:22>; <12>=1,
+            // <11>=0, <10>=1.
+            if esize(insn, 0)? != 1 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            let zd = z(insn, 0)?;
+            let zn = list_first(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let index = lane(insn, 2)?;
+            if index > 3 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            base45()
+                | fld(1, 10)
+                | fld(1, 12)
+                | fld((index >> 1) & 1, 23)
+                | fld(index & 1, 22)
+                | fld(zm, 16)
+                | fld(zn, 5)
+                | zd
         }
         // ---- REV (vector) ----
         SveRevZz => {
@@ -332,6 +410,13 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
 #[inline]
 fn base05(size: u32) -> u32 {
     fld(0b00000101, 24) | fld(size, 22)
+}
+
+/// Skeleton for the FEAT_LUT `LUTI2`/`LUTI4` reads (top byte 0x45, `<21>=1`,
+/// `<15:13>=0b101`). `<23:22>`/`<12>`/`<11>`/`<10>` are filled in per form.
+#[inline]
+fn base45() -> u32 {
+    fld(0b01000101, 24) | fld(1, 21) | fld(0b101, 13)
 }
 
 /// The arrangement of operand `n`.

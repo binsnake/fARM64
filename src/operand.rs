@@ -374,6 +374,24 @@ pub enum Operand {
         /// Render as a ` - ` range (`{ z0.b - z3.b }`) rather than a comma list.
         range: bool,
     },
+
+    /// An SME2 / SVE2.1 **predicate-as-counter** governing operand (`PNg`), as
+    /// LLVM renders the multi-vector predicate-as-counter forms: `pn8`..`pn15`,
+    /// optionally with a `/z` zeroing qualifier (`pn8/z`).
+    ///
+    /// The predicate-as-counter is the same physical register file as the SVE
+    /// predicates `P0`..`P15`, but the 3-bit `PNg` field selects only `P8`..`P15`
+    /// and the assembler spells it with a `pn` prefix. The underlying register is
+    /// carried in [`reg`](Operand::PredCounter::reg) (`P8`..`P15`); the formatter
+    /// rewrites the `p` to `pn`. Loads take `/z`
+    /// ([`zeroing`](Operand::PredCounter::zeroing) `= true`); stores and the ALU
+    /// `SEL` take no qualifier.
+    PredCounter {
+        /// The underlying predicate register (`P8`..`P15`), rendered `pn8`..`pn15`.
+        reg: Register,
+        /// Whether the `/z` zeroing qualifier is shown.
+        zeroing: bool,
+    },
 }
 
 impl Operand {
@@ -410,6 +428,7 @@ impl Operand {
             Operand::RegPair { .. } => OpKind::RegPair,
             Operand::SmeZaSlice { .. } => OpKind::SmeZaSlice,
             Operand::SveVecGroup { .. } => OpKind::SveVecGroup,
+            Operand::PredCounter { .. } => OpKind::PredCounter,
         }
     }
 }
@@ -482,4 +501,6 @@ pub enum OpKind {
     SmeZaSlice,
     /// [`Operand::SveVecGroup`].
     SveVecGroup,
+    /// [`Operand::PredCounter`].
+    PredCounter,
 }

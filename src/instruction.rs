@@ -7,7 +7,7 @@
 //! is asserted at `<= 112` bytes in `lib.rs`'s `static_asserts`. The fat
 //! internal decode representation never reaches this type.
 
-use crate::enums::{FlagEffect, FlowControl};
+use crate::enums::{Condition, FlagEffect, FlowControl};
 use crate::mnemonic::{Code, Mnemonic};
 use crate::operand::{OpKind, Operand};
 use crate::register::Register;
@@ -201,6 +201,128 @@ impl Instruction {
         }
     }
 
+    /// The resolved absolute target of a direct (PC-relative) branch.
+    ///
+    /// Returns the pre-resolved [`Operand::Label`] target (`ip + offset`) for the
+    /// direct branches — `B`, `BL`, `B.<cond>`/`BC.<cond>`, `CBZ`/`CBNZ`,
+    /// `TBZ`/`TBNZ`, and the FEAT_CMPBR `CB<cc>` compare-and-branch family — and
+    /// `0` for every other instruction. The indirect register branches
+    /// (`BR`/`BLR`/`RET`/...) encode no target and return `0`, as do non-branch
+    /// instructions that merely carry a label (`ADR`/`ADRP`, literal loads).
+    /// Mirrors iced-x86's `near_branch_target`.
+    #[inline]
+    pub fn near_branch_target(&self) -> u64 {
+        // Direct branches are exactly the conditional / unconditional / direct-call
+        // flow classes; each carries one resolved `Label` operand.
+        match self.flow_control() {
+            FlowControl::ConditionalBranch
+            | FlowControl::UnconditionalBranch
+            | FlowControl::Call => {
+                for op in &self.operands[..self.op_count as usize] {
+                    if let Operand::Label(target) = *op {
+                        return target;
+                    }
+                }
+                0
+            }
+            _ => 0,
+        }
+    }
+
+    /// The condition code governing this instruction, if it has one.
+    ///
+    /// Covers every conditional form that carries the condition as an explicit
+    /// [`Operand::Cond`] — the integer conditional-select / conditional-compare
+    /// family (`CSEL`/`CSINC`/`CSINV`/`CSNEG` and the `CSET*`/`CINC`/`CINV`/`CNEG`
+    /// aliases, `CCMP`/`CCMN`), the floating-point conditional forms
+    /// (`FCSEL`/`FCCMP`/`FCCMPE`), and the direct conditional branches
+    /// `B.<cond>`/`BC.<cond>` — and additionally recovers the condition fused into
+    /// the mnemonic of the FEAT_CMPBR `CB<cc>` compare-and-branch family (whose
+    /// `cc` is encoded in the [`Code`], not as an operand). Returns `None` for
+    /// instructions that have no condition.
+    #[inline]
+    pub fn condition(&self) -> Option<Condition> {
+        // The common case: the condition is an explicit operand.
+        for op in &self.operands[..self.op_count as usize] {
+            if let Operand::Cond(c) = *op {
+                return Some(c);
+            }
+        }
+        // The FEAT_CMPBR `CB<cc>` family fuses the condition into the mnemonic.
+        use Mnemonic::*;
+        let c = match self.mnemonic {
+            Cbgt | Cbbgt | Cbhgt => Condition::Gt,
+            Cbge | Cbbge | Cbhge => Condition::Ge,
+            Cbhi | Cbbhi | Cbhhi => Condition::Hi,
+            Cbhs | Cbbhs | Cbhhs => Condition::Cs,
+            Cbeq | Cbbeq | Cbheq => Condition::Eq,
+            Cbne | Cbbne | Cbhne => Condition::Ne,
+            Cblt => Condition::Lt,
+            Cblo => Condition::Cc,
+            _ => return None,
+        };
+        Some(c)
+    }
+
+    /// The base register of this instruction's memory operand, or
+    /// [`Register::None`] if it has no [`Operand::MemImm`] / [`Operand::MemExt`]
+    /// memory operand. Mirrors iced-x86's `memory_base`.
+    #[inline]
+    pub fn memory_base(&self) -> Register {
+        for op in &self.operands[..self.op_count as usize] {
+            if let Operand::MemImm { base, .. } | Operand::MemExt { base, .. } = *op {
+                return base;
+            }
+        }
+        Register::None
+    }
+
+    /// The index register of a register-offset memory operand
+    /// ([`Operand::MemExt`]), or [`Register::None`] otherwise. Immediate-offset
+    /// ([`Operand::MemImm`]) forms have no index. Mirrors iced-x86's
+    /// `memory_index`.
+    #[inline]
+    pub fn memory_index(&self) -> Register {
+        for op in &self.operands[..self.op_count as usize] {
+            if let Operand::MemExt { index, .. } = *op {
+                return index;
+            }
+        }
+        Register::None
+    }
+
+    /// The left-shift amount applied to the index register of a register-offset
+    /// memory operand ([`Operand::MemExt`]); the effective multiplier is
+    /// `1 << memory_index_scale()`. `0` when there is no register index.
+    ///
+    /// AArch64 encodes index scaling as a shift, so this returns the shift amount
+    /// rather than the multiplier (the name keeps the iced-x86 `_scale` lineage).
+    #[inline]
+    pub fn memory_index_scale(&self) -> u32 {
+        for op in &self.operands[..self.op_count as usize] {
+            if let Operand::MemExt { shift, .. } = *op {
+                // The decoder packs a formatter "show amount" flag into bit 7 of
+                // `shift`; the actual left-shift amount is the low 7 bits.
+                return (shift & 0x7f) as u32;
+            }
+        }
+        0
+    }
+
+    /// The immediate displacement of this instruction's memory operand, as a
+    /// signed byte offset. Returns the [`Operand::MemImm`] displacement; `0` for
+    /// register-offset ([`Operand::MemExt`]) forms and for instructions with no
+    /// memory operand. Mirrors iced-x86's `memory_displacement64`.
+    #[inline]
+    pub fn memory_displacement64(&self) -> i64 {
+        for op in &self.operands[..self.op_count as usize] {
+            if let Operand::MemImm { imm, .. } = *op {
+                return imm;
+            }
+        }
+        0
+    }
+
     /// `true` if this is the invalid sentinel ([`Code::Invalid`]); check
     /// [`crate::Decoder::last_error`] for the reason.
     #[inline]
@@ -388,5 +510,102 @@ mod tests {
             insn(Code::Invalid, Mnemonic::Add).set_flags(),
             FlagEffect::None
         );
+    }
+
+    /// Decode a single 32-bit word at `ip` through the public decoder (all
+    /// features on). Encodings below are cross-checked against `llvm-mc`.
+    fn decode(word: u32, ip: u64) -> Instruction {
+        let bytes = word.to_le_bytes();
+        let mut dec = crate::Decoder::new(&bytes, ip, crate::DecoderOptions::NONE);
+        dec.decode()
+    }
+
+    #[test]
+    fn bcond_near_branch_and_condition() {
+        // `b.eq #8` @ 0x1000 -> target 0x1008, condition EQ.
+        let i = decode(0x5400_0040, 0x1000);
+        assert_eq!(i.code(), Code::BCond);
+        assert_eq!(i.mnemonic(), Mnemonic::B);
+        assert_eq!(i.condition(), Some(Condition::Eq));
+        assert_eq!(i.near_branch_target(), 0x1008);
+        assert_eq!(i.flow_control(), FlowControl::ConditionalBranch);
+    }
+
+    #[test]
+    fn uncond_branch_targets() {
+        // `b #4` @ 0.
+        let b = decode(0x1400_0001, 0);
+        assert_eq!(b.code(), Code::BUncond);
+        assert_eq!(b.near_branch_target(), 4);
+        assert_eq!(b.condition(), None);
+        // `bl #4` @ 0 (direct call still has a near-branch target).
+        let bl = decode(0x9400_0001, 0);
+        assert_eq!(bl.mnemonic(), Mnemonic::Bl);
+        assert_eq!(bl.near_branch_target(), 4);
+        assert_eq!(bl.condition(), None);
+    }
+
+    #[test]
+    fn cbz_near_branch_no_condition() {
+        // `cbz x0, #8` @ 0x2000.
+        let i = decode(0xB400_0040, 0x2000);
+        assert_eq!(i.mnemonic(), Mnemonic::Cbz);
+        assert_eq!(i.near_branch_target(), 0x2008);
+        // CBZ/CBNZ test against zero — they carry no condition code.
+        assert_eq!(i.condition(), None);
+    }
+
+    #[test]
+    fn cmpbr_condition_recovered_from_mnemonic() {
+        // `cbgt w2, w1, #4` @ 0 (FEAT_CMPBR register form): the cc is fused into
+        // the Code/mnemonic, not an operand.
+        let i = decode(0x7401_0022, 0);
+        assert_eq!(i.mnemonic(), Mnemonic::Cbgt);
+        assert_eq!(i.condition(), Some(Condition::Gt));
+        assert_eq!(i.near_branch_target(), 4);
+    }
+
+    #[test]
+    fn csel_condition_operand() {
+        // `csel x0, x1, x2, ne` — cc carried as an Operand::Cond.
+        let i = decode(0x9A82_1020, 0);
+        assert_eq!(i.mnemonic(), Mnemonic::Csel);
+        assert_eq!(i.condition(), Some(Condition::Ne));
+        assert_eq!(i.near_branch_target(), 0);
+    }
+
+    #[test]
+    fn memory_imm_offset_projection() {
+        // `ldr x0, [x1, #8]`.
+        let i = decode(0xF940_0420, 0);
+        assert_eq!(i.mnemonic(), Mnemonic::Ldr);
+        assert_eq!(i.memory_base(), Register::X1);
+        assert_eq!(i.memory_displacement64(), 8);
+        assert_eq!(i.memory_index(), Register::None);
+        assert_eq!(i.memory_index_scale(), 0);
+    }
+
+    #[test]
+    fn memory_reg_offset_projection() {
+        // `ldr x0, [x1, x2, lsl #3]`.
+        let i = decode(0xF862_7820, 0);
+        assert_eq!(i.mnemonic(), Mnemonic::Ldr);
+        assert_eq!(i.memory_base(), Register::X1);
+        assert_eq!(i.memory_index(), Register::X2);
+        assert_eq!(i.memory_index_scale(), 3);
+        // Register-offset forms have no immediate displacement.
+        assert_eq!(i.memory_displacement64(), 0);
+    }
+
+    #[test]
+    fn non_memory_non_branch_projections_are_inert() {
+        // `add x0, x1, x2` — no memory operand, no condition, no branch target.
+        let i = decode(0x8B02_0020, 0);
+        assert_eq!(i.memory_base(), Register::None);
+        assert_eq!(i.memory_index(), Register::None);
+        assert_eq!(i.memory_index_scale(), 0);
+        assert_eq!(i.memory_displacement64(), 0);
+        assert_eq!(i.condition(), None);
+        assert_eq!(i.near_branch_target(), 0);
     }
 }

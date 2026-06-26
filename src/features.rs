@@ -76,9 +76,12 @@ pub enum Feature {
     /// `za.<T>[w8, <slice>{, vgx2|vgx4}]` destinations) and the `FTMOPA`/`STMOPA`
     /// outer-product forms.
     Sme2,
-    /// Unprivileged Load Store quadword (`FEAT_LSUI`): the quadword unprivileged
+    /// Unprivileged Load Store (`FEAT_LSUI`): the quadword unprivileged
     /// translation-enhanced load/store-pair forms `LDTP`/`STTP` (post/offset/pre)
-    /// and the non-temporal `LDTNP`/`STTNP` with `Q` data registers.
+    /// and the non-temporal `LDTNP`/`STTNP` with `Q` data registers, plus the
+    /// unprivileged atomics — load/store-exclusive (`LDTXR`/`LDATXR`/`STTXR`/
+    /// `STLTXR`) and compare-and-swap (`CAST`/`CASAT`/`CASLT`/`CASALT` and the
+    /// pair `CASPT`/`CASPAT`/`CASPLT`/`CASPALT`).
     Lsui,
     /// SVE2.1 / SME2.1 (`FEAT_SVE2p1`): the 128-bit-segment quadword permutes
     /// (`ZIPQ1/2`, `UZPQ1/2`, `TBLQ`, `TBXQ`) and the 2-way `SDOT`/`UDOT` `.h`
@@ -100,6 +103,10 @@ pub enum Feature {
     /// `FMLALT` and `FMLALLBB`/`FMLALLBT`/`FMLALLTB`/`FMLALLTT` FP8 widening
     /// multiply-accumulate forms (vector and by-element).
     Fp8,
+    /// Lookup table (`FEAT_LUT`): the SVE `LUTI2`/`LUTI4` vector lookup-table
+    /// reads — single- and two-register table forms with `.b`/`.h` element
+    /// variants, indexed by a vector-element selector (`<Zm>[<index>]`).
+    Lut,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

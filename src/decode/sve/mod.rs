@@ -28,6 +28,7 @@
 
 pub mod sve_fp;
 pub mod sve_int;
+pub mod sve_lut;
 pub mod sve_mem;
 pub mod sve_perm;
 
@@ -65,11 +66,15 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
                 }
             }
         }
-        // SVE2 integer multiply-add / DOT / widening (and a few permute leaves).
+        // SVE2 integer multiply-add / DOT / widening (and a few permute leaves),
+        // plus the FEAT_LUT lookup-table reads (top byte 0x45).
         0b010 => {
             sve_int::decode(word, ip, features, out);
             if out.is_invalid() {
                 sve_perm::decode(word, ip, features, out);
+            }
+            if out.is_invalid() {
+                sve_lut::decode(word, features, out);
             }
         }
         // SVE floating-point.

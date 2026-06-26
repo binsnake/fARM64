@@ -30,11 +30,12 @@
 //! order reproduces the architecture's split index fields exactly. Every path is
 //! total and panic-free.
 
-use crate::enums::VectorArrangement as VA;
+use crate::decode::bits::{bit, bits};
+use crate::enums::{ExtendType, VectorArrangement as VA};
 use crate::instruction::Instruction;
 use crate::mnemonic::Code;
-use crate::operand::{Operand, SliceIndicator};
-use crate::register::{gp_register, sve_register, RegWidth};
+use crate::operand::{Operand, SliceIndicator, SveMemMode};
+use crate::register::{gp_register, sve_register, Register, RegWidth};
 
 /// Operand-shape of an SME2 multiply / outer-product form: how the source
 /// operands after the `za` destination are laid out.
@@ -284,9 +285,16 @@ pub fn decode_tmopa(word: u32, out: &mut Instruction) {
 
 /// Decode an SME2 multi-vector multiply-into-ZA form (quadrant `110`,
 /// `word<24> == 1`).
+///
+/// The `0xC1` region also holds the SME2 multi-vector ALU family (`SEL`, the
+/// `S/U/F CLAMP`s, and `ZIP`/`UZP`); those use a separate, conflict-free
+/// [`AluForm`] table and are tried only when no multiply-into-ZA [`Form`]
+/// matches (the two key sets are disjoint, so the order is immaterial).
 pub fn decode_mul(word: u32, out: &mut Instruction) {
     if let Some(f) = lookup(word) {
         build(f, word, out);
+    } else if let Some(f) = alu_lookup(word) {
+        build_alu(f, word, out);
     }
 }
 
@@ -294,6 +302,319 @@ pub fn decode_mul(word: u32, out: &mut Instruction) {
 /// form's opcode template. Returns `None` if `code` is not an SME2 form.
 pub fn form_for_code(code: Code) -> Option<&'static Form> {
     SME2_FORMS.iter().find(|f| f.code == code)
+}
+
+// ===========================================================================
+// SME2 / SVE2.1 multi-vector ALU: SEL (predicate-as-counter), S/U/F CLAMP,
+// ZIP/UZP. Quadrant `110`, `word<24> == 1` (the `0xC1` region), carved by an
+// exact `(mask, val)` key set that is disjoint from `SME2_FORMS`.
+// ===========================================================================
+
+/// Operand layout of an SME2 multi-vector ALU form.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AluSh {
+    /// `{ Zd.. }, PNg, { Zn.. }, { Zm.. }` — `SEL` (predicate-as-counter, two
+    /// vector groups in and out).
+    SelGroup,
+    /// `{ Zd.. }, Zn.<T>, Zm.<T>` — `CLAMP` / 2-register `ZIP`/`UZP` (a vector
+    /// group destination and two single-vector sources).
+    TwoSingle,
+    /// `{ Zd.. }, { Zn.. }` — 4-register `ZIP`/`UZP` (a vector group in and out).
+    ZipGroup,
+}
+
+/// How a form's element-size suffix is recovered from the encoding.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AluArr {
+    /// `word<23:22>` → `.b`/`.h`/`.s`/`.d`.
+    Bhsd,
+    /// `word<23:22>` → `.h`/`.s`/`.d` (floating-point clamp: `.b` is invalid).
+    Fp,
+    /// Always `.h` (BFloat16 clamp; the size field is fixed to `00` by the key).
+    BfH,
+    /// `word<23:22>` → `.b`/`.h`/`.s`/`.d`, or `.q` when `word<10> == 1` (the
+    /// 2-register `ZIP`/`UZP` `Q` form; valid only with `word<23:22> == 00`).
+    Zip2,
+    /// `word<23:22>` → `.b`/`.h`/`.s`/`.d`, or `.q` when `word<16> == 1` (the
+    /// 4-register `ZIP`/`UZP` `Q` form; valid only with `word<23:22> == 00`).
+    Zip4,
+}
+
+/// One SME2 multi-vector ALU encoding row: an exact `(mask, val)` opcode key plus
+/// the operand layout, element-size policy, multi-vector count and per-field
+/// bitmasks (gathered with [`group_base`]/[`pext`], re-scattered with [`pdep`]).
+pub struct AluForm {
+    /// Opcode mask: the bits that must equal [`val`](AluForm::val) to match.
+    pub mask: u32,
+    /// Opcode value the masked word must equal.
+    pub val: u32,
+    /// The [`Code`] this row decodes to.
+    pub code: Code,
+    /// Operand layout.
+    pub shape: AluSh,
+    /// Element-size recovery policy.
+    pub arr: AluArr,
+    /// Multi-vector count of the register groups (`2` or `4`).
+    pub vg: u8,
+    /// `Zd` (destination group base) field bits.
+    pub zd: u32,
+    /// `PNg` predicate-as-counter field bits (`SEL` only; `0` otherwise).
+    pub pn: u32,
+    /// `Zn` (first source) field bits.
+    pub zn: u32,
+    /// `Zm` (second source) field bits (`0` for the 4-register `ZIP`/`UZP`).
+    pub zm: u32,
+}
+
+/// Look up the [`AluForm`] matching `word`, if any.
+#[inline]
+fn alu_lookup(word: u32) -> Option<&'static AluForm> {
+    SME2_ALU_FORMS.iter().find(|f| (word & f.mask) == f.val)
+}
+
+/// Encode-side lookup: the [`AluForm`] for a multi-vector ALU [`Code`], if any.
+pub fn alu_form_for_code(code: Code) -> Option<&'static AluForm> {
+    SME2_ALU_FORMS.iter().find(|f| f.code == code)
+}
+
+/// `size<23:22>` → element arrangement (`.b`/`.h`/`.s`/`.d`).
+#[inline]
+fn size_to_va(size: u32) -> VA {
+    match size & 3 {
+        0 => VA::Sb,
+        1 => VA::Sh,
+        2 => VA::Ss,
+        _ => VA::Sd,
+    }
+}
+
+/// Recover a form's element arrangement from `word`, or `None` if the encoding is
+/// not a valid element size for this form (e.g. floating-point `.b`, or a `.q`
+/// form with a non-zero size field).
+#[inline]
+pub fn alu_arrangement(f: &AluForm, word: u32) -> Option<VA> {
+    let size = bits(word, 22, 2);
+    match f.arr {
+        AluArr::Bhsd => Some(size_to_va(size)),
+        AluArr::Fp => match size {
+            1 => Some(VA::Sh),
+            2 => Some(VA::Ss),
+            3 => Some(VA::Sd),
+            _ => None,
+        },
+        AluArr::BfH => Some(VA::Sh),
+        AluArr::Zip2 | AluArr::Zip4 => {
+            let qbit = if f.arr == AluArr::Zip2 { bit(word, 10) } else { bit(word, 16) };
+            if qbit == 1 {
+                if size == 0 {
+                    Some(VA::Sq)
+                } else {
+                    None
+                }
+            } else {
+                Some(size_to_va(size))
+            }
+        }
+    }
+}
+
+/// `{ Z<first> .. }` consecutive multi-vector group of `count` registers.
+#[inline]
+fn alu_group(first: u32, count: u8, arr: VA) -> Operand {
+    Operand::SveVecGroup {
+        first: sve_register(first as u8),
+        count,
+        arr: Some(arr),
+        range: count == 4 && (first + 3) < 32,
+    }
+}
+
+/// `pn8`..`pn15` predicate-as-counter from a 3-bit `PNg` field, with optional
+/// `/z` zeroing.
+#[inline]
+fn pn_counter(v: u32, zeroing: bool) -> Operand {
+    Operand::PredCounter {
+        reg: pn_register(v),
+        zeroing,
+    }
+}
+
+/// Map a 3-bit `PNg` field (`0..=7`) to the underlying predicate `P8`..`P15`.
+#[inline]
+fn pn_register(v: u32) -> Register {
+    match v & 7 {
+        0 => Register::P8,
+        1 => Register::P9,
+        2 => Register::P10,
+        3 => Register::P11,
+        4 => Register::P12,
+        5 => Register::P13,
+        6 => Register::P14,
+        _ => Register::P15,
+    }
+}
+
+/// Build the operands for a matched [`AluForm`] from `word`.
+fn build_alu(f: &AluForm, word: u32, out: &mut Instruction) {
+    // Recover the element size first: an invalid size leaves the instruction
+    // `Invalid` (the form's `(mask,val)` matched but the size field does not name
+    // a legal arrangement for this family).
+    let arr = match alu_arrangement(f, word) {
+        Some(a) => a,
+        None => return,
+    };
+    out.set(f.code);
+    match f.shape {
+        AluSh::SelGroup => {
+            out.push_operand(alu_group(group_base(word, f.zd), f.vg, arr));
+            out.push_operand(pn_counter(pext(word, f.pn), false));
+            out.push_operand(alu_group(group_base(word, f.zn), f.vg, arr));
+            out.push_operand(alu_group(group_base(word, f.zm), f.vg, arr));
+        }
+        AluSh::TwoSingle => {
+            out.push_operand(alu_group(group_base(word, f.zd), f.vg, arr));
+            out.push_operand(zsrc(pext(word, f.zn), arr));
+            out.push_operand(zsrc(pext(word, f.zm), arr));
+        }
+        AluSh::ZipGroup => {
+            out.push_operand(alu_group(group_base(word, f.zd), f.vg, arr));
+            out.push_operand(alu_group(group_base(word, f.zn), f.vg, arr));
+        }
+    }
+}
+
+// Short alias for the ALU table literal.
+use AluForm as A;
+
+/// The SME2 / SVE2.1 multi-vector ALU encoding table. Conflict-free with
+/// [`SME2_FORMS`] and within itself; differentially validated against LLVM 21.
+#[rustfmt::skip]
+pub static SME2_ALU_FORMS: &[AluForm] = &[
+    // SEL (predicate-as-counter): { Zd }, PNg, { Zn }, { Zm }.
+    A { mask: 0xff21e021, val: 0xc1208000, code: Code::SmeSelMV2, shape: AluSh::SelGroup, arr: AluArr::Bhsd, vg: 2, zd: 0x1e, pn: 0x1c00, zn: 0x3c0, zm: 0x1e0000 },
+    A { mask: 0xff23e063, val: 0xc1218000, code: Code::SmeSelMV4, shape: AluSh::SelGroup, arr: AluArr::Bhsd, vg: 4, zd: 0x1c, pn: 0x1c00, zn: 0x380, zm: 0x1c0000 },
+    // S/U CLAMP: { Zd }, Zn, Zm. (bit0 selects S(0)/U(1).)
+    A { mask: 0xff20fc01, val: 0xc120c400, code: Code::SmeSclampMV2, shape: AluSh::TwoSingle, arr: AluArr::Bhsd, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    A { mask: 0xff20fc01, val: 0xc120c401, code: Code::SmeUclampMV2, shape: AluSh::TwoSingle, arr: AluArr::Bhsd, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    A { mask: 0xff20fc03, val: 0xc120cc00, code: Code::SmeSclampMV4, shape: AluSh::TwoSingle, arr: AluArr::Bhsd, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    A { mask: 0xff20fc03, val: 0xc120cc01, code: Code::SmeUclampMV4, shape: AluSh::TwoSingle, arr: AluArr::Bhsd, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    // BF CLAMP: { Zd }, Zn, Zm. The `.h` (BFloat16) clamp is the `size == 00`
+    // case of the FCLAMP opcode slot, so its key fixes the size field and must
+    // precede the FCLAMP rows (which leave the size field free).
+    A { mask: 0xffe0fc01, val: 0xc120c000, code: Code::SmeBfclampMV2, shape: AluSh::TwoSingle, arr: AluArr::BfH, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    A { mask: 0xffe0fc03, val: 0xc120c800, code: Code::SmeBfclampMV4, shape: AluSh::TwoSingle, arr: AluArr::BfH, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    // F CLAMP: { Zd }, Zn, Zm. (Floating-point `.h`/`.s`/`.d` at size 01/10/11;
+    // bit10 == 0 distinguishes it from the integer clamps. size == 00 is the
+    // BFCLAMP rows above.)
+    A { mask: 0xff20fc01, val: 0xc120c000, code: Code::SmeFclampMV2, shape: AluSh::TwoSingle, arr: AluArr::Fp, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    A { mask: 0xff20fc03, val: 0xc120c800, code: Code::SmeFclampMV4, shape: AluSh::TwoSingle, arr: AluArr::Fp, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    // ZIP/UZP, two registers: { Zd }, Zn, Zm. (bit0 selects ZIP(0)/UZP(1);
+    // bit10 selects the `.q` form.)
+    A { mask: 0xff20f801, val: 0xc120d000, code: Code::SmeZipMV2, shape: AluSh::TwoSingle, arr: AluArr::Zip2, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    A { mask: 0xff20f801, val: 0xc120d001, code: Code::SmeUzpMV2, shape: AluSh::TwoSingle, arr: AluArr::Zip2, vg: 2, zd: 0x1e, pn: 0x0, zn: 0x3e0, zm: 0x1f0000 },
+    // ZIP/UZP, four registers: { Zd }, { Zn }. (bit1 selects ZIP(0)/UZP(1);
+    // bit16 selects the `.q` form.)
+    A { mask: 0xff3efc63, val: 0xc136e000, code: Code::SmeZipMV4, shape: AluSh::ZipGroup, arr: AluArr::Zip4, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x0 },
+    A { mask: 0xff3efc63, val: 0xc136e002, code: Code::SmeUzpMV4, shape: AluSh::ZipGroup, arr: AluArr::Zip4, vg: 4, zd: 0x1c, pn: 0x0, zn: 0x380, zm: 0x0 },
+];
+
+// ===========================================================================
+// SME2 / SVE2.1 contiguous multi-vector load/store (predicate-as-counter):
+// LD1{B,H,W,D} / LDNT1{B,H,W,D} / ST1{B,H,W,D} / STNT1{B,H,W,D}. Quadrant
+// `101` (`0xA0`), `word<23> == 0` (the integer outer products set `word<23>`,
+// so this carve does not regress them). Single-vector SVE LD1*/ST1* live in
+// the SVE group (`op0 == 0b0010`, the `0xA5`/`0xE4` regions) and are untouched.
+// ===========================================================================
+
+/// Decode an SME2 contiguous multi-vector load/store (`word<31:29> == 101`,
+/// `word<23> == 0`). Leaves the instruction `Invalid` for words outside the
+/// handled `LD1*/LDNT1*/ST1*/STNT1*` set.
+pub fn decode_mem(word: u32, out: &mut Instruction) {
+    // `word<24> == 1` selects the *strided* multi-vector lists (`{ z0.s, z8.s }`),
+    // a distinct family that does not use the consecutive `SveVecGroup`; leave it
+    // for a future batch (out of scope here, so left `Invalid`).
+    if bit(word, 24) != 0 {
+        return;
+    }
+    let is_imm = bit(word, 22) == 1;
+    let is_store = bit(word, 21) == 1;
+    let is_nt = bit(word, 0) == 1;
+    let msz = bits(word, 13, 2);
+    let count: u8 = if bit(word, 15) == 1 { 4 } else { 2 };
+    let pn = bits(word, 10, 3);
+    let rn = bits(word, 5, 5);
+    let arr = size_to_va(msz);
+
+    // Data register group: vgx2 packs the base in bits<4:1> (stride 2), vgx4 in
+    // bits<4:2> (stride 4). bit<0> is the nontemporal flag, never part of Zt.
+    let (zt_mask, lo_reserved) = if count == 4 { (0x1cu32, 0x2u32) } else { (0x1eu32, 0x0u32) };
+    // vgx4 leaves bit<1> reserved (must be zero); reject a stray set bit so the
+    // accepted set matches LLVM exactly.
+    if word & lo_reserved != 0 {
+        return;
+    }
+    let zt = group_base(word, zt_mask);
+
+    let code = match (is_store, is_nt, msz) {
+        (false, false, 0) => Code::SmeLd1bMV,
+        (false, false, 1) => Code::SmeLd1hMV,
+        (false, false, 2) => Code::SmeLd1wMV,
+        (false, false, 3) => Code::SmeLd1dMV,
+        (false, true, 0) => Code::SmeLdnt1bMV,
+        (false, true, 1) => Code::SmeLdnt1hMV,
+        (false, true, 2) => Code::SmeLdnt1wMV,
+        (false, true, 3) => Code::SmeLdnt1dMV,
+        (true, false, 0) => Code::SmeSt1bMV,
+        (true, false, 1) => Code::SmeSt1hMV,
+        (true, false, 2) => Code::SmeSt1wMV,
+        (true, false, 3) => Code::SmeSt1dMV,
+        (true, true, 0) => Code::SmeStnt1bMV,
+        (true, true, 1) => Code::SmeStnt1hMV,
+        (true, true, 2) => Code::SmeStnt1wMV,
+        _ => Code::SmeStnt1dMV,
+    };
+
+    let mem = if is_imm {
+        // `[Xn{, #imm, MUL VL}]` — a 4-bit signed imm in units of the group
+        // count; the displayed offset is `imm4 * count`. `word<20>` is reserved
+        // (zero) in the immediate form (it is the high `Rm` bit of the scalar +
+        // scalar form); reject a stray set bit to match LLVM exactly.
+        if bit(word, 20) != 0 {
+            return;
+        }
+        let imm4 = sign_extend4(bits(word, 16, 4));
+        Operand::SveMem {
+            base: gp_register(true, RegWidth::X64, rn as u8),
+            offset: Register::None,
+            arr: None,
+            extend: ExtendType::Uxtx,
+            imm: imm4 * count as i32,
+            amount: 0,
+            mode: SveMemMode::ScalarImmMulVl,
+        }
+    } else {
+        // `[Xn, Xm{, LSL #msz}]` — scalar base + scalar index scaled by the
+        // element size. The shift is shown only for the scaled element sizes.
+        let rm = bits(word, 16, 5);
+        let shift = if msz == 0 { 0 } else { 0x80 | msz as u8 };
+        Operand::MemExt {
+            base: gp_register(true, RegWidth::X64, rn as u8),
+            index: gp_register(false, RegWidth::X64, rm as u8),
+            extend: ExtendType::Uxtx,
+            shift,
+        }
+    };
+
+    out.set(code);
+    out.push_operand(alu_group(zt, count, arr));
+    out.push_operand(pn_counter(pn, !is_store));
+    out.push_operand(mem);
+}
+
+/// Sign-extend a 4-bit field to `i32`.
+#[inline]
+fn sign_extend4(v: u32) -> i32 {
+    ((v as i32) << 28) >> 28
 }
 
 // Short alias for the table literal.

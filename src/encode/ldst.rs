@@ -56,6 +56,9 @@ pub fn is_ldst(code: Code) -> bool {
         || ordered_fields(code).is_some()
         || cas_fields(code).is_some()
         || casp_fields(code).is_some()
+        || lsui_excl_single_fields(code).is_some()
+        || lsui_cas_fields(code).is_some()
+        || lsui_casp_fields(code).is_some()
         || swp_fields(code).is_some()
         || atomic_opc(code).is_some()
         || rcw_single_fields(code).is_some()
@@ -110,6 +113,11 @@ pub fn encode(insn: &Instruction) -> R {
         // --- CAS / CASP (LSE). ---
         _ if cas_fields(code).is_some() => enc_cas(insn),
         _ if casp_fields(code).is_some() => enc_casp(insn),
+
+        // --- FEAT_LSUI unprivileged atomics. ---
+        _ if lsui_excl_single_fields(code).is_some() => enc_lsui_excl_single(insn),
+        _ if lsui_cas_fields(code).is_some() => enc_lsui_cas(insn),
+        _ if lsui_casp_fields(code).is_some() => enc_lsui_casp(insn),
 
         // --- LSE atomics: SWP and LD<op>/ST<op>. ---
         _ if swp_fields(code).is_some() => enc_swp(insn),
@@ -1144,6 +1152,100 @@ fn enc_casp(insn: &Instruction) -> R {
     }
     let sz = x; // sz field = 0:x -> value 0 or 1.
     let word = excl_word(sz, 0, l, 1, rs, o0, 0b11111, rn, rt);
+    Ok(word)
+}
+
+// ---------------------------------------------------------------------------
+// FEAT_LSUI unprivileged atomics.
+// ---------------------------------------------------------------------------
+
+/// LSUI single-register exclusive: `Code -> (sz, l, o0)`.
+fn lsui_excl_single_fields(code: Code) -> Option<(u32, u32, u32)> {
+    use Code::*;
+    Some(match code {
+        Ldtxr32 => (2, 1, 0),
+        Ldatxr32 => (2, 1, 1),
+        Sttxr32 => (2, 0, 0),
+        Stltxr32 => (2, 0, 1),
+        Ldtxr64 => (3, 1, 0),
+        Ldatxr64 => (3, 1, 1),
+        Sttxr64 => (3, 0, 0),
+        Stltxr64 => (3, 0, 1),
+        _ => return None,
+    })
+}
+
+/// `sz 001001 o2=0 L o1=0 Rs o0 Rt2(11111) Rn Rt` — the exclusive layout with the
+/// LSUI group bit (`word<24>`) set.
+fn enc_lsui_excl_single(insn: &Instruction) -> R {
+    let (sz, l, o0) = lsui_excl_single_fields(insn.code()).ok_or(EncodeError::Unsupported)?;
+    let load = l == 1;
+    let (rs, rt, rn) = if load {
+        // LDTXR* Rt, [Xn]. Rs field is 0b11111.
+        let rt = reg_num(insn, 0)?;
+        let (rn, _, _) = mem_imm(insn, 1)?;
+        (0b11111u32, rt, rn)
+    } else {
+        // STTXR* Ws, Rt, [Xn].
+        let rs = reg_num(insn, 0)?;
+        let rt = reg_num(insn, 1)?;
+        let (rn, _, _) = mem_imm(insn, 2)?;
+        (rs, rt, rn)
+    };
+    let word = excl_word(sz, 0, l, 0, rs, o0, 0b11111, rn, rt) | (1u32 << 24);
+    Ok(word)
+}
+
+/// LSUI single compare-and-swap (64-bit only): `Code -> (l, o0)`.
+fn lsui_cas_fields(code: Code) -> Option<(u32, u32)> {
+    use Code::*;
+    Some(match code {
+        Cast64 => (0, 0),
+        Casat64 => (1, 0),
+        Caslt64 => (0, 1),
+        Casalt64 => (1, 1),
+        _ => return None,
+    })
+}
+
+/// `sz=11 001001 o2=1 L o1=0 Rs o0 Rt2(11111) Rn Rt`.
+fn enc_lsui_cas(insn: &Instruction) -> R {
+    let (l, o0) = lsui_cas_fields(insn.code()).ok_or(EncodeError::Unsupported)?;
+    let rs = reg_num(insn, 0)?;
+    let rt = reg_num(insn, 1)?;
+    let (rn, _, _) = mem_imm(insn, 2)?;
+    let word = excl_word(3, 1, l, 0, rs, o0, 0b11111, rn, rt) | (1u32 << 24);
+    Ok(word)
+}
+
+/// LSUI compare-and-swap pair (64-bit only): `Code -> (l, o0)`.
+fn lsui_casp_fields(code: Code) -> Option<(u32, u32)> {
+    use Code::*;
+    Some(match code {
+        Caspt64 => (0, 0),
+        Caspat64 => (1, 0),
+        Casplt64 => (0, 1),
+        Caspalt64 => (1, 1),
+        _ => return None,
+    })
+}
+
+/// `sz=01 001001 o2=1 L o1=0 Rs o0 Rt2(11111) Rn Rt`. The `sz` field is `0:1`
+/// (64-bit pair). `Rs`/`Rt` must be even, with the consecutive odd register.
+fn enc_lsui_casp(insn: &Instruction) -> R {
+    let (l, o0) = lsui_casp_fields(insn.code()).ok_or(EncodeError::Unsupported)?;
+    let rs = reg_num(insn, 0)?;
+    let rs1 = reg_num(insn, 1)?;
+    let rt = reg_num(insn, 2)?;
+    let rt1 = reg_num(insn, 3)?;
+    let (rn, _, _) = mem_imm(insn, 4)?;
+    if (rs & 1) != 0 || (rt & 1) != 0 {
+        return Err(EncodeError::InvalidOperand);
+    }
+    if rs1 != (rs.wrapping_add(1) & 0x1f) || rt1 != (rt.wrapping_add(1) & 0x1f) {
+        return Err(EncodeError::InvalidOperand);
+    }
+    let word = excl_word(1, 1, l, 0, rs, o0, 0b11111, rn, rt) | (1u32 << 24);
     Ok(word)
 }
 

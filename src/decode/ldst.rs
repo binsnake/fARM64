@@ -2193,9 +2193,18 @@ fn decode_ldiapp_stilp(word: u32, features: FeatureSet, out: &mut Instruction) {
     if !features.has(Feature::Rcpc3) {
         return;
     }
-    // Fixed-bit constraint: bits<15:13> == 0. The dispatcher has already pinned
-    // word<29:24> == 0b011001, word<23> == 0, word<21> == 0 and
-    // word<11:10> == 0b10. A nonzero reserved field is unallocated (LLVM rejects).
+    // The `opc2` field word<15:12> distinguishes the LRCPC3 ordered pair forms
+    // sharing this slot. `000x` is the indexed/offset LDIAPP/STILP handled below;
+    // `0101`/`0111` are the X-only no-offset LDAP/STLP (`0101`) and LDAPP
+    // (`0111`, load only). The dispatcher already pinned word<29:24> == 0b011001,
+    // word<23> == 0, word<21> == 0 and word<11:10> == 0b10.
+    let opc2 = bits(word, 12, 4);
+    if opc2 == 0b0101 || opc2 == 0b0111 {
+        decode_ldapp_stlp(word, opc2, out);
+        return;
+    }
+    // Fixed-bit constraint for LDIAPP/STILP: bits<15:13> == 0. A nonzero reserved
+    // field is unallocated (LLVM rejects).
     if bits(word, 13, 3) != 0 {
         return;
     }
@@ -2242,6 +2251,34 @@ fn decode_ldiapp_stilp(word: u32, features: FeatureSet, out: &mut Instruction) {
             out.push_operand(mem_pre(rn, -bytes));
         }
     }
+}
+
+/// FEAT_LRCPC3 ordered load/store pair `LDAPP`/`LDAP`/`STLP` (no-offset, X-only).
+/// Encoding: `sz 011001 0 L 0 Rt2 opc2 10 Rn Rt`, with `sz`==11 (X only),
+/// `L`(bit22) the load bit, `Rt2`=bits<20:16>, and `opc2`=bits<15:12> selecting
+/// the form: `0101` is `STLP`(L=0)/`LDAP`(L=1); `0111` is `LDAPP`(L=1, load only).
+/// All three are 64-bit-only, with no writeback and no immediate offset.
+#[inline]
+fn decode_ldapp_stlp(word: u32, opc2: u32, out: &mut Instruction) {
+    // X-only: `sz` must be 0b11 (the 64-bit GPR pair).
+    if bits(word, 30, 2) != 0b11 {
+        return;
+    }
+    let load = bit(word, 22) == 1;
+    let rt2 = bits(word, 16, 5);
+    let rn = bits(word, 5, 5);
+    let rt = bits(word, 0, 5);
+    let code = match (opc2, load) {
+        (0b0101, false) => Code::StlpPair,
+        (0b0101, true) => Code::LdapPair,
+        // `0111` is LDAPP only — the store form (L=0) is unallocated.
+        (0b0111, true) => Code::LdappPair,
+        _ => return,
+    };
+    out.set(code);
+    out.push_operand(gp(false, RegWidth::X64, rt));
+    out.push_operand(gp(false, RegWidth::X64, rt2));
+    out.push_operand(mem_off(rn, 0));
 }
 
 /// FEAT_LRCPC3 writeback `STLR` (pre-index) / `LDAPR` (post-index). Encoding:

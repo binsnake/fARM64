@@ -87,6 +87,7 @@ pub fn is_simd_fp(code: Code) -> bool {
         | FcaddVec | SdotVec | UdotVec | SdotIdx | UdotIdx
         // --- FP8 / I8MM / BF16 dot-product & widening MLAL (NEON) ---
         | FdotVec | FdotIdx | UsdotVec | UsdotIdx | SudotIdx | BfdotVec | BfdotIdx
+        | NeonFdotF16Vec | NeonFdotF16Idx
         | BfmlalbVec | BfmlaltVec | FmlalbVec | FmlaltVec
         | FmlallbbVec | FmlallbtVec | FmlalltbVec | FmlallttVec
         | SmmlaVec | UmmlaVec | UsmmlaVec

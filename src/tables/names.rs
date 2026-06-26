@@ -1738,6 +1738,14 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Lastp => "lastp",
         Mnemonic::Firstp => "firstp",
         Mnemonic::Rprfm => "rprfm",
+        Mnemonic::Addqp => "addqp",
+        Mnemonic::Addsubp => "addsubp",
+        Mnemonic::Luti6 => "luti6",
+        Mnemonic::Madpt => "madpt",
+        Mnemonic::Mlapt => "mlapt",
+        Mnemonic::Ldapp => "ldapp",
+        Mnemonic::Ldap => "ldap",
+        Mnemonic::Stlp => "stlp",
     }
 }
 

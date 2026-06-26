@@ -143,7 +143,34 @@ pub fn decode(word: u32, features: FeatureSet, out: &mut Instruction) {
                 out.push_operand(zlist2(zn, VA::Sh));
                 out.push_operand(zidx(zm, index));
             }
-            // (0, 1) is unallocated.
+            // LUTI6 (`<12>=0, <11>=1, <10>=1`): 2-table lookup. `<22>` selects the
+            // element size: `0` -> `.B` (`<23>` must be 0, no index suffix), `1` ->
+            // `.H` with a 1-bit index `Zm[<23>]`.
+            (0, 1) => {
+                if b22 == 0 {
+                    // .B: 2-table byte lookup, plain Zm selector. <23> reserved 0.
+                    if b23 != 0 {
+                        return;
+                    }
+                    out.set(Code::SveLuti6B);
+                    out.push_operand(zreg(zd, VA::Sb));
+                    out.push_operand(zlist2(zn, VA::Sb));
+                    out.push_operand(Operand::Reg {
+                        reg: Z[(zm & 0x1f) as usize],
+                        arr: None,
+                        lane: None,
+                        shift: None,
+                        extend: None,
+                        pred: None,
+                    });
+                } else {
+                    // .H: 1-bit index = <23>.
+                    out.set(Code::SveLuti6H);
+                    out.push_operand(zreg(zd, VA::Sh));
+                    out.push_operand(zlist2(zn, VA::Sh));
+                    out.push_operand(zidx(zm, b23));
+                }
+            }
             _ => {}
         }
     }

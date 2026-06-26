@@ -78,6 +78,10 @@ pub(super) fn is_int(code: Code) -> bool {
             | SveAddLong | SveAbdLong | SveAddWide | SveAddHighNarrow | SveAddLongBt | SveAbaLong
             | SveAddCarryLong | SveCadd | SveSqcadd | SveAbaSame
             | SveSabal | SveUabal
+        // i3: SVE2.3 quadword pair add / 2-way dot, SVE2.2 sqabs/sqneg zeroing,
+        // FEAT_CPA madpt/mlapt/subp
+            | SveAddqp | SveAddsubp | SveSdotHb | SveUdotHb | SveSqabsZ | SveSqnegZ
+            | SveMadpt | SveMlapt | SveSubpPred
     )
 }
 

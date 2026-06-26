@@ -14,7 +14,7 @@ use Code::*;
 pub(super) fn is_perm(code: Code) -> bool {
     matches!(
         code,
-        SveLuti2 | SveLuti4 | SveLuti4Two
+        SveLuti2 | SveLuti4 | SveLuti4Two | SveLuti6B | SveLuti6H
             | SveZipUzpTrnZzz | SveZipUzpTrnQ | SveZipUzpTrnPpp | SveTbl | SveTbl2 | SveTbx | SveTbxq | SveRevZz
             | SveRevP | SveUnpk | SvePunpk | SveExtDes | SveExtCon | SveCompact | SveSpliceDes
             | SveSpliceCon | SveClastZ | SveClastV | SveClastR | SveLastV | SveLastR | SveRevbhw
@@ -160,6 +160,27 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 | fld((index >> 1) & 1, 23)
                 | fld(index & 1, 22)
                 | fld(zm, 16)
+                | fld(zn, 5)
+                | zd
+        }
+        // ---- LUTI6 (FEAT_LUT 2-table lookup) ----
+        // `<12>=0, <11>=1, <10>=1`. `.B` uses `<22>=0` (`<23>` reserved 0) with a
+        // plain `Zm` selector; `.H` uses `<22>=1` with a 1-bit index `Zm[<23>]`.
+        SveLuti6B => {
+            let zd = z(insn, 0)?;
+            let zn = list_first(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base45() | fld(0b00, 22) | fld(zm, 16) | fld(1, 11) | fld(1, 10) | fld(zn, 5) | zd
+        }
+        SveLuti6H => {
+            let zd = z(insn, 0)?;
+            let zn = list_first(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let index = lane(insn, 2)?;
+            if index > 1 {
+                return Err(EncodeError::InvalidOperand);
+            }
+            base45() | fld(1, 22) | fld(index & 1, 23) | fld(zm, 16) | fld(1, 11) | fld(1, 10)
                 | fld(zn, 5)
                 | zd
         }

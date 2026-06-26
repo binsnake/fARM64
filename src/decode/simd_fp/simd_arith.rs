@@ -870,6 +870,11 @@ fn simd_three_reg_ext(word: u32, features: FeatureSet, out: &mut Instruction) ->
                     let (ta, tb) = (arr_fp16(q), arr_sizeq(0b00, q));
                     emit3(out, Code::FdotVec, rd, ta, rn, tb, rm, tb);
                 }
+                (0, 0b10) if features.has(Feature::F16f32dot) => {
+                    // FDOT FP16->FP32 2-way: Vd.<2s/4s>, Vn.<4h/8h>, Vm.<4h/8h>.
+                    let (ta, tb) = (arr_sizeq(0b10, q), arr_fp16(q));
+                    emit3(out, Code::NeonFdotF16Vec, rd, ta, rn, tb, rm, tb);
+                }
                 (0, 0b11) if features.has(Feature::Fp8) => {
                     // FMLALB (Q=0) / FMLALT (Q=1): Vd.8H, Vn.16B, Vm.16B.
                     let code = if q == 0 { Code::FmlalbVec } else { Code::FmlaltVec };
@@ -2232,6 +2237,25 @@ fn by_element_ext(
                 }
                 _ => false, // size10 -> FP16 FMLAL by element.
             }
+        }
+        (0, 0b1001) => {
+            // FDOT FP16->FP32 2-way by element (size01): Vd.<2s/4s>, Vn.<4h/8h>,
+            // Vm.2H[H:L] with a full 5-bit Vm and a 2-bit index (H=word<11>,
+            // L=word<21>). size00/10/11 in this slot are FMUL/FMULX by element,
+            // owned by the size-agnostic table below.
+            if size != 0b01 {
+                return false;
+            }
+            if features.has(Feature::F16f32dot) {
+                let (ta, tb) = (arr_sizeq(0b10, q), arr_fp16(q));
+                let vm = bits(word, 16, 5);
+                let idx = ((bit(word, 11) << 1) | bit(word, 21)) as u8;
+                out.set(Code::NeonFdotF16Idx);
+                out.push_operand(vreg(rd, ta));
+                out.push_operand(vreg(rn, tb));
+                out.push_operand(vreg_idx(vm, VA::V2H, idx));
+            }
+            true
         }
         (1, 0b1000) => match size {
             0b00 | 0b01 => {

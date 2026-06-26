@@ -2992,6 +2992,49 @@ codes! {
 
     // --- FEAT_RPRFM range prefetch (H4) ---
     RprfmReg => Rprfm, Rprfm, "`RPRFM <rprfop>, <Xm>, [<Xn|SP>]` (range prefetch memory).";
+
+    // --- i3: NEON FP16->FP32 2-way FDOT (FEAT_F16F32DOT) ---
+    NeonFdotF16Vec => Fdot, F16f32dot, "`FDOT <Vd>.<2s/4s>, <Vn>.<4h/8h>, <Vm>.<4h/8h>` (NEON FP16->FP32 2-way dot, vector).";
+    NeonFdotF16Idx => Fdot, F16f32dot, "`FDOT <Vd>.<2s/4s>, <Vn>.<4h/8h>, <Vm>.2H[<index>]` (NEON FP16->FP32 2-way dot, by element).";
+
+    // --- i3: SVE2.3 quadword pair add / add-subtract (FEAT_SVE2p3) ---
+    SveAddqp => Addqp, Sve2p3, "`ADDQP <Zd>.<T>, <Zn>.<T>, <Zm>.<T>` (SVE2.3 quadword pair add).";
+    SveAddsubp => Addsubp, Sve2p3, "`ADDSUBP <Zd>.<T>, <Zn>.<T>, <Zm>.<T>` (SVE2.3 quadword pair add-subtract).";
+
+    // --- i3: SME2/SVE LUTI6 lookup-table (FEAT_LUT) ---
+    SveLuti6B => Luti6, Lut, "`LUTI6 <Zd>.B, {<Zn>.B, <Zn+1>.B}, <Zm>` (FEAT_LUT 2-table lookup, byte).";
+    SveLuti6H => Luti6, Lut, "`LUTI6 <Zd>.H, {<Zn>.H, <Zn+1>.H}, <Zm>[<index>]` (FEAT_LUT 2-table lookup, halfword).";
+
+    // --- i3: SVE FP16->FP32 matrix multiply-accumulate (FEAT_F16F32MM) ---
+    SveFmmlaF16F32 => Fmmla, F16f32mm, "`FMMLA <Zda>.S, <Zn>.H, <Zm>.H` (SVE FP16->FP32 matrix multiply-accumulate, FEAT_F16F32MM).";
+
+    // --- i3: SVE 2-way UDOT/SDOT (.h <- .b) (FEAT_SVE2p3) ---
+    SveSdotHb => Sdot, Sve2p3, "`SDOT <Zda>.H, <Zn>.B, <Zm>.B` (SVE2.3 2-way signed dot).";
+    SveUdotHb => Udot, Sve2p3, "`UDOT <Zda>.H, <Zn>.B, <Zm>.B` (SVE2.3 2-way unsigned dot).";
+
+    // --- i3: SVE predicated SQABS/SQNEG zeroing (FEAT_SVE2p2) ---
+    SveSqabsZ => Sqabs, Sve2p2, "`SQABS <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.2 saturating absolute, zeroing).";
+    SveSqnegZ => Sqneg, Sve2p2, "`SQNEG <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.2 saturating negate, zeroing).";
+
+    // --- i3: SVE FEAT_CPA checked pointer arithmetic MADPT/MLAPT/SUBP ---
+    SveMadpt => Madpt, Cpa, "`MADPT <Zdn>.D, <Zm>.D, <Za>.D` (FEAT_CPA multiply-add pointer).";
+    SveMlapt => Mlapt, Cpa, "`MLAPT <Zda>.D, <Zn>.D, <Zm>.D` (FEAT_CPA multiply-add pointer, accumulator).";
+    SveSubpPred => Subp, Cpa, "`SUBP <Zdn>.<T>, <Pg>/M, <Zdn>.<T>, <Zm>.<T>` (FEAT_CPA predicated subtract pointer).";
+
+    // --- i3: SVE FAMINMAX predicated FAMAX/FAMIN (FEAT_FAMINMAX) ---
+    SveFamax => Famax, Faminmax, "`FAMAX <Zdn>.<T>, <Pg>/M, <Zdn>.<T>, <Zm>.<T>` (SVE FP absolute maximum, predicated).";
+    SveFamin => Famin, Faminmax, "`FAMIN <Zdn>.<T>, <Pg>/M, <Zdn>.<T>, <Zm>.<T>` (SVE FP absolute minimum, predicated).";
+
+    // --- i3: SVE FRINT32/64 Z/X merging (/m) (FEAT_SVE2p2) ---
+    SveFrint32zM => Frint32z, Sve2p2, "`FRINT32Z <Zd>.<T>, <Pg>/M, <Zn>.<T>` (SVE2.2 merging).";
+    SveFrint32xM => Frint32x, Sve2p2, "`FRINT32X <Zd>.<T>, <Pg>/M, <Zn>.<T>` (SVE2.2 merging).";
+    SveFrint64zM => Frint64z, Sve2p2, "`FRINT64Z <Zd>.<T>, <Pg>/M, <Zn>.<T>` (SVE2.2 merging).";
+    SveFrint64xM => Frint64x, Sve2p2, "`FRINT64X <Zd>.<T>, <Pg>/M, <Zn>.<T>` (SVE2.2 merging).";
+
+    // --- i3: FEAT_LRCPC3 ordered load/store pair LDAPP/LDAP/STLP ---
+    LdappPair => Ldapp, Rcpc3, "`LDAPP <Xt>, <Xt2>, [<Xn|SP>]` (FEAT_LRCPC3 ordered load pair).";
+    LdapPair => Ldap, Rcpc3, "`LDAP <Xt>, <Xt2>, [<Xn|SP>]` (FEAT_LRCPC3 ordered load pair).";
+    StlpPair => Stlp, Rcpc3, "`STLP <Xt>, <Xt2>, [<Xn|SP>]` (FEAT_LRCPC3 ordered store pair).";
 }
 
 impl Code {
@@ -6129,6 +6172,23 @@ pub enum Mnemonic {
     // --- FEAT_RPRFM range prefetch (H4) ---
     /// `RPRFM` (range prefetch memory).
     Rprfm,
+    // --- i3 ---
+    /// `ADDQP` (SVE2.3 quadword pair add).
+    Addqp,
+    /// `ADDSUBP` (SVE2.3 quadword pair add-subtract).
+    Addsubp,
+    /// `LUTI6` (FEAT_LUT 2-table lookup-table read).
+    Luti6,
+    /// `MADPT` (FEAT_CPA multiply-add pointer).
+    Madpt,
+    /// `MLAPT` (FEAT_CPA multiply-add pointer, accumulator form).
+    Mlapt,
+    /// `LDAPP` (FEAT_LRCPC3 ordered load pair).
+    Ldapp,
+    /// `LDAP` (FEAT_LRCPC3 ordered load pair).
+    Ldap,
+    /// `STLP` (FEAT_LRCPC3 ordered store pair).
+    Stlp,
 }
 
 impl Mnemonic {

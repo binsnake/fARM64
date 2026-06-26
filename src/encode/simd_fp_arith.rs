@@ -544,6 +544,9 @@ mod simd_arith {
                 };
                 (0u32, size, q, 0b111111u32)
             }
+            // FDOT FP16->FP32 2-way (FEAT_F16F32DOT): size 10, lo=111111. Q from
+            // the .2s/.4s destination.
+            NeonFdotF16Vec => (0, 0b10, q_of_arr(arr_of(insn, 0)?)?, 0b111111),
             UsdotVec => (0, 0b10, q_of_arr(arr_of(insn, 0)?)?, 0b100111),
             BfdotVec => (1, 0b01, q_of_arr(arr_of(insn, 0)?)?, 0b111111),
             FmlalbVec => (0, 0b11, 0, 0b111111),
@@ -1416,6 +1419,7 @@ mod simd_arith {
         if !matches!(
             code,
             FdotIdx
+                | NeonFdotF16Idx
                 | SudotIdx
                 | UsdotIdx
                 | BfdotIdx
@@ -1455,6 +1459,17 @@ mod simd_arith {
                     }
                     _ => return Err(EncodeError::InvalidOperand),
                 }
+            }
+            NeonFdotF16Idx => {
+                // FDOT FP16->FP32 2-way by element (FEAT_F16F32DOT): size01,
+                // opcode1001, `.2h` index = H(word<11>):L(word<21>) with a full
+                // 5-bit Vm (the high bit goes to M=word<20>). Q from the .2s/.4s
+                // destination.
+                let q = q_of_arr(arr_of(insn, 0)?)?;
+                let h = ((index >> 1) & 1) as u32;
+                let l = (index & 1) as u32;
+                let m = (vm >> 4) & 1;
+                by_elem_word(q, 0, 0b01, 0b1001, h, l, m, vm, rn, rd)
             }
             SudotIdx | UsdotIdx => {
                 let q = q_of_arr(arr_of(insn, 0)?)?;

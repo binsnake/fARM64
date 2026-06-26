@@ -67,6 +67,9 @@ pub(super) fn is_fp(code: Code) -> bool {
             | SveFmmlaF8F32 | SveFmmlaF8 | SveFmmlaF16 | SveBfmmlaH
             | SveFrint32zZ | SveFrint32xZ | SveFrint64zZ | SveFrint64xZ
             | SveBfmlslb | SveBfmlslt | SveBfmlslbIdx | SveBfmlsltIdx
+        // i3: FP16->FP32 matrix FMMLA, predicated FAMAX/FAMIN, FRINT32/64 merging
+            | SveFmmlaF16F32 | SveFamax | SveFamin
+            | SveFrint32zM | SveFrint32xM | SveFrint64zM | SveFrint64xM
     )
 }
 
@@ -163,6 +166,15 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zm = z(insn, 3)?;
             base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zm, 5) | zdn
         }
+        // i3: predicated FAMAX (`<20:16>=01110`) / FAMIN (`01111`) (FEAT_FAMINMAX).
+        SveFamax | SveFamin => {
+            let opc = if matches!(code, SveFamax) { 0b01110 } else { 0b01111 };
+            let size = esize(insn, 0)?;
+            let zdn = z(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let zm = z(insn, 3)?;
+            base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zm, 5) | zdn
+        }
         // ---- 0x65 predicated immediate ----
         SveFaddZpzi | SveFsubZpzi | SveFmulZpzi | SveFsubrZpzi | SveFmaxnmZpzi | SveFminnmZpzi
         | SveFmaxZpzi | SveFminZpzi => {
@@ -201,6 +213,26 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
             base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10) | fld(zn, 5) | zd
+        }
+        // i3: FRINT32/64 Z/X merging (`/m`, FEAT_SVE2p2): `<23:22>=00`,
+        // `<20:16>=10 is64 is_d is_x`, `<15:13>=101`. Element from `.s`/`.d`.
+        SveFrint32zM | SveFrint32xM | SveFrint64zM | SveFrint64xM => {
+            let (is64, is_x) = match code {
+                SveFrint32zM => (0u32, 0u32),
+                SveFrint32xM => (0, 1),
+                SveFrint64zM => (1, 0),
+                _ => (1, 1),
+            };
+            let is_d = match arr_of(insn, 0)? {
+                VA::Ss => 0u32,
+                VA::Sd => 1,
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            let opc = (0b10 << 3) | (is64 << 2) | (is_d << 1) | is_x;
+            let zd = z(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let zn = z(insn, 2)?;
+            base65(0) | fld(0b00, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10) | fld(zn, 5) | zd
         }
         // ---- 0x65 FLOGB ----
         SveFlogbZpz => {
@@ -334,6 +366,14 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
             base64(1) | fld(0b01, 22) | fld(zm, 16) | fld(0b111001, 10) | fld(zn, 5) | zda
+        }
+        // i3: FMMLA FP16->FP32 widening matrix (FEAT_F16F32MM): .s <- .h
+        // (`<15:10>=111001`, `<23:22>=00`).
+        SveFmmlaF16F32 => {
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base64(1) | fld(0b00, 22) | fld(zm, 16) | fld(0b111001, 10) | fld(zn, 5) | zda
         }
         // ---- 0x64 BFDOT ----
         SveBfdot => {

@@ -188,6 +188,63 @@ fn enc_sve2(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeError> 
         SveSm4e => enc_45_sm4e(insn)?,
         SveSm4ekey => enc_45_sm4ekey(insn)?,
         SveMatch => enc_45_match(insn)?,
+        // ---- i3: SVE2.3 quadword pair add / add-subtract (0x04, <15:13>=011) ----
+        SveAddqp | SveAddsubp => {
+            let size = esize(insn, 0)?;
+            let zd = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let op = if matches!(code, SveAddqp) { 0b110 } else { 0b111 };
+            base04(1, 0b011) | fld(size, 22) | fld(op, 10) | fld(zm, 16) | fld(zn, 5) | zd
+        }
+        // ---- i3: SVE2.3 2-way SDOT/UDOT (.h <- .b) (0x44, <23:22>=01, <15:11>=00000) ----
+        SveSdotHb | SveUdotHb => {
+            let u = if matches!(code, SveUdotHb) { 1 } else { 0 };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base44(0) | fld(0b01, 22) | fld(zm, 16) | fld(0b00000, 11) | fld(u, 10) | fld(zn, 5) | zda
+        }
+        // ---- i3: SVE2.2 SQABS/SQNEG zeroing (0x44, <15:13>=101, <20:16>=0101 op) ----
+        SveSqabsZ | SveSqnegZ => {
+            let a = arr_of(insn, 0)?;
+            let size = arr_size(a)?;
+            let zd = z(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let zn = z(insn, 2)?;
+            let op = if matches!(code, SveSqnegZ) { 1 } else { 0 };
+            // <19>=1, <18:17>=01 (zeroing), <16>=op.
+            base44(0) | fld(size, 22) | fld(1, 19) | fld(0b01, 17) | fld(op, 16) | fld(0b101, 13)
+                | fld(pg, 10)
+                | fld(zn, 5)
+                | zd
+        }
+        // ---- i3: FEAT_CPA MADPT/MLAPT (0x44, <21>=0, size=11, <15:10>) ----
+        SveMadpt => {
+            // <15:10>=110110; operands print as Zdn(<4:0>), Zm(<20:16>), Za(<9:5>).
+            let zdn = z(insn, 0)?;
+            let zm = z(insn, 1)?;
+            let za = z(insn, 2)?;
+            base44(0) | fld(0b11, 22) | fld(zm, 16) | fld(0b110110, 10) | fld(za, 5) | zdn
+        }
+        SveMlapt => {
+            // <15:10>=110100; operands print as Zda(<4:0>), Zn(<9:5>), Zm(<20:16>).
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base44(0) | fld(0b11, 22) | fld(zm, 16) | fld(0b110100, 10) | fld(zn, 5) | zda
+        }
+        // ---- i3: FEAT_CPA predicated SUBP (0x44, <15:13>=101, <20:16>=10000) ----
+        SveSubpPred => {
+            let a = arr_of(insn, 0)?;
+            let size = arr_size(a)?;
+            let zdn = z(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let zm = z(insn, 3)?;
+            // <21:19>=010, <18:16>=000.
+            base44(0) | fld(size, 22) | fld(0b010, 19) | fld(0b101, 13) | fld(pg, 10) | fld(zm, 5)
+                | zdn
+        }
         _ => return Ok(None),
     };
     Ok(Some(w))

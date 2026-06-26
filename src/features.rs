@@ -160,6 +160,18 @@ pub enum Feature {
     /// [<Xn|SP>]` range-prefetch hint, encoded in the `PRFM (register offset)`
     /// slot (`size==11`, `opc==10`) with `option<1>==1` and `word<11:10>==10`.
     Rprfm,
+    /// FP16-to-FP32 Advanced SIMD half-precision dot-product accumulate to
+    /// single-precision (`FEAT_F16F32DOT`): the NEON `FDOT <Vd>.<2s/4s>,
+    /// <Vn>.<4h/8h>, <Vm>.<4h/8h>` vector and `<Vm>.2H[<index>]` by-element forms.
+    F16f32dot,
+    /// Scalable Vector Extension 2.2 (`FEAT_SVE2p2`): the predicated `SQABS`/
+    /// `SQNEG` zeroing (`/z`) forms and the `FRINT32Z/X`/`FRINT64Z/X` merging
+    /// (`/m`) round-to-integral forms added on top of the SVE2.1 baseline.
+    Sve2p2,
+    /// Scalable Vector Extension 2.3 (`FEAT_SVE2p3`): the quadword pair add
+    /// (`ADDQP`) / add-subtract (`ADDSUBP`) unpredicated forms and the 2-way
+    /// `UDOT`/`SDOT` (`.h <- .b`) dot products.
+    Sve2p3,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

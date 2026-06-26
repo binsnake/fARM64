@@ -209,7 +209,7 @@ fn decode_65(word: u32, features: FeatureSet, out: &mut Instruction) {
             0b001 => decode_65_unary_misc(word, out),
             0b010 | 0b011 => decode_65_compare(word, out),
             0b100 => decode_65_pred_binary(word, features, out),
-            0b101 => decode_65_pred_unary(word, out),
+            0b101 => decode_65_pred_unary(word, features, out),
             0b110 | 0b111 => decode_65_compare(word, out),
             _ => {}
         }
@@ -446,6 +446,16 @@ fn decode_65_pred_binary(word: u32, features: FeatureSet, out: &mut Instruction)
         0b01010 => Code::SveFmulxZpzz,
         0b01100 => Code::SveFdivrZpzz,
         0b01101 => Code::SveFdivZpzz,
+        // FAMAX (`<20:16>=01110`) / FAMIN (`<20:16>=01111`): FEAT_FAMINMAX
+        // predicated FP absolute maximum/minimum, destructive.
+        0b01110 | 0b01111 => {
+            if !features.has(Feature::Faminmax) {
+                return;
+            }
+            out.set(if opc == 0b01110 { Code::SveFamax } else { Code::SveFamin });
+            push_pred_binary(out, zdn, pg, zm, a);
+            return;
+        }
         _ => return,
     };
     out.set(code);
@@ -466,7 +476,7 @@ fn push_pred_binary(out: &mut Instruction, zdn: u32, pg: u32, zm: u32, a: VA) {
 /// `FRINT*`/`FRECPX`/`FSQRT`/`FCVT*`/`FCVTZ*`/`SCVTF`/`UCVTF`/`FLOGB`/`FNEG`/
 /// `FABS`/`BFCVT`. Distinguished by `word<20:16>` (`opc`) and `<23:22>` (`size`).
 #[inline]
-fn decode_65_pred_unary(word: u32, out: &mut Instruction) {
+fn decode_65_pred_unary(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let opc = bits(word, 16, 5); // word<20:16>
     let pg = bits(word, 10, 3);
@@ -497,6 +507,30 @@ fn decode_65_pred_unary(word: u32, out: &mut Instruction) {
             0b01100 => Code::SveFrecpxZpz,
             0b01101 => Code::SveFsqrtZpz,
             _ => return,
+        };
+        out.set(code);
+        out.push_operand(zreg(zd, a));
+        out.push_operand(preg_q(pg, PredQual::Merging));
+        out.push_operand(zreg(zn, a));
+        return;
+    }
+
+    // FRINT32Z/X / FRINT64Z/X (merging, `/m`, FEAT_SVE2p2): `<23:22>=00`,
+    // `<20:16>=101 <is64> <is_d> <is_x>` -> opcode `<20:19>=10`, `<18>` selects
+    // 32(0)/64(1), `<17>` the element (.s=0 / .d=1), `<16>` Z(0)/X(1). The `/z`
+    // analogues live in the 0x64 top byte; these are the 0x65 merging forms.
+    if size == 0 && bits(word, 19, 2) == 0b10 {
+        if !features.has(Feature::Sve2p2) {
+            return;
+        }
+        let is64 = bit(word, 18) == 1;
+        let is_x = bit(word, 16) == 1;
+        let a = if bit(word, 17) == 0 { VA::Ss } else { VA::Sd };
+        let code = match (is64, is_x) {
+            (false, false) => Code::SveFrint32zM,
+            (false, true) => Code::SveFrint32xM,
+            (true, false) => Code::SveFrint64zM,
+            _ => Code::SveFrint64xM,
         };
         out.set(code);
         out.push_operand(zreg(zd, a));
@@ -1037,6 +1071,16 @@ fn decode_64_indexed_and_long(word: u32, features: FeatureSet, out: &mut Instruc
         let zn = bits(word, 5, 5);
         let zda = bits(word, 0, 5);
         match opc2322 {
+            0b00 => {
+                // FMMLA FP16->FP32 widening matrix (FEAT_F16F32MM): .s <- .h.
+                if !features.has(Feature::F16f32mm) {
+                    return;
+                }
+                out.set(Code::SveFmmlaF16F32);
+                out.push_operand(zreg(zda, VA::Ss));
+                out.push_operand(zreg(zn, VA::Sh));
+                out.push_operand(zreg(zm, VA::Sh));
+            }
             0b01 => {
                 if !features.has(Feature::Bf16) {
                     return;

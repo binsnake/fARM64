@@ -46,6 +46,7 @@ pub fn is_ldst(code: Code) -> bool {
             | StlurFp8 | StlurFp16 | StlurFp32 | StlurFp64 | StlurFp128
             | LdiappOff | LdiappPost | StilpOff | StilpPre
             | StlrPre32 | StlrPre64 | LdaprPost32 | LdaprPost64
+            | LdappPair | LdapPair | StlpPair
     ) {
         return true;
     }
@@ -151,6 +152,9 @@ pub fn encode(insn: &Instruction) -> R {
 
         // --- FEAT_LRCPC3 LDIAPP/STILP (ordered pair). ---
         LdiappOff | LdiappPost | StilpOff | StilpPre => enc_ldiapp_stilp(insn),
+
+        // --- FEAT_LRCPC3 LDAPP/LDAP/STLP (ordered pair, X-only, no offset). ---
+        LdappPair | LdapPair | StlpPair => enc_ldapp_stlp(insn),
 
         // --- FEAT_LRCPC3 writeback STLR (pre) / LDAPR (post). ---
         StlrPre32 | StlrPre64 | LdaprPost32 | LdaprPost64 => enc_stlr_ldapr_wb(insn),
@@ -2014,6 +2018,40 @@ fn enc_ldiapp_stilp(insn: &Instruction) -> R {
         | (rt2 << 16)
         | (o << 12)
         | (1 << 11)
+        | (rn << 5)
+        | rt;
+    Ok(word)
+}
+
+/// FEAT_LRCPC3 ordered load/store pair `LDAPP`/`LDAP`/`STLP` (X-only, no offset).
+/// Encoding: `11 011001 0 L 0 Rt2 opc2 10 Rn Rt`, with `opc2`(bits<15:12>) =
+/// `0101` for STLP(L=0)/LDAP(L=1) and `0111` for LDAPP(L=1). All forms are
+/// 64-bit-only with a plain `[<Xn|SP>]` base and no writeback.
+fn enc_ldapp_stlp(insn: &Instruction) -> R {
+    use Code::*;
+    let code = insn.code();
+    let (l, opc2) = match code {
+        StlpPair => (0u32, 0b0101u32),
+        LdapPair => (1, 0b0101),
+        LdappPair => (1, 0b0111),
+        _ => return Err(EncodeError::InvalidOperand),
+    };
+    // Both transfer registers must be 64-bit X.
+    if insn.op_register(0).width_bits() != 64 || insn.op_register(1).width_bits() != 64 {
+        return Err(EncodeError::InvalidOperand);
+    }
+    let rt = reg_num(insn, 0)?;
+    let rt2 = reg_num(insn, 1)?;
+    let (rn, imm, mode) = mem_imm(insn, 2)?;
+    if mode != MemIndexMode::Offset || imm != 0 {
+        return Err(EncodeError::InvalidOperand);
+    }
+    let word = (0b11u32 << 30)
+        | (0b011001 << 24)
+        | (l << 22)
+        | (rt2 << 16)
+        | (opc2 << 12)
+        | (0b10 << 10)
         | (rn << 5)
         | rt;
     Ok(word)

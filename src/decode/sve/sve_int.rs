@@ -32,7 +32,7 @@
 
 use crate::decode::bits::{bit, bits, bits64, decode_bit_masks, sign_extend};
 use crate::enums::{ExtendType, VectorArrangement as VA};
-use crate::features::FeatureSet;
+use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::{Code, Mnemonic};
 use crate::operand::{Operand, PredQual, SveMemMode};
@@ -831,7 +831,7 @@ fn decode_sve2_xar(word: u32, out: &mut Instruction) {
 /// Unpredicated multiply (`<21>=1`, `<15:13>=011`): `MUL`/`PMUL`/`SMULH`/
 /// `UMULH`/`SQDMULH`/`SQRDMULH` `<Zd>.<T>, <Zn>.<T>, <Zm>.<T>`.
 #[inline]
-fn decode_mul_zzz(word: u32, out: &mut Instruction) {
+fn decode_mul_zzz(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let zm = bits(word, 16, 5);
     let zn = bits(word, 5, 5);
@@ -845,6 +845,18 @@ fn decode_mul_zzz(word: u32, out: &mut Instruction) {
         // SQDMULH / SQRDMULH (SVE2) reuse the unpredicated multiply slot.
         0b100 => (Code::SveMulZzz, Some(Mnemonic::Sqdmulh)),
         0b101 => (Code::SveMulZzz, Some(Mnemonic::Sqrdmulh)),
+        // ADDQP (`<12:10>=110`) / ADDSUBP (`<12:10>=111`): SVE2.3 quadword pair
+        // add / add-subtract, `<Zd>.<T>, <Zn>.<T>, <Zm>.<T>` (all element sizes).
+        0b110 | 0b111 => {
+            if !features.has(Feature::Sve2p3) {
+                return;
+            }
+            out.set(if bit(word, 10) == 0 { Code::SveAddqp } else { Code::SveAddsubp });
+            out.push_operand(zreg(zd, a));
+            out.push_operand(zreg(zn, a));
+            out.push_operand(zreg(zm, a));
+            return;
+        }
         _ => return,
     };
     // PMUL is byte-only.
@@ -1658,9 +1670,9 @@ fn decode_incdec_pred(word: u32, out: &mut Instruction) {
 /// `word<21>` selects the vector form (0) vs the indexed form (1); within each,
 /// `word<22>` (or `<23:22>`) selects `.s`-over-`.b` vs `.d`-over-`.h`.
 #[inline]
-fn decode_44(word: u32, out: &mut Instruction) {
+fn decode_44(word: u32, features: FeatureSet, out: &mut Instruction) {
     if bit(word, 21) == 0 {
-        decode_44_vector(word, out);
+        decode_44_vector(word, features, out);
     } else {
         decode_44_indexed(word, out);
     }
@@ -1695,7 +1707,7 @@ fn widen2(size: u32) -> Option<(VA, VA)> {
 /// {S,U}ML{A,S}L{B,T} multiply-add-long family, SQDML{A,S}L{B,T}, and
 /// SQRDML{A,S}H. Dispatched on the `<15:10>` opcode region.
 #[inline]
-fn decode_44_vector(word: u32, out: &mut Instruction) {
+fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let zm = bits(word, 16, 5);
     let zn = bits(word, 5, 5);
@@ -1704,11 +1716,24 @@ fn decode_44_vector(word: u32, out: &mut Instruction) {
     match s1513 {
         // SDOT/UDOT (`<15:11>=00000`).
         0b000 if bits(word, 11, 2) == 0 => {
-            // Vector DOT: size==2 -> .s/.b, size==3 -> .d/.h. U=<10>.
+            // Vector DOT: size==1 -> .h/.b (2-way, SVE2.3), size==2 -> .s/.b,
+            // size==3 -> .d/.h. U=<10>.
+            let u = bit(word, 10);
+            if size == 1 {
+                // 2-way `.h <- .b` dot (FEAT_SVE2p3).
+                if !features.has(Feature::Sve2p3) {
+                    return;
+                }
+                out.set(if u == 0 { Code::SveSdotHb } else { Code::SveUdotHb });
+                out.set_mnemonic(if u == 0 { Mnemonic::Sdot } else { Mnemonic::Udot });
+                out.push_operand(zreg(zda, VA::Sh));
+                out.push_operand(zreg(zn, VA::Sb));
+                out.push_operand(zreg(zm, VA::Sb));
+                return;
+            }
             if size < 2 {
                 return;
             }
-            let u = bit(word, 10);
             let (da, sb) = if size == 2 { (VA::Ss, VA::Sb) } else { (VA::Sd, VA::Sh) };
             out.set(if u == 0 { Code::SveSdot } else { Code::SveUdot });
             out.set_mnemonic(if u == 0 { Mnemonic::Sdot } else { Mnemonic::Udot });
@@ -1810,7 +1835,7 @@ fn decode_44_vector(word: u32, out: &mut Instruction) {
         }
         // Predicated SVE2 integer (`<15:14>=10`): halving/saturating/rounding
         // binary, pairwise, saturating-abs/neg, and pairwise-accumulate-long.
-        0b100 | 0b101 => decode_44_pred(word, out),
+        0b100 | 0b101 => decode_44_pred(word, features, out),
         // SCLAMP/UCLAMP (`<15:11>=11000`, SVE2 / SME): clamp each element of the
         // destination to the signed/unsigned range `[Zn, Zm]`. `U=<10>` selects
         // signed(0)/unsigned(1); all three operands share the `size` arrangement.
@@ -1859,6 +1884,26 @@ fn decode_44_vector(word: u32, out: &mut Instruction) {
             out.push_operand(zreg(zda, da));
             out.push_operand(zreg(zn, sa));
             out.push_operand(zreg(zm, sa));
+        }
+        // MADPT (`<15:10>=110110`) / MLAPT (`<15:10>=110100`): FEAT_CPA checked
+        // pointer multiply-add, `.d` only. MADPT prints `<Zdn>.D, <Zm>.D, <Za>.D`
+        // (Zm=<20:16>, Za=<9:5>); MLAPT prints `<Zda>.D, <Zn>.D, <Zm>.D`
+        // (Zn=<9:5>, Zm=<20:16>).
+        0b110 if bit(word, 10) == 0 && (bits(word, 11, 2) == 0b11 || bits(word, 11, 2) == 0b10) => {
+            if size != 0b11 || !features.has(Feature::Cpa) {
+                return;
+            }
+            if bits(word, 11, 2) == 0b11 {
+                out.set(Code::SveMadpt);
+                out.push_operand(zreg(zda, VA::Sd));
+                out.push_operand(zreg(zm, VA::Sd));
+                out.push_operand(zreg(zn, VA::Sd));
+            } else {
+                out.set(Code::SveMlapt);
+                out.push_operand(zreg(zda, VA::Sd));
+                out.push_operand(zreg(zn, VA::Sd));
+                out.push_operand(zreg(zm, VA::Sd));
+            }
         }
         // ZIPQ1/2, UZPQ1/2, TBLQ (`<15:13>=111`, SVE2.1 128-bit-segment permute):
         // `<12:10>` selects the op; all four element sizes are valid.
@@ -1910,7 +1955,7 @@ fn zlist1(n: u32, a: VA) -> Operand {
 ///   {S,U}ADALP (`<20:16>=00010U`, `_z_p_z_`, source half-width), and
 ///   SQABS/SQNEG (`<20:16>=001000/001001`, `_z_p_z_`).
 #[inline]
-fn decode_44_pred(word: u32, out: &mut Instruction) {
+fn decode_44_pred(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let a = arr(size);
     let pg = bits(word, 10, 3);
@@ -1990,8 +2035,21 @@ fn decode_44_pred(word: u32, out: &mut Instruction) {
     }
     // `<15:13>=101`. `<21:19>` selects: `010`=pairwise, `00X`=ADALP / SQABS/SQNEG.
     match bits(word, 19, 3) {
-        // Pairwise ADDP / {S,U}{MAX,MIN}P (`<21:19>=010`): `<18:16>=opc:U`.
+        // Pairwise ADDP / {S,U}{MAX,MIN}P (`<21:19>=010`): `<18:16>=opc:U`. The
+        // `<18:16>=000` slot is SUBP (FEAT_CPA predicated subtract pointer), which
+        // shares the destructive `Zdn, Pg/M, Zdn, Zm` shape.
         0b010 => {
+            if bits(word, 16, 3) == 0b000 {
+                if !features.has(Feature::Cpa) {
+                    return;
+                }
+                out.set(Code::SveSubpPred);
+                out.push_operand(zreg(zdn, a));
+                out.push_operand(preg_q(pg, PredQual::Merging));
+                out.push_operand(zreg(zdn, a));
+                out.push_operand(zreg(zm, a));
+                return;
+            }
             let mnem = match bits(word, 16, 3) {
                 0b001 => Mnemonic::Addp,
                 0b100 => Mnemonic::Smaxp,
@@ -2019,11 +2077,20 @@ fn decode_44_pred(word: u32, out: &mut Instruction) {
                 out.push_operand(preg_q(pg, PredQual::Merging));
                 out.push_operand(zreg(zn, sa));
             } else if bit(word, 19) == 1 && bits(word, 17, 2) == 0b00 {
-                // SQABS (`<16>=0`) / SQNEG (`<16>=1`): same-size unary.
+                // SQABS (`<16>=0`) / SQNEG (`<16>=1`): same-size unary, merging.
                 out.set(Code::SveSatUnaryZpz);
                 out.set_mnemonic(if bit(word, 16) == 0 { Mnemonic::Sqabs } else { Mnemonic::Sqneg });
                 out.push_operand(zreg(zdn, a));
                 out.push_operand(preg_q(pg, PredQual::Merging));
+                out.push_operand(zreg(zn, a));
+            } else if bit(word, 19) == 1 && bits(word, 17, 2) == 0b01 {
+                // SQABS (`<16>=0`) / SQNEG (`<16>=1`) zeroing (`/z`, FEAT_SVE2p2).
+                if !features.has(Feature::Sve2p2) {
+                    return;
+                }
+                out.set(if bit(word, 16) == 0 { Code::SveSqabsZ } else { Code::SveSqnegZ });
+                out.push_operand(zreg(zdn, a));
+                out.push_operand(preg_q(pg, PredQual::Zeroing));
                 out.push_operand(zreg(zn, a));
             } else if bit(word, 19) == 0 && bits(word, 17, 2) == 0b00 {
                 // URECPE (`<16>=0`) / URSQRTE (`<16>=1`): `.s` only, same-size unary.
@@ -3005,7 +3072,7 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
         0x25 => decode_25(word, out),
         0x24 => decode_24(word, out),
         // 0x44 / 0x45: SVE2 integer multiply-add / DOT / widening (top byte 010).
-        0x44 => decode_44(word, out),
+        0x44 => decode_44(word, features, out),
         0x45 => decode_45(word, out),
         _ => {}
     }
@@ -3043,7 +3110,7 @@ fn decode_04(word: u32, features: FeatureSet, out: &mut Instruction) {
         // INDEX, ADDVL/ADDPL, RDVL (+ the SME streaming ADDSVL/ADDSPL/RDSVL).
         (1, 0b010) => decode_index_addvl(word, features, out),
         // Unpredicated multiply MUL/SMULH/UMULH/PMUL (+ SQDMULH/SQRDMULH).
-        (1, 0b011) => decode_mul_zzz(word, out),
+        (1, 0b011) => decode_mul_zzz(word, features, out),
         // Shift by immediate (unpred) and wide-shift (unpred).
         (1, 0b100) => decode_shift_unpred(word, out),
         // ADR (vector) and unpredicated MOVPRFX.

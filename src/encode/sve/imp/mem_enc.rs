@@ -274,6 +274,10 @@ pub(super) fn is_qword(code: Code) -> bool {
             | Code::SveSt2qSs | Code::SveSt2qImm
             | Code::SveSt3qSs | Code::SveSt3qImm
             | Code::SveSt4qSs | Code::SveSt4qImm
+            | Code::SveLd1wqSs | Code::SveLd1wqImm
+            | Code::SveLd1dqSs | Code::SveLd1dqImm
+            | Code::SveSt1wqSs | Code::SveSt1wqImm
+            | Code::SveSt1dqSs | Code::SveSt1dqImm
     )
 }
 
@@ -302,8 +306,51 @@ fn enc_qword(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
         | Code::SveSt2qImm | Code::SveSt3qImm | Code::SveSt4qImm => {
             enc_qword_struct(insn, code, true, zt, pgv)
         }
+        // Single-register quadword (`.q`) contiguous loads/stores (H3).
+        Code::SveLd1wqSs => {
+            let (rn, rm) = read_ss(insn)?;
+            Ok(0xa500_0000 | fld(0b100, 13) | fld(rm, 16) | fld(pgv, 10) | fld(rn, 5) | zt)
+        }
+        Code::SveLd1dqSs => {
+            let (rn, rm) = read_ss(insn)?;
+            Ok(0xa580_0000 | fld(0b100, 13) | fld(rm, 16) | fld(pgv, 10) | fld(rn, 5) | zt)
+        }
+        Code::SveLd1wqImm => {
+            let (rn, i4) = read_q_single_imm(insn)?;
+            Ok(0xa500_0000 | fld(1, 20) | fld((i4 as u32) & 0xf, 16) | fld(0b001, 13) | fld(pgv, 10) | fld(rn, 5) | zt)
+        }
+        Code::SveLd1dqImm => {
+            let (rn, i4) = read_q_single_imm(insn)?;
+            Ok(0xa580_0000 | fld(1, 20) | fld((i4 as u32) & 0xf, 16) | fld(0b001, 13) | fld(pgv, 10) | fld(rn, 5) | zt)
+        }
+        Code::SveSt1wqSs => {
+            let (rn, rm) = read_ss(insn)?;
+            Ok(0xe500_0000 | fld(0b010, 13) | fld(rm, 16) | fld(pgv, 10) | fld(rn, 5) | zt)
+        }
+        Code::SveSt1dqSs => {
+            let (rn, rm) = read_ss(insn)?;
+            Ok(0xe5c0_0000 | fld(0b010, 13) | fld(rm, 16) | fld(pgv, 10) | fld(rn, 5) | zt)
+        }
+        Code::SveSt1wqImm => {
+            let (rn, i4) = read_q_single_imm(insn)?;
+            Ok(0xe500_0000 | fld((i4 as u32) & 0xf, 16) | fld(0b111, 13) | fld(pgv, 10) | fld(rn, 5) | zt)
+        }
+        Code::SveSt1dqImm => {
+            let (rn, i4) = read_q_single_imm(insn)?;
+            Ok(0xe5c0_0000 | fld((i4 as u32) & 0xf, 16) | fld(0b111, 13) | fld(pgv, 10) | fld(rn, 5) | zt)
+        }
         _ => Err(EncodeError::Unsupported),
     }
+}
+
+/// Read the `[Xn{, #imm, MUL VL}]` imm4 for a single-register quadword form,
+/// validating the signed 4-bit range.
+fn read_q_single_imm(insn: &Instruction) -> Result<(u32, i32), EncodeError> {
+    let (rn, imm) = read_mulvl(insn)?;
+    if !(-8..=7).contains(&imm) {
+        return Err(EncodeError::InvalidImmediate);
+    }
+    Ok((rn, imm))
 }
 
 /// Encode a quadword structured `(nreg, store, ss/imm)` form.

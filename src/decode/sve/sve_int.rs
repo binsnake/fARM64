@@ -1349,6 +1349,28 @@ fn decode_25(word: u32, out: &mut Instruction) {
         return;
     }
 
+    // LASTP / FIRSTP (SVE2.1 extract predicate-as-counter): `<21>=1`,
+    // `<20:16>` = `00010`(LASTP) / `00001`(FIRSTP), `<15:14>=10`, `<9>=0`. These
+    // share the INC/DEC-by-predicate-count slot (`<15:12>=1000`, `sel=100`) when
+    // `Pg<3>==0`, so detect them ahead of the `sel` match to avoid the SQDECP/
+    // UQINCP over-decode. The element size is in `<23:22>`.
+    if bit(word, 21) == 1
+        && bits(word, 14, 2) == 0b10
+        && bit(word, 9) == 0
+        && (bits(word, 16, 5) == 0b00010 || bits(word, 16, 5) == 0b00001)
+    {
+        let a = arr(bits(word, 22, 2));
+        let pg = bits(word, 10, 4);
+        let pn = bits(word, 5, 4);
+        let rd = bits(word, 0, 5);
+        let is_lastp = bits(word, 16, 5) == 0b00010;
+        out.set(if is_lastp { Code::SveLastp } else { Code::SveFirstp });
+        out.push_operand(gpr(rd, RegWidth::X64));
+        out.push_operand(preg(pg));
+        out.push_operand(preg_sz(pn, a));
+        return;
+    }
+
     match sel {
         // ge/gt (000) and lt/le (001) signed-immediate compares.
         0b000 | 0b001 => {
@@ -1826,6 +1848,17 @@ fn decode_44_vector(word: u32, out: &mut Instruction) {
                 out.push_operand(zreg(zn, VA::Sh));
                 out.push_operand(zreg_idx(zm, VA::Sh, idx as u8));
             }
+        }
+        // {S,U}ABAL (`<15:13>=110`, `<12:11>` = `10`(SABAL)/`11`(UABAL), `<10>=1`,
+        // `<21>=0`): SVE2.3 absolute-difference accumulate long (alias of
+        // {S,U}ABALB). 2x widening: `<Zda>.<T>, <Zn>.<Tb>, <Zm>.<Tb>`.
+        0b110 if bit(word, 21) == 0 && bit(word, 10) == 1 && bit(word, 12) == 1 => {
+            let Some((da, sa)) = widen2(size) else { return };
+            let u = bit(word, 11);
+            out.set(if u == 0 { Code::SveSabal } else { Code::SveUabal });
+            out.push_operand(zreg(zda, da));
+            out.push_operand(zreg(zn, sa));
+            out.push_operand(zreg(zm, sa));
         }
         // ZIPQ1/2, UZPQ1/2, TBLQ (`<15:13>=111`, SVE2.1 128-bit-segment permute):
         // `<12:10>` selects the op; all four element sizes are valid.

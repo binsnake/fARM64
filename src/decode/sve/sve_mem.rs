@@ -559,6 +559,13 @@ fn decode_qword(word: u32, out: &mut Instruction) {
     let pg = bits(word, 10, 3);
     let rn = bits(word, 5, 5);
     let zt = bits(word, 0, 5);
+    // SVE2.1 quadword (`.q`) SINGLE-register contiguous loads/stores share these
+    // top bytes with `LD1RQ*`/`STNT1*`/`STR`; they sit in otherwise-unallocated
+    // sub-op slots. Intercept them first.
+    decode_qword_single(word, top, pg, rn, zt, out);
+    if !out.is_invalid() {
+        return;
+    }
     match top {
         // LD1Q gather: 11000100 000 Rm 101 Pg Zn Zt, base Zn.d + offset Xm.
         0xc4 if bits(word, 21, 3) == 0b000 && bits(word, 13, 3) == 0b101 => {
@@ -595,6 +602,74 @@ fn decode_qword(word: u32, out: &mut Instruction) {
                 _ => return,
             };
             decode_qword_struct(word, nreg, true, pg, rn, zt, out);
+        }
+        _ => {}
+    }
+}
+
+/// Decode the SVE2.1 quadword (`.q`) SINGLE-register contiguous loads/stores.
+///
+/// These render `{ <Zt>.Q }` and occupy sub-op slots that legacy `decode_contig`
+/// either drops or over-decodes as `LD1RQ*` (the `op=1`/`b20=1` imm slot). The
+/// element field selects `LD1W`/`ST1W` (W) vs `LD1D`/`ST1D` (D): loads (`0xa5`)
+/// use `<23:22>` = `00` -> W, `10` -> D; stores (`0xe5`) use `00` -> W, `11`
+/// -> D. Loads sit at `op<15:13>` = `100` (scalar+scalar, `Rm` = `<20:16>`) and
+/// `001` with `<20>=1` (scalar+imm, `MUL VL`); stores at `op` = `010` (ss) and
+/// `111` with `<20>=0` (imm).
+#[inline]
+fn decode_qword_single(word: u32, top: u32, pg: u32, rn: u32, zt: u32, out: &mut Instruction) {
+    // Only the `0xa5` (loads) / `0xe5` (stores) top bytes carry these forms.
+    // The single-register forms always have `<21> == 0`; `<21> == 1` belongs to
+    // the structured `LD{3,4}Q`/`ST{3,4}Q` (which share `op<15:13> == 100`).
+    if bit(word, 21) != 0 {
+        return;
+    }
+    let sz = bits(word, 22, 2); // <23:22>
+    let op = bits(word, 13, 3); // <15:13>
+    let rm = bits(word, 16, 5); // <20:16> (scalar+scalar offset register)
+    let i4 = sign_extend(bits(word, 16, 4) as u64, 4) as i32; // <19:16> imm4
+    match top {
+        0xa5 => {
+            // Element: 00 -> W (lsl #2), 10 -> D (lsl #3); others not `.q`.
+            let (code_ss, code_imm, lsl) = match sz {
+                0b00 => (Code::SveLd1wqSs, Code::SveLd1wqImm, 2u8),
+                0b10 => (Code::SveLd1dqSs, Code::SveLd1dqImm, 3u8),
+                _ => return,
+            };
+            if op == 0b100 {
+                // scalar + scalar, `[Xn, Xm, lsl #lsl]`.
+                out.set(code_ss);
+                out.push_operand(zlist(zt, 1, VA::Sq));
+                out.push_operand(pg_z(pg));
+                out.push_operand(m_ss(rn, rm, lsl));
+            } else if op == 0b001 && bit(word, 20) == 1 {
+                // scalar + imm `[Xn{, #imm, mul vl}]`.
+                out.set(code_imm);
+                out.push_operand(zlist(zt, 1, VA::Sq));
+                out.push_operand(pg_z(pg));
+                out.push_operand(m_mulvl(rn, i4));
+            }
+        }
+        0xe5 => {
+            // Element: 00 -> W (lsl #2), 11 -> D (lsl #3); others not `.q`.
+            let (code_ss, code_imm, lsl) = match sz {
+                0b00 => (Code::SveSt1wqSs, Code::SveSt1wqImm, 2u8),
+                0b11 => (Code::SveSt1dqSs, Code::SveSt1dqImm, 3u8),
+                _ => return,
+            };
+            if op == 0b010 {
+                // scalar + scalar, `[Xn, Xm, lsl #lsl]`.
+                out.set(code_ss);
+                out.push_operand(zlist(zt, 1, VA::Sq));
+                out.push_operand(pg_plain(pg));
+                out.push_operand(m_ss(rn, rm, lsl));
+            } else if op == 0b111 && bit(word, 20) == 0 {
+                // scalar + imm `[Xn{, #imm, mul vl}]`.
+                out.set(code_imm);
+                out.push_operand(zlist(zt, 1, VA::Sq));
+                out.push_operand(pg_plain(pg));
+                out.push_operand(m_mulvl(rn, i4));
+            }
         }
         _ => {}
     }

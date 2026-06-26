@@ -151,6 +151,11 @@ pub enum Feature {
     /// `FMOP4A`/`SMOP4A`/... family with a `{Zm, Zm+1}` (and optional `{Zn,
     /// Zn+1}`) register-pair source replacing the governing predicates.
     SmeMop4,
+    /// Non-widening BFloat16 SVE arithmetic (`FEAT_SVE_B16B16`): the predicated
+    /// and unpredicated `BFADD`/`BFSUB`/`BFMUL`/`BFMLA`/`BFMLS`/`BFMAX`/`BFMIN`/
+    /// `BFMAXNM`/`BFMINNM` (`.h`) forms and the `BFCLAMP` (`.h`) three-source
+    /// clamp — all sharing the `size==00` slot of the FP arithmetic encodings.
+    SveB16b16,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

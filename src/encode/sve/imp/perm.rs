@@ -20,7 +20,7 @@ pub(super) fn is_perm(code: Code) -> bool {
             | SveSpliceCon | SveClastZ | SveClastV | SveClastR | SveLastV | SveLastR | SveRevbhw
             | SveSelPred | SvePredLogical | SveBrkpPred | SveBrkPred | SveBrkn | SveRdffr
             | SveRdffrPred | SveWrffr | SveSetffr | SvePfalse | SvePtest | SvePfirst | SvePnext
-            | SvePtrue | SveDupPred | SveWhile | SveWhileRw | SveCterm
+            | SvePtrue | SvePsel | SveLastp | SveFirstp | SveWhile | SveWhileRw | SveCterm
             | SveWhilePair | SveWhilePn
     )
 }
@@ -374,8 +374,20 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 | fld(pattern, 5)
                 | pd
         }
+        // ---- LASTP / FIRSTP (extract predicate-as-counter) ----
+        SveLastp | SveFirstp => {
+            let size = esize(insn, 2)?; // element from Pn.T (operand 2)
+            let rd = g(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let pn = p(insn, 2)?;
+            let op = if matches!(code, SveLastp) { 0b00010 } else { 0b00001 };
+            fld(0b00100101, 24) | fld(size, 22) | fld(1, 21) | fld(op, 16) | fld(0b10, 14)
+                | fld(pg, 10)
+                | fld(pn, 5)
+                | rd
+        }
         // ---- predicate-indexed DUP ----
-        SveDupPred => enc_dup_pred(insn)?,
+        SvePsel => enc_psel(insn)?,
         // ---- WHILE / CTERM ----
         SveWhile => enc_while(insn)?,
         // ---- SVE2.1 WHILE predicate-pair / predicate-as-counter ----
@@ -631,28 +643,36 @@ fn enc_brkn(insn: &Instruction) -> Result<u32, EncodeError> {
 }
 
 /// Predicate-indexed DUP.
-fn enc_dup_pred(insn: &Instruction) -> Result<u32, EncodeError> {
+fn enc_psel(insn: &Instruction) -> Result<u32, EncodeError> {
+    // `PSEL <Pd>, <Pn>, <Pm>.<T>[<Wv>{, #imm}]`. Pd=<3:0>, Pn=<13:10>, Pm=<8:5>,
+    // Wv=12+<17:16>, element/index in the `tszh:tszl` field `<23:22>:<20:18>`.
     let pd = p(insn, 0)?;
-    let pg = p(insn, 1)?;
-    let (pn, ws, imm5) = match insn.op(2) {
+    let pn = p(insn, 1)?;
+    let (pm, wv, arr, imm) = match insn.op(2) {
         Operand::IndexedElement {
-            reg, index, imm, ..
-        } => (
-            reg.number() as u32,
-            index.number() as u32,
-            imm as u32 & 0x1f,
-        ),
+            reg, index, imm, arr: Some(a), ..
+        } => (reg.number() as u32, index.number() as u32, a, imm as u32),
         _ => return Err(EncodeError::InvalidOperand),
     };
-    let i1 = (imm5 >> 4) & 1;
-    let tsz = imm5 & 0xf;
-    let tszh = (tsz >> 3) & 1;
-    let tszl = tsz & 7;
-    let wsf = ws.wrapping_sub(12) & 3;
-    Ok(fld(0b00100101, 24) | fld(i1, 23) | fld(tszh, 22) | fld(1, 21) | fld(tszl, 18) | fld(wsf, 16)
+    // esize from the arrangement; the `tsz` field = (index << (e+1)) | (1 << e).
+    let e: u32 = match arr {
+        VA::Sb => 0,
+        VA::Sh => 1,
+        VA::Ss => 2,
+        VA::Sd => 3,
+        _ => return Err(EncodeError::InvalidOperand),
+    };
+    let tsz = (imm << (e + 1)) | (1 << e); // 5-bit `<23:22>:<20:18>`
+    if tsz > 0x1f {
+        return Err(EncodeError::InvalidImmediate);
+    }
+    let tszh = (tsz >> 3) & 3; // <23:22>
+    let tszl = tsz & 7; // <20:18>
+    let wvf = wv.wrapping_sub(12) & 3; // <17:16>
+    Ok(fld(0b00100101, 24) | fld(tszh, 22) | fld(1, 21) | fld(tszl, 18) | fld(wvf, 16)
         | fld(0b01, 14)
-        | fld(pg, 10)
-        | fld(pn, 5)
+        | fld(pn, 10)
+        | fld(pm, 5)
         | pd)
 }
 

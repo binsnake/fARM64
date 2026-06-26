@@ -2914,6 +2914,81 @@ codes! {
     SmeSumop4sD => Sumop4s, SmeMop4, "`SUMOP4S <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, signed-by-unsigned).";
     SmeUsmop4aD => Usmop4a, SmeMop4, "`USMOP4A <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, unsigned-by-signed).";
     SmeUsmop4sD => Usmop4s, SmeMop4, "`USMOP4S <ZAda>.D, <Zn>.H, <Zm>.H` (FEAT_SME_MOP4, unsigned-by-signed).";
+
+    // --- FEAT_SVE2p1 quadword (`.q`) single-register contiguous load/store (H3) ---
+    SveLd1wqSs => Ld1w, Sve2p1, "`LD1W {<Zt>.Q}, <Pg>/Z, [<Xn>, <Xm>, LSL #2]` (SVE2.1 quadword, scalar+scalar).";
+    SveLd1wqImm => Ld1w, Sve2p1, "`LD1W {<Zt>.Q}, <Pg>/Z, [<Xn>{, #imm, MUL VL}]` (SVE2.1 quadword, scalar+imm).";
+    SveLd1dqSs => Ld1d, Sve2p1, "`LD1D {<Zt>.Q}, <Pg>/Z, [<Xn>, <Xm>, LSL #3]` (SVE2.1 quadword, scalar+scalar).";
+    SveLd1dqImm => Ld1d, Sve2p1, "`LD1D {<Zt>.Q}, <Pg>/Z, [<Xn>{, #imm, MUL VL}]` (SVE2.1 quadword, scalar+imm).";
+    SveSt1wqSs => St1w, Sve2p1, "`ST1W {<Zt>.Q}, <Pg>, [<Xn>, <Xm>, LSL #2]` (SVE2.1 quadword, scalar+scalar).";
+    SveSt1wqImm => St1w, Sve2p1, "`ST1W {<Zt>.Q}, <Pg>, [<Xn>{, #imm, MUL VL}]` (SVE2.1 quadword, scalar+imm).";
+    SveSt1dqSs => St1d, Sve2p1, "`ST1D {<Zt>.Q}, <Pg>, [<Xn>, <Xm>, LSL #3]` (SVE2.1 quadword, scalar+scalar).";
+    SveSt1dqImm => St1d, Sve2p1, "`ST1D {<Zt>.Q}, <Pg>, [<Xn>{, #imm, MUL VL}]` (SVE2.1 quadword, scalar+imm).";
+
+    // --- FEAT_SVE_B16B16 non-widening BFloat16 SVE arithmetic (H3) ---
+    // Unpredicated three-register: `<Zd>.H, <Zn>.H, <Zm>.H`.
+    SveBfaddZzz => Bfadd, SveB16b16, "`BFADD <Zd>.H, <Zn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfsubZzz => Bfsub, SveB16b16, "`BFSUB <Zd>.H, <Zn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfmulZzz => Bfmul, SveB16b16, "`BFMUL <Zd>.H, <Zn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    // Predicated binary: `<Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H`.
+    SveBfaddZpzz => Bfadd, SveB16b16, "`BFADD <Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfsubZpzz => Bfsub, SveB16b16, "`BFSUB <Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfmulZpzz => Bfmul, SveB16b16, "`BFMUL <Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfmaxnmZpzz => Bfmaxnm, SveB16b16, "`BFMAXNM <Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfminnmZpzz => Bfminnm, SveB16b16, "`BFMINNM <Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfmaxZpzz => Bfmax, SveB16b16, "`BFMAX <Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfminZpzz => Bfmin, SveB16b16, "`BFMIN <Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    // Predicated multiply-add 4-operand: `<Zda>.H, <Pg>/M, <Zn>.H, <Zm>.H`.
+    SveBfmlaZpzzz => Bfmla, SveB16b16, "`BFMLA <Zda>.H, <Pg>/M, <Zn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    SveBfmlsZpzzz => Bfmls, SveB16b16, "`BFMLS <Zda>.H, <Pg>/M, <Zn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    // Three-source clamp: `<Zd>.H, <Zn>.H, <Zm>.H`.
+    SveBfclamp => Bfclamp, SveB16b16, "`BFCLAMP <Zd>.H, <Zn>.H, <Zm>.H` (FEAT_SVE_B16B16).";
+    // BFloat16 widening multiply-subtract long (bottom/top), `.s <- .h`.
+    SveBfmlslb => Bfmlslb, Bf16, "`BFMLSLB <Zda>.S, <Zn>.H, <Zm>.H` (SVE BF16 multiply-subtract long).";
+    SveBfmlslt => Bfmlslt, Bf16, "`BFMLSLT <Zda>.S, <Zn>.H, <Zm>.H` (SVE BF16 multiply-subtract long).";
+    SveBfmlslbIdx => Bfmlslb, Bf16, "`BFMLSLB <Zda>.S, <Zn>.H, <Zm>.H[<imm>]` (SVE BF16 multiply-subtract long, indexed).";
+    SveBfmlsltIdx => Bfmlslt, Bf16, "`BFMLSLT <Zda>.S, <Zn>.H, <Zm>.H[<imm>]` (SVE BF16 multiply-subtract long, indexed).";
+
+    // --- FEAT_SVE2p1 / FEAT_FP8 FCLAMP + FDOT (H3) ---
+    SveFclamp => Fclamp, Sve2p1, "`FCLAMP <Zd>.<T>, <Zn>.<T>, <Zm>.<T>` (SVE2.1 FP clamp; `.h`/`.s`/`.d`).";
+    // FDOT two-way dot product. `.s <- .h` is FEAT_SVE2p1; `.b` sources FEAT_FP8.
+    SveFdotShVec => Fdot, Sve2p1, "`FDOT <Zda>.S, <Zn>.H, <Zm>.H` (SVE2.1 2-way FP dot, vector).";
+    SveFdotShIdx => Fdot, Sve2p1, "`FDOT <Zda>.S, <Zn>.H, <Zm>.H[<imm>]` (SVE2.1 2-way FP dot, indexed).";
+    SveFdotHbVec => Fdot, Fp8, "`FDOT <Zda>.H, <Zn>.B, <Zm>.B` (SVE FP8 2-way dot, vector; FEAT_FP8DOT2).";
+    SveFdotHbIdx => Fdot, Fp8, "`FDOT <Zda>.H, <Zn>.B, <Zm>.B[<imm>]` (SVE FP8 2-way dot, indexed; FEAT_FP8DOT2).";
+    SveFdotSbVec => Fdot, Fp8, "`FDOT <Zda>.S, <Zn>.B, <Zm>.B` (SVE FP8 4-way dot, vector; FEAT_FP8DOT4).";
+    SveFdotSbIdx => Fdot, Fp8, "`FDOT <Zda>.S, <Zn>.B, <Zm>.B[<imm>]` (SVE FP8 4-way dot, indexed; FEAT_FP8DOT4).";
+
+    // --- FEAT_FP8 SVE FP8 widening MLAL, vector (non-indexed) forms (H3) ---
+    SveFmlalbFp8 => Fmlalb, Fp8, "`FMLALB <Zda>.H, <Zn>.B, <Zm>.B` (SVE FP8 widening MLAL bottom, FEAT_SSVE_FP8FMA).";
+    SveFmlaltFp8 => Fmlalt, Fp8, "`FMLALT <Zda>.H, <Zn>.B, <Zm>.B` (SVE FP8 widening MLAL top, FEAT_SSVE_FP8FMA).";
+    SveFmlallbbFp8 => Fmlallbb, Fp8, "`FMLALLBB <Zda>.S, <Zn>.B, <Zm>.B` (SVE FP8 x4 widening MLAL, FEAT_SSVE_FP8FMA).";
+    SveFmlallbtFp8 => Fmlallbt, Fp8, "`FMLALLBT <Zda>.S, <Zn>.B, <Zm>.B` (SVE FP8 x4 widening MLAL, FEAT_SSVE_FP8FMA).";
+    SveFmlalltbFp8 => Fmlalltb, Fp8, "`FMLALLTB <Zda>.S, <Zn>.B, <Zm>.B` (SVE FP8 x4 widening MLAL, FEAT_SSVE_FP8FMA).";
+    SveFmlallttFp8 => Fmlalltt, Fp8, "`FMLALLTT <Zda>.S, <Zn>.B, <Zm>.B` (SVE FP8 x4 widening MLAL, FEAT_SSVE_FP8FMA).";
+    // FP8 / FP16 / BF16 widening matrix multiply-accumulate (the `<15:10>=111000`
+    // slot, selected by `<23:22>`).
+    SveFmmlaF8F32 => Fmmla, F8f32mm, "`FMMLA <Zda>.S, <Zn>.B, <Zm>.B` (SVE FP8->FP32 matrix, FEAT_F8F32MM).";
+    SveFmmlaF8 => Fmmla, F8f16mm, "`FMMLA <Zda>.H, <Zn>.B, <Zm>.B` (SVE FP8->FP16 matrix, FEAT_F8F16MM).";
+    SveFmmlaF16 => Fmmla, F16mm, "`FMMLA <Zda>.H, <Zn>.H, <Zm>.H` (SVE non-widening FP16 matrix, FEAT_F16MM).";
+    SveBfmmlaH => Bfmmla, SveB16b16, "`BFMMLA <Zda>.H, <Zn>.H, <Zm>.H` (SVE non-widening BF16 matrix, FEAT_SVE_B16B16).";
+
+    // --- SVE PSEL predicate select (H3) ---
+    SvePsel => Psel, Sve2p1, "`PSEL <Pd>, <Pn>, <Pm>.<T>[<Wv>, <imm>]` (SVE predicate select).";
+
+    // --- SVE2 absolute-difference accumulate long, bottom (H3) ---
+    SveSabal => Sabal, Sve, "`SABAL <Zda>.<T>, <Zn>.<Tb>, <Zm>.<Tb>` (SVE2 signed abs-diff accumulate long; alias of SABALB).";
+    SveUabal => Uabal, Sve, "`UABAL <Zda>.<T>, <Zn>.<Tb>, <Zm>.<Tb>` (SVE2 unsigned abs-diff accumulate long; alias of UABALB).";
+
+    // --- FEAT_SVE2p1 FRINT32/64 Z/X zeroing (H3) ---
+    SveFrint32zZ => Frint32z, Sve2p1, "`FRINT32Z <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrint32xZ => Frint32x, Sve2p1, "`FRINT32X <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrint64zZ => Frint64z, Sve2p1, "`FRINT64Z <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+    SveFrint64xZ => Frint64x, Sve2p1, "`FRINT64X <Zd>.<T>, <Pg>/Z, <Zn>.<T>` (SVE2.1 zeroing).";
+
+    // --- SVE LASTP / FIRSTP extract predicate-as-counter (H3) ---
+    SveLastp => Lastp, Sve2p1, "`LASTP <Xd>, <Pg>, <Pn>.<T>` (SVE2.1 extract last-active predicate-as-counter).";
+    SveFirstp => Firstp, Sve2p1, "`FIRSTP <Xd>, <Pg>, <Pn>.<T>` (SVE2.1 extract first-active predicate-as-counter).";
 }
 
 impl Code {
@@ -6022,6 +6097,32 @@ pub enum Mnemonic {
     Usmop4a,
     /// `USMOP4S` (SME 4-source unsigned-by-signed outer product, subtract).
     Usmop4s,
+    // --- FEAT_SVE_B16B16 non-widening BFloat16 SVE arithmetic (H3) ---
+    /// `BFADD` (SVE non-widening BFloat16 add).
+    Bfadd,
+    /// `BFSUB` (SVE non-widening BFloat16 subtract).
+    Bfsub,
+    /// `BFMAX` (SVE non-widening BFloat16 maximum).
+    Bfmax,
+    /// `BFMIN` (SVE non-widening BFloat16 minimum).
+    Bfmin,
+    /// `BFMAXNM` (SVE non-widening BFloat16 maximum-number).
+    Bfmaxnm,
+    /// `BFMINNM` (SVE non-widening BFloat16 minimum-number).
+    Bfminnm,
+    // --- SVE PSEL predicate select (H3) ---
+    /// `PSEL` (SVE predicate select).
+    Psel,
+    // --- SVE BFloat16 widening multiply-subtract long (H3) ---
+    /// `BFMLSLB` (SVE BFloat16 multiply-subtract long, bottom).
+    Bfmlslb,
+    /// `BFMLSLT` (SVE BFloat16 multiply-subtract long, top).
+    Bfmlslt,
+    // --- SVE predicate count first/last active (H3) ---
+    /// `LASTP` (SVE extract predicate-as-counter of the last active element).
+    Lastp,
+    /// `FIRSTP` (SVE extract predicate-as-counter of the first active element).
+    Firstp,
 }
 
 impl Mnemonic {

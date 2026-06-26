@@ -56,6 +56,17 @@ pub(super) fn is_fp(code: Code) -> bool {
             | SveFrintiZ | SveFrecpxZ | SveFsqrtZ
             | SveFcvtZ | SveFcvtxZ | SveScvtfZ | SveUcvtfZ | SveFcvtzsZ | SveFcvtzuZ | SveBfcvtZ
             | SveFlogbZ
+        // H3: FEAT_SVE_B16B16 BF16 arithmetic
+            | SveBfaddZzz | SveBfsubZzz | SveBfmulZzz
+            | SveBfaddZpzz | SveBfsubZpzz | SveBfmulZpzz | SveBfmaxnmZpzz | SveBfminnmZpzz
+            | SveBfmaxZpzz | SveBfminZpzz | SveBfmlaZpzzz | SveBfmlsZpzzz | SveBfclamp
+        // H3: FCLAMP + FDOT + FP8 vector MLAL/MMLA + BFMMLA.h + BFMLSL
+            | SveFclamp
+            | SveFdotShVec | SveFdotShIdx | SveFdotHbVec | SveFdotHbIdx | SveFdotSbVec | SveFdotSbIdx
+            | SveFmlalbFp8 | SveFmlaltFp8 | SveFmlallbbFp8 | SveFmlallbtFp8 | SveFmlalltbFp8 | SveFmlallttFp8
+            | SveFmmlaF8F32 | SveFmmlaF8 | SveFmmlaF16 | SveBfmmlaH
+            | SveFrint32zZ | SveFrint32xZ | SveFrint64zZ | SveFrint64xZ
+            | SveBfmlslb | SveBfmlslt | SveBfmlslbIdx | SveBfmlsltIdx
     )
 }
 
@@ -210,7 +221,8 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         SveFrintnZ | SveFrintpZ | SveFrintmZ | SveFrintzZ | SveFrintaZ | SveFrintxZ
         | SveFrintiZ | SveFrecpxZ | SveFsqrtZ
         | SveFcvtZ | SveFcvtxZ | SveScvtfZ | SveUcvtfZ | SveFcvtzsZ | SveFcvtzuZ | SveBfcvtZ
-        | SveFlogbZ => enc_64_pred_unary_z(insn, code)?,
+        | SveFlogbZ
+        | SveFrint32zZ | SveFrint32xZ | SveFrint64zZ | SveFrint64xZ => enc_64_pred_unary_z(insn, code)?,
         // ---- 0x65 vector compare ----
         SveFcmgeZz | SveFcmgtZz | SveFcmeqZz | SveFcmneZz | SveFcmuoZz | SveFacgeZz | SveFacgtZz => {
             let (sel, b4) = match code {
@@ -340,12 +352,10 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 | zda
         }
         // ---- 0x64 bf16 / half multiply-add-long ----
-        SveBfmlalb | SveBfmlalt | SveFmlalb | SveFmlalt | SveFmlslb | SveFmlslt => {
-            enc_64_mlal_vec(insn, code)?
-        }
-        SveBfmlalbIdx | SveBfmlaltIdx | SveFmlalbIdx | SveFmlaltIdx | SveFmlslbIdx | SveFmlsltIdx => {
-            enc_64_mlal_idx(insn, code)?
-        }
+        SveBfmlalb | SveBfmlalt | SveFmlalb | SveFmlalt | SveFmlslb | SveFmlslt
+        | SveBfmlslb | SveBfmlslt => enc_64_mlal_vec(insn, code)?,
+        SveBfmlalbIdx | SveBfmlaltIdx | SveFmlalbIdx | SveFmlaltIdx | SveFmlslbIdx | SveFmlsltIdx
+        | SveBfmlslbIdx | SveBfmlsltIdx => enc_64_mlal_idx(insn, code)?,
         // ---- FP8 widening MLAL z-form, indexed (FEAT_SSVE_FP8FMA) ----
         // FMLALB/T (to .h): <15:12>=0101, T=<23>; index ih(<20:19>):il(<11:10>).
         SveFmlalbFp8Idx | SveFmlaltFp8Idx => {
@@ -404,6 +414,132 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 | fld(sub, 10)
                 | fld(zn, 5)
                 | zda
+        }
+        // ---- H3: FEAT_SVE_B16B16 BFloat16 arithmetic (size==00 slots) ----
+        // Unpredicated three-register `<Zd>.H, <Zn>.H, <Zm>.H`.
+        SveBfaddZzz | SveBfsubZzz | SveBfmulZzz => {
+            let opc = match code {
+                SveBfaddZzz => 0b000,
+                SveBfsubZzz => 0b001,
+                _ => 0b010,
+            };
+            let zd = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base65(0) | fld(zm, 16) | fld(opc, 10) | fld(zn, 5) | zd
+        }
+        // Predicated binary `<Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H`.
+        SveBfaddZpzz | SveBfsubZpzz | SveBfmulZpzz | SveBfmaxnmZpzz | SveBfminnmZpzz | SveBfmaxZpzz
+        | SveBfminZpzz => {
+            let opc = match code {
+                SveBfaddZpzz => 0b00000,
+                SveBfsubZpzz => 0b00001,
+                SveBfmulZpzz => 0b00010,
+                SveBfmaxnmZpzz => 0b00100,
+                SveBfminnmZpzz => 0b00101,
+                SveBfmaxZpzz => 0b00110,
+                _ => 0b00111,
+            };
+            let zdn = z(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let zm = z(insn, 3)?;
+            base65(0) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zm, 5) | zdn
+        }
+        // Predicated multiply-add `<Zda>.H, <Pg>/M, <Zn>.H, <Zm>.H`.
+        SveBfmlaZpzzz | SveBfmlsZpzzz => {
+            let op = if matches!(code, SveBfmlsZpzzz) { 0b001 } else { 0b000 };
+            let zda = z(insn, 0)?;
+            let pg = p(insn, 1)?;
+            let zn = z(insn, 2)?;
+            let zm = z(insn, 3)?;
+            base65(1) | fld(zm, 16) | fld(op, 13) | fld(pg, 10) | fld(zn, 5) | zda
+        }
+        // ---- H3: FCLAMP / BFCLAMP three-source clamp ----
+        SveBfclamp => {
+            let zd = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base64(1) | fld(zm, 16) | fld(0b001001, 10) | fld(zn, 5) | zd
+        }
+        SveFclamp => {
+            let size = esize(insn, 0)?; // .h=01, .s=10, .d=11
+            let zd = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base64(1) | fld(size, 22) | fld(zm, 16) | fld(0b001001, 10) | fld(zn, 5) | zd
+        }
+        // ---- H3: SVE FDOT (2-way / FP8 4-way) ----
+        SveFdotShVec | SveFdotHbVec | SveFdotSbVec => {
+            let (b23, b22, b10) = match code {
+                SveFdotShVec => (0, 0, 0),
+                SveFdotHbVec => (0, 0, 1),
+                _ => (0, 1, 1),
+            };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base64(1) | fld(b23, 23) | fld(b22, 22) | fld(zm, 16) | fld(0b1000, 12) | fld(b10, 10)
+                | fld(zn, 5)
+                | zda
+        }
+        SveFdotShIdx | SveFdotSbIdx => {
+            // index = i2<20:19>, Zm = <18:16> (z0..z7), `<11>==0`. `.s<-.b` sets
+            // (b22,b10)=(1,1); `.s<-.h` sets (0,0).
+            let (b22, b10) = if matches!(code, SveFdotSbIdx) { (1, 1) } else { (0, 0) };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let idx = lane(insn, 2)?;
+            base64(1) | fld(b22, 22) | fld(idx & 3, 19) | fld(zm & 7, 16) | fld(0b0100, 12)
+                | fld(b10, 10)
+                | fld(zn, 5)
+                | zda
+        }
+        SveFdotHbIdx => {
+            // index = <19>:<11>, Zm = <18:16>, b10=1.
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            let idx = lane(insn, 2)?;
+            base64(1) | fld((idx >> 1) & 1, 19) | fld(zm & 7, 16) | fld(0b0100, 12)
+                | fld(idx & 1, 11)
+                | fld(1, 10)
+                | fld(zn, 5)
+                | zda
+        }
+        // ---- H3: FP8 widening MLAL, VECTOR (non-indexed) ----
+        SveFmlalbFp8 | SveFmlaltFp8 => {
+            let t = if matches!(code, SveFmlaltFp8) { 1 } else { 0 };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base64(1) | fld(1, 23) | fld(zm, 16) | fld(0b100, 13) | fld(t, 12) | fld(1, 11) | fld(zn, 5)
+                | zda
+        }
+        SveFmlallbbFp8 | SveFmlallbtFp8 | SveFmlalltbFp8 | SveFmlallttFp8 => {
+            let bt = match code {
+                SveFmlallbbFp8 => 0b00,
+                SveFmlallbtFp8 => 0b01,
+                SveFmlalltbFp8 => 0b10,
+                _ => 0b11,
+            };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base64(1) | fld(zm, 16) | fld(0b10, 14) | fld(bt, 12) | fld(1, 11) | fld(zn, 5) | zda
+        }
+        // ---- H3: FP8/FP16/BF16 widening matrix multiply-accumulate to `.h`/`.s` ----
+        SveFmmlaF8F32 | SveFmmlaF8 | SveFmmlaF16 | SveBfmmlaH => {
+            let opc = match code {
+                SveFmmlaF8F32 => 0b00,
+                SveFmmlaF8 => 0b01,
+                SveFmmlaF16 => 0b10,
+                _ => 0b11,
+            };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base64(1) | fld(opc, 22) | fld(zm, 16) | fld(0b111000, 10) | fld(zn, 5) | zda
         }
         // ---- 0x04 FABS / FNEG ----
         SveFabsZpz | SveFnegZpz => {
@@ -646,6 +782,31 @@ fn enc_64_pred_unary_z(insn: &Instruction, code: Code) -> Result<u32, EncodeErro
         SveFsqrtZ => Some((0b011, 0b101)),
         _ => None,
     };
+
+    // FRINT32/64 Z/X: a distinct layout — `<20:16>`=`1110x` (32/64), `<15>`=1,
+    // `<14>` = element (.s=0/.d=1), `<13>` = Z(0)/X(1). The predicate is zeroing.
+    if let Some((is64, is_x)) = match code {
+        SveFrint32zZ => Some((0u32, 0u32)),
+        SveFrint32xZ => Some((0, 1)),
+        SveFrint64zZ => Some((1, 0)),
+        SveFrint64xZ => Some((1, 1)),
+        _ => None,
+    } {
+        let e14 = match da {
+            VA::Ss => 0u32,
+            VA::Sd => 1u32,
+            _ => return Err(EncodeError::InvalidOperand),
+        };
+        return Ok(base64(0)
+            | fld(0b1110, 17)
+            | fld(is64, 16)
+            | fld(1, 15)
+            | fld(e14, 14)
+            | fld(is_x, 13)
+            | fld(pg, 10)
+            | fld(zn, 5)
+            | zd);
+    }
     let (size, opc, sel) = if let Some((opc, sel)) = round {
         let size = super::arr_size(da)?;
         if size == 0 {
@@ -832,6 +993,10 @@ fn mlal_fields(code: Code) -> Result<(u32, u32, u32), EncodeError> {
         SveBfmlalt => (1, 0, 1),
         SveBfmlalbIdx => (1, 0, 0),
         SveBfmlaltIdx => (1, 0, 1),
+        SveBfmlslb => (1, 1, 0),
+        SveBfmlslt => (1, 1, 1),
+        SveBfmlslbIdx => (1, 1, 0),
+        SveBfmlsltIdx => (1, 1, 1),
         SveFmlalb => (0, 0, 0),
         SveFmlalt => (0, 0, 1),
         SveFmlslb => (0, 1, 0),

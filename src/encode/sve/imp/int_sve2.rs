@@ -140,6 +140,19 @@ fn enc_sve2(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeError> 
                 | fld(zn, 5)
                 | zda
         }
+        // ---- 0x44 {S,U}ABAL (SVE2.3 abs-diff accumulate long) ----
+        SveSabal | SveUabal => {
+            let da = arr_of(insn, 0)?;
+            let (size, _) = widen2_of(da)?;
+            let u = if matches!(code, SveUabal) { 1 } else { 0 };
+            let zda = z(insn, 0)?;
+            let zn = z(insn, 1)?;
+            let zm = z(insn, 2)?;
+            base44(0) | fld(size, 22) | fld(zm, 16) | fld(0b110, 13) | fld(1, 12) | fld(u, 11)
+                | fld(1, 10)
+                | fld(zn, 5)
+                | zda
+        }
         // ---- 0x44 predicated SVE2 ----
         SveHalvingZpzz | SveSatRoundZpzz => enc_44_pred_binary(insn, code)?,
         SvePairZpzz => enc_44_pairwise(insn)?,

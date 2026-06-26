@@ -205,10 +205,10 @@ fn decode_65(word: u32, features: FeatureSet, out: &mut Instruction) {
         // <21>=0: the unpredicated 3-source / 2-source family lives here when
         // <15:13>==0xx, otherwise predicated unary/binary/compare.
         match sel {
-            0b000 => decode_65_unpred_arith(word, out),
+            0b000 => decode_65_unpred_arith(word, features, out),
             0b001 => decode_65_unary_misc(word, out),
             0b010 | 0b011 => decode_65_compare(word, out),
-            0b100 => decode_65_pred_binary(word, out),
+            0b100 => decode_65_pred_binary(word, features, out),
             0b101 => decode_65_pred_unary(word, out),
             0b110 | 0b111 => decode_65_compare(word, out),
             _ => {}
@@ -217,24 +217,38 @@ fn decode_65(word: u32, features: FeatureSet, out: &mut Instruction) {
         // <21>=1: FP multiply-add (4-operand predicated), or FP compare with the
         // <20> bit. The 3-way add family uses <15:13> as the opcode.
         let _ = b20;
-        decode_65_fma(word, out);
+        decode_65_fma(word, features, out);
     }
-    let _ = features;
 }
 
 /// Unpredicated FP 3-register and 2-register (`<21>=0`, `<15:13>=000`):
 /// `FADD`/`FSUB`/`FMUL`/`FTSMUL`/`FRECPS`/`FRSQRTS` `<Zd>.<T>, <Zn>.<T>, <Zm>.<T>`.
 /// The op is in `word<12:10>` (the low `opc` of the `..._z_zz_` rows).
 #[inline]
-fn decode_65_unpred_arith(word: u32, out: &mut Instruction) {
+fn decode_65_unpred_arith(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
-    if size == 0 {
-        return; // FP needs H/S/D.
-    }
     let zm = bits(word, 16, 5);
     let opc = bits(word, 10, 3); // word<12:10>
     let zn = bits(word, 5, 5);
     let zd = bits(word, 0, 5);
+    if size == 0 {
+        // FEAT_SVE_B16B16 non-widening BFloat16 unpredicated arithmetic occupies
+        // the `size==00` slot: `<12:10>` selects BFADD(000)/BFSUB(001)/BFMUL(010).
+        if !features.has(Feature::SveB16b16) {
+            return;
+        }
+        let code = match opc {
+            0b000 => Code::SveBfaddZzz,
+            0b001 => Code::SveBfsubZzz,
+            0b010 => Code::SveBfmulZzz,
+            _ => return,
+        };
+        out.set(code);
+        out.push_operand(zreg(zd, VA::Sh));
+        out.push_operand(zreg(zn, VA::Sh));
+        out.push_operand(zreg(zm, VA::Sh));
+        return;
+    }
     let a = arr(size);
     let code = match opc {
         0b000 => Code::SveFaddZzz,
@@ -349,15 +363,32 @@ fn decode_65_unary_misc(word: u32, out: &mut Instruction) {
 /// `op <Zdn>.<T>, <Pg>/M, <Zdn>.<T>, <Zm>.<T>` and the immediate forms, plus the
 /// SVE2 pairwise group. The op is selected by `word<20:16>`.
 #[inline]
-fn decode_65_pred_binary(word: u32, out: &mut Instruction) {
+fn decode_65_pred_binary(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
-    if size == 0 {
-        return;
-    }
     let opc = bits(word, 16, 5); // word<20:16>
     let pg = bits(word, 10, 3);
     let zm = bits(word, 5, 5);
     let zdn = bits(word, 0, 5);
+    if size == 0 {
+        // FEAT_SVE_B16B16 predicated binary BFloat16: the `size==00` slot, with
+        // `<20:16>` selecting the operation (`<20:19>==00`).
+        if !features.has(Feature::SveB16b16) {
+            return;
+        }
+        let code = match opc {
+            0b00000 => Code::SveBfaddZpzz,
+            0b00001 => Code::SveBfsubZpzz,
+            0b00010 => Code::SveBfmulZpzz,
+            0b00100 => Code::SveBfmaxnmZpzz,
+            0b00101 => Code::SveBfminnmZpzz,
+            0b00110 => Code::SveBfmaxZpzz,
+            0b00111 => Code::SveBfminZpzz,
+            _ => return,
+        };
+        out.set(code);
+        push_pred_binary(out, zdn, pg, zm, VA::Sh);
+        return;
+    }
     let a = arr(size);
 
     // The <20:19>=11 sub-block is the FP "arithmetic with immediate" (FADD/FSUB/
@@ -597,17 +628,29 @@ fn decode_65_compare(word: u32, out: &mut Instruction) {
 /// `FMLA`/`FMLS`/`FNMLA`/`FNMLS` (accumulator destructive) and `FMAD`/`FMSB`/
 /// `FNMAD`/`FNMSB` (multiplicand destructive). The op is `word<15:13>`.
 #[inline]
-fn decode_65_fma(word: u32, out: &mut Instruction) {
+fn decode_65_fma(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
-    if size == 0 {
-        return;
-    }
-    let a = arr(size);
     let zm = bits(word, 16, 5);
     let pg = bits(word, 10, 3);
     let zn = bits(word, 5, 5);
     let zd = bits(word, 0, 5);
     let op = bits(word, 13, 3); // word<15:13>
+    if size == 0 {
+        // FEAT_SVE_B16B16 predicated multiply-add BFloat16: `size==00`,
+        // `<15:13>` selects BFMLA(000)/BFMLS(001) (accumulator-destructive).
+        if !features.has(Feature::SveB16b16) {
+            return;
+        }
+        let code = match op {
+            0b000 => Code::SveBfmlaZpzzz,
+            0b001 => Code::SveBfmlsZpzzz,
+            _ => return,
+        };
+        out.set(code);
+        push_fma_acc(out, zd, pg, zn, zm, VA::Sh);
+        return;
+    }
+    let a = arr(size);
     match op {
         // Accumulator-destructive: FMLA/FMLS/FNMLA/FNMLS.
         0b000 => {
@@ -854,6 +897,26 @@ fn decode_64_pred_unary_z(word: u32, out: &mut Instruction) {
         return;
     }
 
+    // FRINT32Z/X / FRINT64Z/X (zeroing): `<23:22>`=00, `<20:16>` = `1110x`
+    // (x=0 -> FRINT32, x=1 -> FRINT64), `<15>`=1, `<14>` = element (.s=0 / .d=1),
+    // `<13>` = Z(0)/X(1). (`<23:22>!=00` here is SCVTF/UCVTF/integer convert.)
+    if size == 0 && bits(word, 17, 4) == 0b1110 && bit(word, 15) == 1 {
+        let is64 = bit(word, 16) == 1;
+        let is_x = bit(word, 13) == 1;
+        let a = if bit(word, 14) == 0 { VA::Ss } else { VA::Sd };
+        let code = match (is64, is_x) {
+            (false, false) => Code::SveFrint32zZ,
+            (false, true) => Code::SveFrint32xZ,
+            (true, false) => Code::SveFrint64zZ,
+            _ => Code::SveFrint64xZ,
+        };
+        out.set(code);
+        out.push_operand(zreg(zd, a));
+        out.push_operand(preg_q(pg, PredQual::Zeroing));
+        out.push_operand(zreg(zn, a));
+        return;
+    }
+
     // Convert sub-block: select on the full 8-bit opcode `size:opc:sel`.
     let full = (size << 6) | (opc << 3) | sel;
     macro_rules! conv {
@@ -1000,6 +1063,30 @@ fn decode_64_indexed_and_long(word: u32, features: FeatureSet, out: &mut Instruc
         return;
     }
 
+    // FP8 / FP16 / BF16 widening matrix multiply-accumulate to a narrow tile:
+    // <15:10> = 111000, with <23:22> selecting source/dest width:
+    //   00 = FMMLA .s <- .b (FEAT_F8F32MM), 01 = FMMLA .h <- .b (FEAT_F8F16MM),
+    //   10 = FMMLA .h <- .h (FEAT_F16MM),   11 = BFMMLA .h <- .h (FEAT_SVE_B16B16).
+    if sub == 0b111000 {
+        let zm = bits(word, 16, 5);
+        let zn = bits(word, 5, 5);
+        let zda = bits(word, 0, 5);
+        let (code, feat, da, src) = match opc2322 {
+            0b00 => (Code::SveFmmlaF8F32, Feature::F8f32mm, VA::Ss, VA::Sb),
+            0b01 => (Code::SveFmmlaF8, Feature::F8f16mm, VA::Sh, VA::Sb),
+            0b10 => (Code::SveFmmlaF16, Feature::F16mm, VA::Sh, VA::Sh),
+            _ => (Code::SveBfmmlaH, Feature::SveB16b16, VA::Sh, VA::Sh),
+        };
+        if !features.has(feat) {
+            return;
+        }
+        out.set(code);
+        out.push_operand(zreg(zda, da));
+        out.push_operand(zreg(zn, src));
+        out.push_operand(zreg(zm, src));
+        return;
+    }
+
     // FMLA/FMLS by indexed element: <15:11>=00000, op=<10> (0=FMLA, 1=FMLS).
     // FMUL by indexed element: <15:10>=001000.
     if bits(word, 11, 5) == 0b00000 {
@@ -1014,6 +1101,34 @@ fn decode_64_indexed_and_long(word: u32, features: FeatureSet, out: &mut Instruc
     // FCMLA by indexed element: 01100100 1x1 Zm 0001 rot Zn Zda, <15:12>=0001.
     if bits(word, 12, 4) == 0b0001 {
         decode_64_fcmla_indexed(word, out);
+        return;
+    }
+
+    // FCLAMP / BFCLAMP three-source clamp: 01100100 sz 1 Zm 001001 Zn Zd, i.e.
+    // `<15:10>=001001`. The size field selects BFCLAMP (`00`, BF16) vs FCLAMP
+    // (`01`/`10`/`11` -> `.h`/`.s`/`.d`).
+    if sub == 0b001001 {
+        let zm = bits(word, 16, 5);
+        let zn = bits(word, 5, 5);
+        let zd = bits(word, 0, 5);
+        if opc2322 == 0b00 {
+            if !features.has(Feature::SveB16b16) {
+                return;
+            }
+            out.set(Code::SveBfclamp);
+            out.push_operand(zreg(zd, VA::Sh));
+            out.push_operand(zreg(zn, VA::Sh));
+            out.push_operand(zreg(zm, VA::Sh));
+        } else {
+            if !features.has(Feature::Sve2p1) {
+                return;
+            }
+            let a = arr(opc2322);
+            out.set(Code::SveFclamp);
+            out.push_operand(zreg(zd, a));
+            out.push_operand(zreg(zn, a));
+            out.push_operand(zreg(zm, a));
+        }
         return;
     }
 
@@ -1106,10 +1221,9 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
     let zda = bits(word, 0, 5);
     let zn = bits(word, 5, 5);
 
-    // BFDOT: <23:16>? per index `011001000 op=1 1 Zm 100000` vector and
-    //   `011001000 op=1 1 i2 Zm 010000` indexed. Detect via <15:10>.
+    // The widening dot-product / multiply-add-long group is selected by the
+    // `<15:10>` opcode field; the FDOT/BFDOT vs MLAL split is the `<23>` bit.
     let sub = bits(word, 10, 6);
-    let opc = bits(word, 22, 2); // <23:22>
 
     // ---- FEAT_SVE_B16B16 BF16 multiply-add / multiply, indexed ----
     // `<Zda>.h, <Zn>.h, <Zm>.h[i]`. Zm restricted to z0..z7 (<18:16>), index =
@@ -1176,68 +1290,164 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
         return;
     }
 
-    // BFDOT vector: <23:22>=01, <15:10>=100000.
-    if opc == 0b01 && sub == 0b100000 {
-        if !features.has(Feature::Bf16) {
+    // ---- FEAT_FP8 FP8 widening multiply-add long, VECTOR (non-indexed) ----
+    // All have `<22>=0, <15:14>=10, <11>=1, <10>=0`. `<23>` selects FMLAL
+    // (`.h <- .b`, x2) vs FMLALL (`.s <- .b`, x4); `<13:12>` carries the
+    // bottom/top selection. The `<15:14>=10` guard keeps the F16/BF16 MLAL
+    // *indexed* forms (`<15:14>=01`, which also set `<11>`) out of this block.
+    if bit(word, 22) == 0 && bits(word, 14, 2) == 0b10 && bit(word, 11) == 1 && bit(word, 10) == 0 {
+        if !features.has(Feature::Fp8) {
             return;
         }
         let zm = bits(word, 16, 5);
-        out.set(Code::SveBfdot);
-        out.push_operand(zreg(zda, VA::Ss));
-        out.push_operand(zreg(zn, VA::Sh));
-        out.push_operand(zreg(zm, VA::Sh));
-        return;
-    }
-    // BFDOT indexed: <23:22>=01, <15:12>=0100 (then i2 in <20:19>, Zm<18:16>).
-    if opc == 0b01 && bits(word, 12, 4) == 0b0100 {
-        if !features.has(Feature::Bf16) {
-            return;
+        if bit(word, 23) == 1 {
+            // FMLAL{B,T} `.h <- .b`: <15:13>=100, <12>=T.
+            if bits(word, 13, 3) != 0b100 {
+                return;
+            }
+            let code = if bit(word, 12) == 0 { Code::SveFmlalbFp8 } else { Code::SveFmlaltFp8 };
+            out.set(code);
+            out.push_operand(zreg(zda, VA::Sh));
+            out.push_operand(zreg(zn, VA::Sb));
+            out.push_operand(zreg(zm, VA::Sb));
+        } else {
+            // FMLALL{BB,BT,TB,TT} `.s <- .b`: <15:14>=10, <13>=T2hi, <12>=T2lo.
+            if bits(word, 14, 2) != 0b10 {
+                return;
+            }
+            let bt = (bit(word, 13) << 1) | bit(word, 12); // <13>:<12>
+            let code = match bt {
+                0b00 => Code::SveFmlallbbFp8,
+                0b01 => Code::SveFmlallbtFp8,
+                0b10 => Code::SveFmlalltbFp8,
+                _ => Code::SveFmlallttFp8,
+            };
+            out.set(code);
+            out.push_operand(zreg(zda, VA::Ss));
+            out.push_operand(zreg(zn, VA::Sb));
+            out.push_operand(zreg(zm, VA::Sb));
         }
-        let zm = bits(word, 16, 3);
-        let idx = bits(word, 19, 2);
-        out.set(Code::SveBfdotIdx);
-        out.push_operand(zreg(zda, VA::Ss));
-        out.push_operand(zreg(zn, VA::Sh));
-        out.push_operand(zreg_idx(zm, VA::Sh, idx as u8));
         return;
     }
 
-    // The half / BFloat16 multiply-add-long family (all `.s <- .h, .h`):
-    //   vector : 011001001 o2 1 Zm     10 op 00 T Zn Zda  (<15:14>=10, <12:11>=00)
-    //   indexed: 011001001 o2 1 i3h Zm 01 op 0 i3l T Zn Zda (<15:14>=01, <12>=0)
-    // with o2=<22> (0 => F16 FMLAL/FMLSL, 1 => BFMLAL), op=<13>, T=<10>.
-    let o2 = bit(word, 22);
-    let bf16 = o2 == 1;
+    // ---- FDOT / BFDOT / FMLAL / BFMLAL / FMLSL dot-and-MLAL-long group ----
+    // All share `<13:11>` or `<12>=0` with `<15:14>` selecting vector (`10`) or
+    // indexed (`01`). `<23>` is the FDOT/BFDOT (`0`) vs MLAL-long (`1`) split, so
+    // it MUST be honoured (historically it was ignored, shadowing FDOT). The
+    // FDOT/BFDOT half (`<23>==0`) requires `<13:11>==000`; the MLAL-long half
+    // (`<23>==1`) uses `<13>` for the FMLAL/FMLSL op and `<11>` as an index bit.
+    let v1514 = bits(word, 14, 2);
+    if (v1514 != 0b10 && v1514 != 0b01) || bit(word, 12) != 0 {
+        return;
+    }
+    let indexed = v1514 == 0b01;
+    if bit(word, 23) == 0 {
+        // FDOT / BFDOT. `<13>` must be 0 (else FMLSL); the vector forms also need
+        // `<11>==0` (`<11>` is an index bit only for the `.h<-.b` indexed form).
+        if bit(word, 13) != 0 {
+            return;
+        }
+        let b22 = bit(word, 22);
+        let b10 = bit(word, 10);
+        // BFDOT `.s <- .h`: (b22,b10)=(1,0); index = i2<20:19> (Zm z0..z7).
+        if b22 == 1 && b10 == 0 {
+            if bit(word, 11) != 0 {
+                return;
+            }
+            if !features.has(Feature::Bf16) {
+                return;
+            }
+            if indexed {
+                out.set(Code::SveBfdotIdx);
+                out.push_operand(zreg(zda, VA::Ss));
+                out.push_operand(zreg(zn, VA::Sh));
+                out.push_operand(zreg_idx(bits(word, 16, 3), VA::Sh, bits(word, 19, 2) as u8));
+            } else {
+                out.set(Code::SveBfdot);
+                out.push_operand(zreg(zda, VA::Ss));
+                out.push_operand(zreg(zn, VA::Sh));
+                out.push_operand(zreg(bits(word, 16, 5), VA::Sh));
+            }
+            return;
+        }
+        // FDOT. (b22,b10): (0,0)=.s<-.h (SVE2.1); (0,1)=.h<-.b (FP8); (1,1)=.s<-.b (FP8).
+        // Index width: `.h<-.b` uses i2 = <19>:<11>; the others use i2 = <20:19>
+        // (so they require `<11>==0`). The `.h<-.b` form may set `<11>`.
+        let (code, da, src, feat, hb) = match (b22, b10) {
+            (0, 0) => (
+                if indexed { Code::SveFdotShIdx } else { Code::SveFdotShVec },
+                VA::Ss, VA::Sh, Feature::Sve2p1, false,
+            ),
+            (0, 1) => (
+                if indexed { Code::SveFdotHbIdx } else { Code::SveFdotHbVec },
+                VA::Sh, VA::Sb, Feature::Fp8, true,
+            ),
+            _ => (
+                if indexed { Code::SveFdotSbIdx } else { Code::SveFdotSbVec },
+                VA::Ss, VA::Sb, Feature::Fp8, false,
+            ),
+        };
+        // Validate the `<11>` bit and resolve the index BEFORE emitting operands.
+        let idx_zm = if indexed {
+            if hb {
+                // `.h<-.b`: 2-bit index = <19>:<11>, Zm = <18:16>.
+                Some(((bit(word, 19) << 1) | bit(word, 11), bits(word, 16, 3)))
+            } else {
+                // `.s<-.h` / `.s<-.b`: index = <20:19>, Zm = <18:16>, `<11>` must be 0.
+                if bit(word, 11) != 0 {
+                    return;
+                }
+                Some((bits(word, 19, 2), bits(word, 16, 3)))
+            }
+        } else {
+            // Vector forms: no index, `<11>` must be 0.
+            if bit(word, 11) != 0 {
+                return;
+            }
+            None
+        };
+        if !features.has(feat) {
+            return;
+        }
+        out.set(code);
+        out.push_operand(zreg(zda, da));
+        out.push_operand(zreg(zn, src));
+        match idx_zm {
+            Some((idx, zm)) => out.push_operand(zreg_idx(zm, src, idx as u8)),
+            None => out.push_operand(zreg(bits(word, 16, 5), src)),
+        }
+        return;
+    }
+
+    // MLAL-long (`<23>==1`): FMLAL/FMLSL (`<22>==0`) or BFMLAL (`<22>==1`),
+    // `.s <- .h`. `op=<13>` (0=MLAL, 1=MLSL — F16 only), T=<10>.
+    let bf16 = bit(word, 22) == 1;
     if bf16 && !features.has(Feature::Bf16) {
         return;
     }
     let op = bit(word, 13);
-
-    // Vector long-MLA: <15:14>=10, <12:11>=00, T=<10>.
-    if bits(word, 14, 2) == 0b10 && bits(word, 11, 2) == 0b00 {
-        let t = bit(word, 10);
+    let t = bit(word, 10);
+    if indexed {
+        // Indexed: index = i3h(<20:19>):i3l(<11>), Zm=<18:16>.
+        let i3l = bit(word, 11);
+        let zm = bits(word, 16, 3);
+        let idx = (bits(word, 19, 2) << 1) | i3l;
+        let Some(code) = mlal_code(bf16, op, t, true) else { return };
+        out.set(code);
+        out.push_operand(zreg(zda, VA::Ss));
+        out.push_operand(zreg(zn, VA::Sh));
+        out.push_operand(zreg_idx(zm, VA::Sh, idx as u8));
+    } else {
+        // Vector: requires <11>=0.
+        if bit(word, 11) != 0 {
+            return;
+        }
         let zm = bits(word, 16, 5);
         let Some(code) = mlal_code(bf16, op, t, false) else { return };
         out.set(code);
         out.push_operand(zreg(zda, VA::Ss));
         out.push_operand(zreg(zn, VA::Sh));
         out.push_operand(zreg(zm, VA::Sh));
-        return;
-    }
-
-    // Indexed long-MLA: <15:14>=01, <12>=0, index = i3h(<20:19>):i3l(<11>),
-    // T=<10>, Zm=<18:16> (3-bit).
-    if bits(word, 14, 2) == 0b01 && bit(word, 12) == 0 {
-        let t = bit(word, 10);
-        let i3l = bit(word, 11);
-        let zm = bits(word, 16, 3);
-        let i3h = bits(word, 19, 2);
-        let idx = (i3h << 1) | i3l;
-        let Some(code) = mlal_code(bf16, op, t, true) else { return };
-        out.set(code);
-        out.push_operand(zreg(zda, VA::Ss));
-        out.push_operand(zreg(zn, VA::Sh));
-        out.push_operand(zreg_idx(zm, VA::Sh, idx as u8));
     }
 }
 
@@ -1247,11 +1457,15 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
 #[inline]
 fn mlal_code(bf16: bool, op: u32, t: u32, indexed: bool) -> Option<Code> {
     Some(match (bf16, op, t, indexed) {
-        // BFloat16: only MLAL (op must be 0).
+        // BFloat16 MLAL (op==0) and MLSL (op==1).
         (true, 0, 0, false) => Code::SveBfmlalb,
         (true, 0, 1, false) => Code::SveBfmlalt,
         (true, 0, 0, true) => Code::SveBfmlalbIdx,
         (true, 0, 1, true) => Code::SveBfmlaltIdx,
+        (true, 1, 0, false) => Code::SveBfmlslb,
+        (true, 1, 1, false) => Code::SveBfmlslt,
+        (true, 1, 0, true) => Code::SveBfmlslbIdx,
+        (true, 1, 1, true) => Code::SveBfmlsltIdx,
         // Half-precision FMLAL / FMLSL.
         (false, 0, 0, false) => Code::SveFmlalb,
         (false, 0, 1, false) => Code::SveFmlalt,

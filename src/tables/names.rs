@@ -1725,6 +1725,18 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Retabsppc => "retabsppc",
         Mnemonic::Autiasppc => "autiasppc",
         Mnemonic::Autibsppc => "autibsppc",
+        // --- FEAT_SVE_B16B16 BF16 arithmetic + SVE additions (H3) ---
+        Mnemonic::Bfadd => "bfadd",
+        Mnemonic::Bfsub => "bfsub",
+        Mnemonic::Bfmax => "bfmax",
+        Mnemonic::Bfmin => "bfmin",
+        Mnemonic::Bfmaxnm => "bfmaxnm",
+        Mnemonic::Bfminnm => "bfminnm",
+        Mnemonic::Psel => "psel",
+        Mnemonic::Bfmlslb => "bfmlslb",
+        Mnemonic::Bfmlslt => "bfmlslt",
+        Mnemonic::Lastp => "lastp",
+        Mnemonic::Firstp => "firstp",
     }
 }
 

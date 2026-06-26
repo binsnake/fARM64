@@ -77,6 +77,7 @@ pub(super) fn is_int(code: Code) -> bool {
             | SveShiftAccum | SveShiftLongImm | SveShiftInsert | SveShiftNarrow | SveExtractNarrow
             | SveAddLong | SveAbdLong | SveAddWide | SveAddHighNarrow | SveAddLongBt | SveAbaLong
             | SveAddCarryLong | SveCadd | SveSqcadd | SveAbaSame
+            | SveSabal | SveUabal
     )
 }
 

@@ -878,11 +878,16 @@ fn decode_pred_misc(word: u32, out: &mut Instruction) {
 /// `<4>=0`.
 #[inline]
 fn decode_dup_pred(word: u32, out: &mut Instruction) -> bool {
+    // This `<21>=1, <15:14>=01, <9>=0, <4>=0` slot is PSEL (predicate select):
+    // `PSEL <Pd>, <Pn>, <Pm>.<T>[<Wv>{, #imm}]`. It was historically mis-decoded
+    // as a predicate-indexed `DUP`; the entire slot is PSEL per LLVM.
     if bit(word, 9) != 0 || bit(word, 4) != 0 {
         return false;
     }
-    // tszh:tszl (4 bits): tszh=<22>, tszl=<20:18>.
-    let tsz = (bit(word, 22) << 3) | bits(word, 18, 3);
+    // The element / index live in the SVE `tszh:tszl` field `<23:22>:<20:18>` (5
+    // bits): the lowest set bit gives the element size, the bits above it the
+    // index. An all-zero field is reserved.
+    let tsz = (bits(word, 22, 2) << 3) | bits(word, 18, 3);
     if tsz == 0 {
         return false; // reserved
     }
@@ -891,23 +896,21 @@ fn decode_dup_pred(word: u32, out: &mut Instruction) -> bool {
         0 => VA::Sb,
         1 => VA::Sh,
         2 => VA::Ss,
-        _ => VA::Sd,
+        3 => VA::Sd,
+        _ => return false, // `tsz==10000`: no element marker, reserved
     };
-    // Binary Ninja renders the raw 5-bit index field `i1:tszh:tszl` directly as
-    // the immediate index (the element size only selects the arrangement).
-    let imm = (((bit(word, 23) << 4) | tsz) & 0x1f) as i64;
-    let ws = 12 + bits(word, 16, 2); // W12..W15
-    let pg = bits(word, 10, 4);
-    let pn = bits(word, 5, 4);
+    let imm = (tsz >> (esize + 1)) as i64;
+    let wv = 12 + bits(word, 16, 2); // W12..W15
+    let pm = bits(word, 5, 4);
+    let pn = bits(word, 10, 4);
     let pd = bits(word, 0, 4);
-    out.set(Code::SveDupPred);
-    out.set_mnemonic(Mnemonic::Dup);
-    out.push_operand(preg_sz(pd, a));
-    out.push_operand(preg_q(pg, PredQual::Zeroing));
+    out.set(Code::SvePsel);
+    out.push_operand(preg(pd));
+    out.push_operand(preg(pn));
     out.push_operand(Operand::IndexedElement {
-        reg: P[(pn & 0xf) as usize],
+        reg: P[(pm & 0xf) as usize],
         arr: Some(a),
-        index: gp_register(false, RegWidth::W32, ws as u8),
+        index: gp_register(false, RegWidth::W32, wv as u8),
         imm,
     });
     true

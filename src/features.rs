@@ -204,6 +204,18 @@ pub enum Feature {
     /// TIndex Exception-like Vector (`FEAT_TEV`): the `TENTER #imm{, nb}`
     /// transactional/index-exception entry instruction.
     Tev,
+    /// Apple AMX matrix coprocessor (IMPLEMENTATION DEFINED; pre-M4 Apple
+    /// silicon A14–A17 / M1–M3). The `0x00201000`-family micro-ops
+    /// (`LDX`/`STX`/`LDZ`/`FMA64`/`MAC16`/`VECINT`/`MATFP`/`GENLUT`/...). This is
+    /// **not** an Arm architectural extension and is not decoded by LLVM; the
+    /// encodings are reverse-engineered (corsix/amx). M4 and later replaced it
+    /// with the Arm-standard SME, which is covered by [`Feature::Sme`].
+    AppleAmx,
+    /// Apple Guarded Execution Feature (GXF; IMPLEMENTATION DEFINED). The
+    /// `GENTER`/`GEXIT` instructions that enter/exit Apple's lateral "guarded"
+    /// exception levels (`0x00201400` cluster). Not an Arm extension and not
+    /// decoded by LLVM; reverse-engineered from Apple-silicon research.
+    Gxf,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

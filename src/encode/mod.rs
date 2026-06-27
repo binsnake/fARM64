@@ -17,6 +17,7 @@
 
 pub mod bits;
 
+pub mod apple;
 pub mod branch_sys;
 pub mod dp_imm;
 pub mod dp_reg;
@@ -86,6 +87,7 @@ pub fn encode(insn: &Instruction) -> Result<u32, EncodeError> {
         c if simd_fp::is_simd_fp(c) => simd_fp::encode(insn),
         c if sve::is_sve(c) => sve::encode(insn),
         c if sme::is_sme(c) => sme::encode(insn),
+        c if apple::is_apple(c) => apple::encode(insn),
         _ => Err(EncodeError::Unsupported),
     }
 }

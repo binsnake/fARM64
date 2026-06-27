@@ -1,5 +1,22 @@
 # fARM64 — Remaining extensions / gaps (next-session handoff)
 
+## Apple IMPLEMENTATION-DEFINED instructions — AMX + GXF (batch U)
+The first instructions in fARM64 that are **not Arm-architectural at all** and are **not decodable by
+any LLVM/Binary-Ninja oracle** — they are Apple vendor opcodes, decoded from public reverse-engineering
+(no oracle, so encodings are pinned by RE references + round-trip tests, exactly like FEAT_TME):
+- **Apple AMX** (matrix coprocessor on pre-M4 silicon A14–A17 / M1–M3). All 23 micro-ops
+  (`ldx`/`ldy`/`stx`/`sty`/`ldz`/`stz`/`ldzi`/`stzi`/`extrx`/`extry`/`fma64`/`fms64`/`fma32`/`fms32`/
+  `mac16`/`fma16`/`fms16`/`set`/`clr`/`vecint`/`vecfp`/`matint`/`matfp`/`genlut`), encoding
+  `0x0020_1000 | (op<<5) | operand` (`op`=word<9:5> 0..=22; `operand`=word<4:0> is an `Xn`, or the
+  set/clr selector for op 17). Reference: <https://github.com/corsix/amx>. M4+ uses Arm SME (already covered).
+- **Apple GXF** (Guarded Execution Feature): `GEXIT` (`0x0020_1400`) and `GENTER #imm5`
+  (`0x0020_1420 | imm5`) — lateral "guarded" exception-level entry/exit. (Binary Ninja issue #5933 / Asahi.)
+- Both live in the reserved `op0==0b0000`, `word<31>==0` region (next to UDF and SME), dispatched from
+  `decode_reserved`. New `src/decode/apple.rs` + `src/encode/apple.rs`; gated by **opt-in** runtime
+  features `Feature::AppleAmx` / `Feature::Gxf` (off in `FeatureSet::BASE`), so Arm-only decoding is
+  byte-for-byte unchanged. 26 new `Code`/`Mnemonic` rows; `tests/apple_amx_gxf.rs` (render + full
+  op-sweep round-trip + gating + reserved-form invalidity). Build/clippy clean; 351 tests pass.
+
 ## Beyond-LLVM system completion + TME/TEV (batch T, commit `ea47197`)
 After reaching LLVM parity, the remaining work was **extensions LLVM itself doesn't fully assemble**
 (found via the ARM docs, not the LLVM oracle):

@@ -3432,6 +3432,37 @@ codes! {
     Pacm => Pacm, PAuth, "`PACM` (pointer-authentication modifier hint).";
     Gcsstr => Gcsstr, Gcs, "`GCSSTR <Xt>, [<Xn|SP>]` (GCS store).";
     Gcssttr => Gcssttr, Gcs, "`GCSSTTR <Xt>, [<Xn|SP>]` (GCS unprivileged store).";
+    // ---- Apple AMX (IMPLEMENTATION DEFINED, FEAT-gated `Feature::AppleAmx`) ----
+    // All share `0x00201000 | (op<<5) | operand`, `op` in word<9:5>; `operand`
+    // (word<4:0>) is the source/destination Xn (or, for op 17, the set/clr
+    // selector). Reverse-engineered (corsix/amx); not in the Arm ARM or LLVM.
+    AmxLdx => AmxLdx, AppleAmx, "`LDX <Xn>` (Apple AMX op 0: load X register).";
+    AmxLdy => AmxLdy, AppleAmx, "`LDY <Xn>` (Apple AMX op 1: load Y register).";
+    AmxStx => AmxStx, AppleAmx, "`STX <Xn>` (Apple AMX op 2: store X register).";
+    AmxSty => AmxSty, AppleAmx, "`STY <Xn>` (Apple AMX op 3: store Y register).";
+    AmxLdz => AmxLdz, AppleAmx, "`LDZ <Xn>` (Apple AMX op 4: load Z register).";
+    AmxStz => AmxStz, AppleAmx, "`STZ <Xn>` (Apple AMX op 5: store Z register).";
+    AmxLdzi => AmxLdzi, AppleAmx, "`LDZI <Xn>` (Apple AMX op 6: load Z interleaved).";
+    AmxStzi => AmxStzi, AppleAmx, "`STZI <Xn>` (Apple AMX op 7: store Z interleaved).";
+    AmxExtrx => AmxExtrx, AppleAmx, "`EXTRX <Xn>` (Apple AMX op 8: extract from X / move).";
+    AmxExtry => AmxExtry, AppleAmx, "`EXTRY <Xn>` (Apple AMX op 9: extract from Y / move).";
+    AmxFma64 => AmxFma64, AppleAmx, "`FMA64 <Xn>` (Apple AMX op 10: fused multiply-add, f64).";
+    AmxFms64 => AmxFms64, AppleAmx, "`FMS64 <Xn>` (Apple AMX op 11: fused multiply-subtract, f64).";
+    AmxFma32 => AmxFma32, AppleAmx, "`FMA32 <Xn>` (Apple AMX op 12: fused multiply-add, f32).";
+    AmxFms32 => AmxFms32, AppleAmx, "`FMS32 <Xn>` (Apple AMX op 13: fused multiply-subtract, f32).";
+    AmxMac16 => AmxMac16, AppleAmx, "`MAC16 <Xn>` (Apple AMX op 14: multiply-accumulate, i16).";
+    AmxFma16 => AmxFma16, AppleAmx, "`FMA16 <Xn>` (Apple AMX op 15: fused multiply-add, f16).";
+    AmxFms16 => AmxFms16, AppleAmx, "`FMS16 <Xn>` (Apple AMX op 16: fused multiply-subtract, f16).";
+    AmxSet => AmxSet, AppleAmx, "`SET` (Apple AMX op 17, operand 0: enable AMX state).";
+    AmxClr => AmxClr, AppleAmx, "`CLR` (Apple AMX op 17, operand 1: disable AMX state).";
+    AmxVecint => AmxVecint, AppleAmx, "`VECINT <Xn>` (Apple AMX op 18: vector integer ALU).";
+    AmxVecfp => AmxVecfp, AppleAmx, "`VECFP <Xn>` (Apple AMX op 19: vector FP ALU).";
+    AmxMatint => AmxMatint, AppleAmx, "`MATINT <Xn>` (Apple AMX op 20: matrix integer ALU).";
+    AmxMatfp => AmxMatfp, AppleAmx, "`MATFP <Xn>` (Apple AMX op 21: matrix FP ALU).";
+    AmxGenlut => AmxGenlut, AppleAmx, "`GENLUT <Xn>` (Apple AMX op 22: generate/lookup table).";
+    // ---- Apple GXF guarded execution (IMPLEMENTATION DEFINED, `Feature::Gxf`) ----
+    Genter => Genter, Gxf, "`GENTER #imm5` (Apple GXF: enter a guarded exception level).";
+    Gexit => Gexit, Gxf, "`GEXIT` (Apple GXF: exit a guarded exception level).";
 }
 
 impl Code {
@@ -6731,6 +6762,58 @@ pub enum Mnemonic {
     Gsb,
     /// `BRB` (branch-record-buffer maintenance, `SYS` alias family).
     Brb,
+    /// `LDX <Xn>` (Apple AMX: load 64-byte row into X).
+    AmxLdx,
+    /// `LDY <Xn>` (Apple AMX: load 64-byte row into Y).
+    AmxLdy,
+    /// `STX <Xn>` (Apple AMX: store 64-byte row from X).
+    AmxStx,
+    /// `STY <Xn>` (Apple AMX: store 64-byte row from Y).
+    AmxSty,
+    /// `LDZ <Xn>` (Apple AMX: load 64-byte row into Z).
+    AmxLdz,
+    /// `STZ <Xn>` (Apple AMX: store 64-byte row from Z).
+    AmxStz,
+    /// `LDZI <Xn>` (Apple AMX: load Z interleaved).
+    AmxLdzi,
+    /// `STZI <Xn>` (Apple AMX: store Z interleaved).
+    AmxStzi,
+    /// `EXTRX <Xn>` (Apple AMX: extract/move from X).
+    AmxExtrx,
+    /// `EXTRY <Xn>` (Apple AMX: extract/move from Y).
+    AmxExtry,
+    /// `FMA64 <Xn>` (Apple AMX: fused multiply-add, f64).
+    AmxFma64,
+    /// `FMS64 <Xn>` (Apple AMX: fused multiply-subtract, f64).
+    AmxFms64,
+    /// `FMA32 <Xn>` (Apple AMX: fused multiply-add, f32).
+    AmxFma32,
+    /// `FMS32 <Xn>` (Apple AMX: fused multiply-subtract, f32).
+    AmxFms32,
+    /// `MAC16 <Xn>` (Apple AMX: multiply-accumulate, i16).
+    AmxMac16,
+    /// `FMA16 <Xn>` (Apple AMX: fused multiply-add, f16).
+    AmxFma16,
+    /// `FMS16 <Xn>` (Apple AMX: fused multiply-subtract, f16).
+    AmxFms16,
+    /// `SET` (Apple AMX op 17, operand 0: enable AMX state).
+    AmxSet,
+    /// `CLR` (Apple AMX op 17, operand 1: disable AMX state).
+    AmxClr,
+    /// `VECINT <Xn>` (Apple AMX: vector integer ALU).
+    AmxVecint,
+    /// `VECFP <Xn>` (Apple AMX: vector FP ALU).
+    AmxVecfp,
+    /// `MATINT <Xn>` (Apple AMX: matrix integer ALU).
+    AmxMatint,
+    /// `MATFP <Xn>` (Apple AMX: matrix FP ALU).
+    AmxMatfp,
+    /// `GENLUT <Xn>` (Apple AMX: generate/lookup table).
+    AmxGenlut,
+    /// `GENTER #imm5` (Apple GXF: enter a guarded exception level).
+    Genter,
+    /// `GEXIT` (Apple GXF: exit a guarded exception level).
+    Gexit,
 }
 
 impl Mnemonic {
@@ -7609,6 +7692,32 @@ mod tests {
         Code::Pacm,
         Code::Gcsstr,
         Code::Gcssttr,
+        Code::AmxLdx,
+        Code::AmxLdy,
+        Code::AmxStx,
+        Code::AmxSty,
+        Code::AmxLdz,
+        Code::AmxStz,
+        Code::AmxLdzi,
+        Code::AmxStzi,
+        Code::AmxExtrx,
+        Code::AmxExtry,
+        Code::AmxFma64,
+        Code::AmxFms64,
+        Code::AmxFma32,
+        Code::AmxFms32,
+        Code::AmxMac16,
+        Code::AmxFma16,
+        Code::AmxFms16,
+        Code::AmxSet,
+        Code::AmxClr,
+        Code::AmxVecint,
+        Code::AmxVecfp,
+        Code::AmxMatint,
+        Code::AmxMatfp,
+        Code::AmxGenlut,
+        Code::Genter,
+        Code::Gexit,
     ];
 
     #[test]

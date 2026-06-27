@@ -28,6 +28,7 @@
 
 pub mod bits;
 
+pub mod apple;
 pub mod branch_sys;
 pub mod dp_imm;
 pub mod dp_reg;
@@ -114,12 +115,19 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet) -> Instruction {
 fn decode_reserved(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
     use crate::mnemonic::Code;
     use crate::operand::Operand;
-    let _ = (ip, features);
 
     // UDF: the permanently-undefined encoding has all of bits<31:16> clear.
     if (word >> 16) == 0 {
         out.set(Code::Udf);
         out.push_operand(Operand::ImmUnsigned((word & 0xffff) as u64));
+        return;
+    }
+
+    // Apple IMPLEMENTATION-DEFINED instructions (AMX / GXF) share this reserved
+    // region with `word<31> == 0`; they are only produced when their gating
+    // runtime feature is enabled, so Arm-only decoding is unaffected.
+    if (word & 0xffff_f800) == 0x0020_1000 {
+        apple::decode_apple(word, features, out);
         return;
     }
 

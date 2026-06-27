@@ -1819,6 +1819,35 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         Mnemonic::Pacm => "pacm",
         Mnemonic::Gsb => "gsb",
         Mnemonic::Brb => "brb",
+        // Apple AMX (IMPLEMENTATION DEFINED). Rendered with the corsix/amx op
+        // names; only produced when `Feature::AppleAmx` is enabled.
+        Mnemonic::AmxLdx => "ldx",
+        Mnemonic::AmxLdy => "ldy",
+        Mnemonic::AmxStx => "stx",
+        Mnemonic::AmxSty => "sty",
+        Mnemonic::AmxLdz => "ldz",
+        Mnemonic::AmxStz => "stz",
+        Mnemonic::AmxLdzi => "ldzi",
+        Mnemonic::AmxStzi => "stzi",
+        Mnemonic::AmxExtrx => "extrx",
+        Mnemonic::AmxExtry => "extry",
+        Mnemonic::AmxFma64 => "fma64",
+        Mnemonic::AmxFms64 => "fms64",
+        Mnemonic::AmxFma32 => "fma32",
+        Mnemonic::AmxFms32 => "fms32",
+        Mnemonic::AmxMac16 => "mac16",
+        Mnemonic::AmxFma16 => "fma16",
+        Mnemonic::AmxFms16 => "fms16",
+        Mnemonic::AmxSet => "set",
+        Mnemonic::AmxClr => "clr",
+        Mnemonic::AmxVecint => "vecint",
+        Mnemonic::AmxVecfp => "vecfp",
+        Mnemonic::AmxMatint => "matint",
+        Mnemonic::AmxMatfp => "matfp",
+        Mnemonic::AmxGenlut => "genlut",
+        // Apple GXF (IMPLEMENTATION DEFINED).
+        Mnemonic::Genter => "genter",
+        Mnemonic::Gexit => "gexit",
     }
 }
 

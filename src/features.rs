@@ -186,6 +186,24 @@ pub enum Feature {
     /// system-block `TCHANGE{F,B} <Xt>, <Xn>` (register) and `TCHANGE{F,B} <Xt>,
     /// #<imm>` (immediate) forms.
     Tchange,
+    /// Guarded Control Stack (`FEAT_GCS`): the GCS stack-maintenance system ops
+    /// `GCSPUSHM`/`GCSPOPM`/`GCSSS1`/`GCSSS2`/`GCSPUSHX`/`GCSPOPX`/`GCSPOPCX`, the
+    /// `GCSB DSYNC` hint, the `GCSSTR`/`GCSSTTR` stores, and the `TENTER` guarded
+    /// transactional entry.
+    Gcs,
+    /// Checked feature status (`FEAT_CHK`): the `CHKFEAT <Xt>` hint.
+    Chk,
+    /// Producer/consumer data-placement hints (`FEAT_PCDPHINT`): the `STSHH`
+    /// (`keep`/`strm`), `SHUH`/`SHUH PH`, and `STCPH` cache-stashing hints.
+    Pcdphint,
+    /// Data Gathering Hint (`FEAT_DGH`): the `DGH` memory-gathering hint.
+    Dgh,
+    /// Clear Branch History (`FEAT_CLRBHB`): the `CLRBHB` branch-history-clear
+    /// hint.
+    Clrbhb,
+    /// TIndex Exception-like Vector (`FEAT_TEV`): the `TENTER #imm{, nb}`
+    /// transactional/index-exception entry instruction.
+    Tev,
     // codegen/expand: the remaining ARCH_FEATURE_* extensions.
 }
 

@@ -13,3 +13,4 @@
 //! decode logic. These files may be hand-edited until the generator is wired up.
 
 pub mod names;
+pub mod sysins;

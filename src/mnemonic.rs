@@ -3408,6 +3408,30 @@ codes! {
     // table source is the 3-register consecutive group `{ Zn - Zn+2 }` (`Zn =
     // word<9:7>`, z0..z7); no ZT0 element index. FEAT_LUT. ---
     SmeLuti6Zt => Luti6, Lut, "`luti6 { z0.b - z3.b }, zt0, { z0 - z2 }` (SME2 ZT0 lookup, register-group table source).";
+
+    // --- T: system-region named-instruction completion. The GCS stack ops, the
+    // `TENTER` guarded entry, the named hints, and the GCS stores. The `SYS`/`SYSL`
+    // alias families (PLBI/GIC/GICR/MLBI/APAS/TRCIT/COSP and the newer TLBI/DC/AT
+    // ops) reuse `Code::Sys`/`Code::Sysl` with an aliased mnemonic, like IC/DC/AT,
+    // so they need no new `Code`. ---
+    Gcspushm => Gcspushm, Gcs, "`GCSPUSHM <Xt>` (GCS push to the in-memory stack).";
+    Gcspopm => Gcspopm, Gcs, "`GCSPOPM {<Xt>}` (GCS pop from the in-memory stack).";
+    Gcsss1 => Gcsss1, Gcs, "`GCSSS1 <Xt>` (GCS stack switch, step 1).";
+    Gcsss2 => Gcsss2, Gcs, "`GCSSS2 <Xt>` (GCS stack switch, step 2).";
+    Gcspushx => Gcspushx, Gcs, "`GCSPUSHX` (GCS push exception-return state).";
+    Gcspopx => Gcspopx, Gcs, "`GCSPOPX` (GCS pop exception-return state).";
+    Gcspopcx => Gcspopcx, Gcs, "`GCSPOPCX` (GCS pop-and-compare exception-return state).";
+    Gcsb => Gcsb, Gcs, "`GCSB DSYNC` (GCS barrier hint, HINT #19).";
+    Tenter => Tenter, Tev, "`TENTER #imm{, nb}` (FEAT_TEV TIndex exception-like vector entry).";
+    Shuh => Shuh, Pcdphint, "`SHUH {PH}` (PCDPHINT stash-update hint).";
+    Stshh => Stshh, Pcdphint, "`STSHH (<keep>|<strm>|#imm)` (PCDPHINT cache-stash hint).";
+    Stcph => Stcph, Pcdphint, "`STCPH` (PCDPHINT cache-stash partial hint).";
+    Chkfeat => Chkfeat, Chk, "`CHKFEAT <Xt>` (checked-feature-status hint).";
+    Dgh => Dgh, Dgh, "`DGH` (data gathering hint).";
+    Clrbhb => Clrbhb, Clrbhb, "`CLRBHB` (clear branch-history hint).";
+    Pacm => Pacm, PAuth, "`PACM` (pointer-authentication modifier hint).";
+    Gcsstr => Gcsstr, Gcs, "`GCSSTR <Xt>, [<Xn|SP>]` (GCS store).";
+    Gcssttr => Gcssttr, Gcs, "`GCSSTTR <Xt>, [<Xn|SP>]` (GCS unprivileged store).";
 }
 
 impl Code {
@@ -6651,6 +6675,62 @@ pub enum Mnemonic {
     Pext,
     /// `MOVT` (SME2 move to/from the ZT0 lookup table).
     Movt,
+    // --- T: system-region named-instruction completion (`SYS`/`SYSL` alias
+    // families and the GCS / singleton system ops). ---
+    /// `PLBI` (permission-locked TLB invalidate, `SYS` alias family).
+    Plbi,
+    /// `GIC` (GICv5 CPU-interface maintenance, `SYS` alias family).
+    Gic,
+    /// `GICR` (GICv5 redistributor maintenance, `SYSL` read alias family).
+    Gicr,
+    /// `MLBI` (memory-locked TLB invalidate, `SYS` alias family).
+    Mlbi,
+    /// `APAS` (RME physical-address-space scrub, `SYS` alias).
+    Apas,
+    /// `TRCIT` (instruction-trace context synchronization, `SYS` alias).
+    Trcit,
+    /// `COSP` (clear other speculative prediction context, `SYS` alias).
+    Cosp,
+    /// `GCSPUSHM <Xt>` (GCS push to the in-memory stack).
+    Gcspushm,
+    /// `GCSPOPM {<Xt>}` (GCS pop from the in-memory stack).
+    Gcspopm,
+    /// `GCSSS1 <Xt>` (GCS stack switch, step 1).
+    Gcsss1,
+    /// `GCSSS2 <Xt>` (GCS stack switch, step 2).
+    Gcsss2,
+    /// `GCSPUSHX` (GCS push exception-return state).
+    Gcspushx,
+    /// `GCSPOPX` (GCS pop exception-return state).
+    Gcspopx,
+    /// `GCSPOPCX` (GCS pop-and-compare exception-return state).
+    Gcspopcx,
+    /// `GCSB DSYNC` (GCS barrier hint).
+    Gcsb,
+    /// `GCSSTR <Xt>, [<Xn|SP>]` (GCS store).
+    Gcsstr,
+    /// `GCSSTTR <Xt>, [<Xn|SP>]` (GCS unprivileged store).
+    Gcssttr,
+    /// `TENTER #imm` (GCS guarded transactional entry, exception group).
+    Tenter,
+    /// `SHUH {PH}` (PCDPHINT stash-update hint).
+    Shuh,
+    /// `STSHH (<keep>|<strm>|#imm)` (PCDPHINT cache-stash hint).
+    Stshh,
+    /// `STCPH` (PCDPHINT cache-stash partial hint).
+    Stcph,
+    /// `CHKFEAT <Xt>` (checked-feature-status hint).
+    Chkfeat,
+    /// `DGH` (data gathering hint).
+    Dgh,
+    /// `CLRBHB` (clear branch-history hint).
+    Clrbhb,
+    /// `PACM` (pointer-authentication modifier hint).
+    Pacm,
+    /// `GSB` (GICv5 stream barrier, `SYS` alias family).
+    Gsb,
+    /// `BRB` (branch-record-buffer maintenance, `SYS` alias family).
+    Brb,
 }
 
 impl Mnemonic {
@@ -7510,6 +7590,25 @@ mod tests {
         Code::Caspat64,
         Code::Casplt64,
         Code::Caspalt64,
+        // T: system-region named-instruction completion.
+        Code::Gcspushm,
+        Code::Gcspopm,
+        Code::Gcsss1,
+        Code::Gcsss2,
+        Code::Gcspushx,
+        Code::Gcspopx,
+        Code::Gcspopcx,
+        Code::Gcsb,
+        Code::Tenter,
+        Code::Shuh,
+        Code::Stshh,
+        Code::Stcph,
+        Code::Chkfeat,
+        Code::Dgh,
+        Code::Clrbhb,
+        Code::Pacm,
+        Code::Gcsstr,
+        Code::Gcssttr,
     ];
 
     #[test]

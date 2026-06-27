@@ -2119,9 +2119,41 @@ fn decode_ldst_tags_or_ldapstl(word: u32, features: FeatureSet, out: &mut Instru
         } else {
             decode_stlr_ldapr_wb(word, features, out);
         }
+    } else if bits(word, 10, 2) == 0b11 {
+        // FEAT_GCS stores `GCSSTR`/`GCSSTTR <Xt>, [<Xn|SP>]` live in this
+        // `word<11:10> == 0b11` slot with bit21 clear.
+        decode_gcsstr(word, features, out);
     }
-    // `word<11:10> == 0b11` with bit21 clear is unallocated here (the `0b01`
-    // MOPS case never reaches this function).
+    // The `0b01` MOPS case never reaches this function.
+}
+
+/// `GCSSTR <Xt>, [<Xn|SP>]` / `GCSSTTR <Xt>, [<Xn|SP>]` (FEAT_GCS). Encoding:
+/// `11 011001 0 00 11111 000 (str/sttr) 11 Rn Rt` — `size == 0b11`,
+/// `word<23:22> == 0`, `Rs (word<20:16>) == 0b11111`, `word<15:13> == 0`,
+/// `word<12>` selects `GCSSTR`(0)/`GCSSTTR`(1), `word<11:10> == 0b11`. Every
+/// other field here is fixed; a mismatch is UNALLOCATED.
+#[inline]
+fn decode_gcsstr(word: u32, features: FeatureSet, out: &mut Instruction) {
+    if !features.has(Feature::Gcs) {
+        return;
+    }
+    // Fixed: size==11, word<23:22>==0, Rs==11111, word<15:13>==0.
+    if bits(word, 30, 2) != 0b11
+        || bits(word, 22, 2) != 0
+        || bits(word, 16, 5) != 0b11111
+        || bits(word, 13, 3) != 0
+    {
+        return;
+    }
+    let rn = bits(word, 5, 5);
+    let rt = bits(word, 0, 5);
+    out.set(if bit(word, 12) == 1 {
+        Code::Gcssttr
+    } else {
+        Code::Gcsstr
+    });
+    out.push_operand(gp(false, RegWidth::X64, rt));
+    out.push_operand(mem_off(rn, 0));
 }
 
 /// `LDAPUR`/`STLUR` and the signed/byte/half variants (RCpc, unscaled). Encoding:

@@ -522,6 +522,19 @@ fn decode_exception(word: u32, features: FeatureSet, out: &mut Instruction) {
             out.set(Code::Tcancel);
             out.push_operand(imm);
         }
+        // TENTER #imm{, nb} (FEAT_TEV): opc==111, LL==00. Of the 16-bit field
+        // only imm16<6:0> (the immediate) and imm16<12> (the `nb` no-barrier
+        // modifier) are defined; imm16<11:7> and imm16<15:13> are RES0, so a word
+        // with any of those set is UNDEFINED.
+        (0b111, 0b00) if features.has(Feature::Tev) => {
+            if (imm16 & 0xEF80) == 0 {
+                out.set(Code::Tenter);
+                out.push_operand(Operand::ImmUnsigned((imm16 & 0x7f) as u64));
+                if (imm16 & 0x1000) != 0 {
+                    out.push_operand(sysop("nb"));
+                }
+            }
+        }
         (0b101, 0b01) => {
             out.set(Code::Dcps1);
             push_optional_imm(out, imm16);
@@ -625,7 +638,7 @@ fn decode_system(word: u32, features: FeatureSet, out: &mut Instruction) {
             }
             0b01 => {
                 // SYS / IC / DC / AT / TLBI / CFP / CPP / DVP.
-                decode_sys(out, op1, crn, crm, op2, rt, false);
+                decode_sys(out, features, op1, crn, crm, op2, rt, false);
             }
             // op0 == 10/11 with L==0 is MSR (register).
             _ => {
@@ -646,7 +659,7 @@ fn decode_system(word: u32, features: FeatureSet, out: &mut Instruction) {
             }
             0b01 => {
                 // SYSL <Xt>, #op1, Cn, Cm, #op2.
-                decode_sys(out, op1, crn, crm, op2, rt, true);
+                decode_sys(out, features, op1, crn, crm, op2, rt, true);
             }
             0b10 | 0b11 => {
                 // MRS <Xt>, <systemreg>.
@@ -748,9 +761,11 @@ fn decode_msr_imm(out: &mut Instruction, op1: u32, op2: u32, crm: u32, rt: u32) 
         return;
     }
 
-    // CFINV / XAFLAG / AXFLAG: op1==000, op2 in {0,1,2}, only when CRm==0 (the
-    // immediate field is reserved). Other CRm values fall through to generic MSR.
-    if op1 == 0b000 && crm == 0 {
+    // CFINV / XAFLAG / AXFLAG: op1==000, op2 in {0,1,2}. The 4-bit CRm field is
+    // SHOULD-BE-ZERO and LLVM treats it as a don't-care (it decodes every CRm to
+    // the bare mnemonic), so we follow LLVM and ignore CRm here. The encoder
+    // re-emits the canonical CRm==0 (a documented exact-word loss for CRm!=0).
+    if op1 == 0b000 {
         let code = match op2 {
             0b000 => Some(Code::Cfinv),
             0b001 => Some(Code::Xaflag),
@@ -823,7 +838,8 @@ fn decode_hint(out: &mut Instruction, features: FeatureSet, crm: u32, op2: u32, 
         3 => Code::Wfi,
         4 => Code::Sev,
         5 => Code::Sevl,
-        // 6 == DGH (FEAT_DGH) — Binary Ninja renders it as the generic HINT.
+        // 6 == DGH (FEAT_DGH).
+        6 if features.has(Feature::Dgh) => Code::Dgh,
         7 if pauth => {
             // XPACLRI (HINT #7).
             out.set(Code::HintGeneric);
@@ -845,7 +861,15 @@ fn decode_hint(out: &mut Instruction, features: FeatureSet, crm: u32, op2: u32, 
             }
             return set_generic_hint(out, sel);
         }
+        // GCSB DSYNC (HINT #19, FEAT_GCS).
+        19 if features.has(Feature::Gcs) => {
+            out.set(Code::Gcsb);
+            out.push_operand(sysop("dsync"));
+            return;
+        }
         20 => Code::Csdb,
+        // CLRBHB (HINT #22, FEAT_CLRBHB).
+        22 if features.has(Feature::Clrbhb) => Code::Clrbhb,
         24 if pauth => return set_pauth_hint(out, Mnemonic::Paciaz),
         25 if pauth => return set_pauth_hint(out, Mnemonic::Paciasp),
         26 if pauth => return set_pauth_hint(out, Mnemonic::Pacibz),
@@ -854,6 +878,40 @@ fn decode_hint(out: &mut Instruction, features: FeatureSet, crm: u32, op2: u32, 
         29 if pauth => return set_pauth_hint(out, Mnemonic::Autiasp),
         30 if pauth => return set_pauth_hint(out, Mnemonic::Autibz),
         31 if pauth => return set_pauth_hint(out, Mnemonic::Autibsp),
+        // PACM (HINT #39, FEAT_PAuth pointer-auth modifier).
+        39 if pauth => return set_pauth_hint(out, Mnemonic::Pacm),
+        // CHKFEAT X16 (HINT #40, FEAT_CHK).
+        40 if features.has(Feature::Chk) => {
+            out.set(Code::Chkfeat);
+            out.push_operand(xreg(false, 16));
+            return;
+        }
+        // PCDPHINT cluster (FEAT_PCDPHINT, CRm==6): STSHH / SHUH / STCPH.
+        _ if crm == 0b0110 && features.has(Feature::Pcdphint) => {
+            match op2 {
+                // STSHH keep/strm (op2 0/1); SHUH (2)/SHUH PH (3); STCPH (4).
+                0 => {
+                    out.set(Code::Stshh);
+                    out.push_operand(sysop("keep"));
+                }
+                1 => {
+                    out.set(Code::Stshh);
+                    out.push_operand(sysop("strm"));
+                }
+                2 => out.set(Code::Shuh),
+                3 => {
+                    out.set(Code::Shuh);
+                    out.push_operand(sysop("ph"));
+                }
+                4 => out.set(Code::Stcph),
+                // op2 5..7 are the numeric `STSHH #imm` fallbacks.
+                _ => {
+                    out.set(Code::Stshh);
+                    out.push_operand(Operand::ImmUnsigned(op2 as u64));
+                }
+            }
+            return;
+        }
         // BTI {<targets>} (FEAT_BTI): CRm==4, op2 selects the targets.
         _ if crm == 0b0100 && (op2 & 0b001) == 0 => {
             out.set(Code::Bti);
@@ -1024,7 +1082,63 @@ fn push_barrier_option(out: &mut Instruction, crm: u32) {
 /// to resolve a named system-instruction alias from `(op1,CRn,CRm,op2)`; an
 /// unrecognized tuple renders the canonical `SYS #op1, Cn, Cm, #op2{, Xt}`.
 #[inline]
-fn decode_sys(out: &mut Instruction, op1: u32, crn: u32, crm: u32, op2: u32, rt: u32, read: bool) {
+#[allow(clippy::too_many_arguments)]
+fn decode_sys(
+    out: &mut Instruction,
+    features: FeatureSet,
+    op1: u32,
+    crn: u32,
+    crm: u32,
+    op2: u32,
+    rt: u32,
+    read: bool,
+) {
+    // CFP/CPP/DVP RCTX (CRn==7, CRm==3, op1==3) — handled inline (they take Xt
+    // and use the shared "rctx" keyword, but their mnemonic is not a SYS-alias
+    // family in the table).
+    if !read && crn == 7 && crm == 3 && op1 == 3 {
+        let m = match op2 {
+            0b100 => Some(Mnemonic::Cfp),
+            0b101 => Some(Mnemonic::Dvp),
+            0b111 => Some(Mnemonic::Cpp),
+            _ => None,
+        };
+        if let Some(m) = m {
+            out.set(Code::Sys);
+            out.set_mnemonic(m);
+            out.push_operand(sysop("rctx"));
+            out.push_operand(xreg(false, rt));
+            return;
+        }
+    }
+
+    // GCS stack-maintenance ops (CRn==7, CRm==7) are distinct instructions that
+    // overlap the SYS space — handle them first (feature-gated).
+    if decode_gcs_sys(out, features, op1, crn, crm, op2, rt, read) {
+        return;
+    }
+
+    // Named alias families (IC/DC/AT/TLBI/PLBI/GIC/GICR/MLBI/APAS/TRCIT/COSP):
+    // one flat directory drives both decode and encode.
+    if let Some(t) = crate::tables::sysins::lookup(read, op1, crn, crm, op2) {
+        out.set(if read { Code::Sysl } else { Code::Sys });
+        out.set_mnemonic(t.mnem);
+        if !t.name.is_empty() && t.kw_first {
+            out.push_operand(sysop(t.name));
+        }
+        // The optional Xt: only register-qualified ops print it. The whole-TLB /
+        // IALLU* forms never print a register even when Rt holds a non-XZR value
+        // (matching LLVM).
+        if t.needs_rt {
+            out.push_operand(xreg(false, rt));
+        }
+        if !t.name.is_empty() && !t.kw_first {
+            // Read-side register-first forms (`gicr <Xt>, <op>`).
+            out.push_operand(sysop(t.name));
+        }
+        return;
+    }
+
     if read {
         // SYSL <Xt>, #op1, Cn, Cm, #op2.
         out.set(Code::Sysl);
@@ -1036,21 +1150,6 @@ fn decode_sys(out: &mut Instruction, op1: u32, crn: u32, crm: u32, op2: u32, rt:
         return;
     }
 
-    // Try the named alias table first.
-    if let Some((m, needs_rt)) = sys_alias(op1, crn, crm, op2) {
-        out.set(Code::Sys);
-        out.set_mnemonic(m);
-        // The alias operation name (e.g. "ivau", "zva", "rctx").
-        out.push_operand(sysop(alias_op_name(op1, crn, crm, op2)));
-        // The optional Xt: only the register-qualified ops print it. The
-        // whole-TLB/IALLU* forms never print a register even when the Rt field
-        // holds a value other than XZR (matching Binary Ninja).
-        if needs_rt {
-            out.push_operand(xreg(false, rt));
-        }
-        return;
-    }
-
     // Canonical SYS #op1, Cn, Cm, #op2{, Xt}.
     out.set(Code::Sys);
     out.push_operand(Operand::ImmUnsigned(op1 as u64));
@@ -1059,6 +1158,45 @@ fn decode_sys(out: &mut Instruction, op1: u32, crn: u32, crm: u32, op2: u32, rt:
     out.push_operand(Operand::ImmUnsigned(op2 as u64));
     // Binary Ninja always prints the Xt for the canonical SYS form.
     out.push_operand(xreg(false, rt));
+}
+
+/// The GCS stack-maintenance system ops (`GCSPUSHM`/`GCSPOPM`/`GCSSS1`/`GCSSS2`/
+/// `GCSPUSHX`/`GCSPOPX`/`GCSPOPCX`) — distinct instructions sharing the `SYS`
+/// (write) / `SYSL` (read) encoding at `CRn==7, CRm==7`. `GCSPUSHM`/`GCSPOPM`/
+/// `GCSSS1` take `<Xt>` (`GCSPOPM` elides `Rt==11111`); `GCSSS2` always prints
+/// `<Xt>`; the `*X`/`*CX` forms take no operand. Returns `true` if matched.
+/// Gated on [`Feature::Gcs`].
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn decode_gcs_sys(
+    out: &mut Instruction,
+    features: FeatureSet,
+    op1: u32,
+    crn: u32,
+    crm: u32,
+    op2: u32,
+    rt: u32,
+    read: bool,
+) -> bool {
+    if crn != 7 || crm != 7 || !features.has(Feature::Gcs) {
+        return false;
+    }
+    // (code, takes_rt, elide_rt_31).
+    let (code, takes_rt, elide): (Code, bool, bool) = match (read, op1, op2) {
+        (false, 0, 4) => (Code::Gcspushx, false, false),
+        (false, 0, 5) => (Code::Gcspopcx, false, false),
+        (false, 0, 6) => (Code::Gcspopx, false, false),
+        (false, 3, 0) => (Code::Gcspushm, true, false),
+        (false, 3, 2) => (Code::Gcsss1, true, false),
+        (true, 3, 1) => (Code::Gcspopm, true, true),
+        (true, 3, 3) => (Code::Gcsss2, true, false),
+        _ => return false,
+    };
+    out.set(code);
+    if takes_rt && !(elide && rt == 0b11111) {
+        out.push_operand(xreg(false, rt));
+    }
+    true
 }
 
 /// `TSTART <Xt>` / `TTEST <Xt>` — the FEAT_TME "System instructions with
@@ -1183,17 +1321,19 @@ fn decode_sysp(out: &mut Instruction, op1: u32, crn: u32, crm: u32, op2: u32, rt
         return;
     }
 
-    // TLBIP alias: the TLB-maintenance pair lives at CRn==8, reusing the TLBI
-    // operation-name directory. It always prints the <Xt>:<Xt+1> pair.
-    if crn == 8 && is_tlbi_op(op1, crm, op2) {
-        if let Some(pair) = reg_pair_or_zz(rt) {
-            out.set(Code::Sysp);
-            out.set_mnemonic(Mnemonic::Tlbip);
-            out.push_operand(sysop(tlbi_op_name(op1, crm, op2)));
-            out.push_operand(pair);
+    // TLBIP alias: the TLB-maintenance pair reuses the TLBI operation-name
+    // directory (CRn==8/9). It always prints the <Xt>:<Xt+1> pair.
+    if let Some(t) = crate::tables::sysins::lookup(false, op1, crn, crm, op2) {
+        if t.mnem as u16 == Mnemonic::Tlbi as u16 {
+            if let Some(pair) = reg_pair_or_zz(rt) {
+                out.set(Code::Sysp);
+                out.set_mnemonic(Mnemonic::Tlbip);
+                out.push_operand(sysop(t.name));
+                out.push_operand(pair);
+                return;
+            }
             return;
         }
-        return;
     }
 
     // Canonical SYSP #op1, Cn, Cm, #op2{, <Xt>, <Xt+1>}.
@@ -1235,260 +1375,6 @@ fn reg_pair_or_zz(rt: u32) -> Option<Operand> {
         });
     }
     reg_pair(rt)
-}
-
-// ---------------------------------------------------------------------------
-// System-instruction alias tables (ARM ARM C5.1 "System instructions").
-// ---------------------------------------------------------------------------
-
-/// Resolve a named `IC`/`DC`/`AT`/`TLBI`/`CFP`/`CPP`/`DVP` alias from the
-/// `(op1, CRn, CRm, op2)` system-instruction tuple. Returns the alias mnemonic
-/// and whether the operation takes an `<Xt>` operand. `None` means no alias
-/// applies and the canonical `SYS` form should be used.
-#[inline]
-fn sys_alias(op1: u32, crn: u32, crm: u32, op2: u32) -> Option<(Mnemonic, bool)> {
-    // CFP/CPP/DVP RCTX (CRn==7, CRm==3): op1==3, op2 in {4,5,7}. Take Xt.
-    if crn == 7 && crm == 3 && op1 == 3 {
-        return match op2 {
-            0b100 => Some((Mnemonic::Cfp, true)),
-            0b101 => Some((Mnemonic::Dvp, true)),
-            0b111 => Some((Mnemonic::Cpp, true)),
-            _ => None,
-        };
-    }
-    // IC (CRn==7, CRm in {1,5}): instruction cache.
-    if crn == 7 && (crm == 1 || crm == 5) {
-        // IALLUIS (op1=0,CRm=1,op2=0), IALLU (op1=0,CRm=5,op2=0): no Xt.
-        // IVAU    (op1=3,CRm=5,op2=1): takes Xt.
-        return match (op1, crm, op2) {
-            (0, 1, 0) => Some((Mnemonic::Ic, false)),
-            (0, 5, 0) => Some((Mnemonic::Ic, false)),
-            (3, 5, 1) => Some((Mnemonic::Ic, true)),
-            _ => None,
-        };
-    }
-    // DC (CRn==7): data cache, all take Xt.
-    if crn == 7 && is_dc_op(op1, crm, op2) {
-        return Some((Mnemonic::Dc, true));
-    }
-    // AT (CRn==7, CRm in {8,9}): address translation, all take Xt.
-    if crn == 7 && (crm == 8 || crm == 9) && is_at_op(op1, crm, op2) {
-        return Some((Mnemonic::At, true));
-    }
-    // TLBI (CRn==8): TLB maintenance, all take Xt except the *ALL* forms.
-    if crn == 8 && is_tlbi_op(op1, crm, op2) {
-        let needs_rt = tlbi_needs_xt(crm, op2);
-        return Some((Mnemonic::Tlbi, needs_rt));
-    }
-    None
-}
-
-/// `true` if `(op1, CRm, op2)` is a defined `DC` (data-cache) operation.
-#[inline]
-const fn is_dc_op(op1: u32, crm: u32, op2: u32) -> bool {
-    matches!(
-        (op1, crm, op2),
-        (0, 6, 1)   // IVAC
-        | (0, 6, 2) // ISW
-        | (0, 10, 2) // CSW
-        | (0, 14, 2) // CISW
-        | (3, 4, 1) // ZVA
-        | (3, 10, 1) // CVAC
-        | (3, 11, 1) // CVAU
-        | (3, 12, 1) // CVAP  (FEAT_DPB)
-        | (3, 13, 1) // CVADP (FEAT_DPB2)
-        | (3, 14, 1) // CIVAC
-        // FEAT_MTE tag-cache ops.
-        | (0, 6, 3) // IGVAC
-        | (0, 6, 4) // IGSW
-        | (0, 6, 5) // IGDVAC
-        | (0, 6, 6) // IGDSW
-        | (0, 10, 4) // CGSW
-        | (0, 10, 6) // CGDSW
-        | (0, 14, 4) // CIGSW
-        | (0, 14, 6) // CIGDSW
-        | (3, 10, 3) // CGVAC
-        | (3, 10, 5) // CGDVAC
-        | (3, 12, 3) // CGVAP
-        | (3, 12, 5) // CGDVAP
-        | (3, 13, 3) // CGVADP
-        | (3, 13, 5) // CGDVADP
-        | (3, 14, 3) // CIGVAC
-        | (3, 14, 5) // CIGDVAC
-    )
-}
-
-/// `true` if `(op1, CRm, op2)` is a defined `AT` (address-translation) operation.
-#[inline]
-const fn is_at_op(op1: u32, crm: u32, op2: u32) -> bool {
-    match crm {
-        // S1E1R/W, S1E0R/W (op1=0), plus S1E1RP/WP (FEAT_PAN2).
-        8 => matches!((op1, op2), (0, 0) | (0, 1) | (0, 2) | (0, 3)
-            | (4, 0) | (4, 1) | (4, 2) | (4, 3) | (4, 4) | (4, 5) | (4, 6) | (4, 7)
-            | (6, 0) | (6, 1)),
-        9 => matches!((op1, op2), (0, 0) | (0, 1) | (4, 0) | (4, 1)),
-        _ => false,
-    }
-}
-
-/// `true` if `(op1, CRm, op2)` is a defined `TLBI` operation (coarse: the
-/// architectural TLBI block is `CRn==8`, `CRm` in `{0..7}` for the range/IPAS
-/// ops and `{3,7}` for the broadcast/inner-shareable families). We accept the
-/// standard non-range encodings and let the rest fall through to `SYS`.
-#[inline]
-const fn is_tlbi_op(op1: u32, crm: u32, op2: u32) -> bool {
-    // The widely-used TLBI ops live at CRm in {3 (IS), 7 (no-IS)} with op2
-    // selecting the variant, plus the EL2/EL3 IPA forms at CRm in {0,4}.
-    let _ = op1;
-    match crm {
-        0 | 4 => matches!(op2, 1 | 5),          // IPAS2E1IS/L, etc.
-        3 | 7 => op2 <= 7,                       // VMALLE1{IS}, ASIDE1, VAE1, ...
-        1 | 5 => matches!(op2, 0 | 1 | 2 | 3 | 5), // range/auxiliary forms
-        _ => false,
-    }
-}
-
-/// Whether a `TLBI` operation takes an `<Xt>` operand. The `*ALL*` / `VMALL*`
-/// forms (op2 in {0,4} at CRm in {3,7}) operate on the whole TLB and take no
-/// register; everything else is address/ASID-qualified and takes `<Xt>`.
-#[inline]
-const fn tlbi_needs_xt(crm: u32, op2: u32) -> bool {
-    !((crm == 3 || crm == 7) && matches!(op2, 0 | 4))
-}
-
-/// The lowercase operation-name token for a named system-instruction alias
-/// (`"ialluis"`, `"zva"`, `"rctx"`, `"alle3"`, ...). Keyed on the full
-/// `(op1,CRn,CRm,op2)` tuple; defaults to a generic spelling if unmapped (which
-/// only happens for tuples `sys_alias` does not recognize, so it is unreachable
-/// in practice).
-#[inline]
-fn alias_op_name(op1: u32, crn: u32, crm: u32, op2: u32) -> &'static str {
-    // CFP/CPP/DVP all use the RCTX operand spelling.
-    if crn == 7 && crm == 3 {
-        return "rctx";
-    }
-    if crn == 7 && (crm == 1 || crm == 5) {
-        return match (op1, crm, op2) {
-            (0, 1, 0) => "ialluis",
-            (0, 5, 0) => "iallu",
-            (3, 5, 1) => "ivau",
-            _ => "iallu",
-        };
-    }
-    if crn == 7
-        && (crm == 4 || crm == 6 || crm == 10 || crm == 11 || crm == 12 || crm == 13 || crm == 14)
-    {
-        return dc_op_name(op1, crm, op2);
-    }
-    if crn == 7 && (crm == 8 || crm == 9) {
-        return at_op_name(op1, crm, op2);
-    }
-    if crn == 8 {
-        return tlbi_op_name(op1, crm, op2);
-    }
-    "rctx"
-}
-
-/// Operation-name token for a `DC` alias.
-#[inline]
-fn dc_op_name(op1: u32, crm: u32, op2: u32) -> &'static str {
-    match (op1, crm, op2) {
-        (0, 6, 1) => "ivac",
-        (0, 6, 2) => "isw",
-        (0, 6, 3) => "igvac",
-        (0, 6, 4) => "igsw",
-        (0, 6, 5) => "igdvac",
-        (0, 6, 6) => "igdsw",
-        (0, 10, 2) => "csw",
-        (0, 10, 4) => "cgsw",
-        (0, 10, 6) => "cgdsw",
-        (0, 14, 2) => "cisw",
-        (0, 14, 4) => "cigsw",
-        (0, 14, 6) => "cigdsw",
-        (3, 4, 1) => "zva",
-        (3, 10, 1) => "cvac",
-        (3, 10, 3) => "cgvac",
-        (3, 10, 5) => "cgdvac",
-        (3, 11, 1) => "cvau",
-        (3, 12, 1) => "cvap",
-        (3, 12, 3) => "cgvap",
-        (3, 12, 5) => "cgdvap",
-        (3, 13, 1) => "cvadp",
-        (3, 13, 3) => "cgvadp",
-        (3, 13, 5) => "cgdvadp",
-        (3, 14, 1) => "civac",
-        (3, 14, 3) => "cigvac",
-        (3, 14, 5) => "cigdvac",
-        _ => "zva",
-    }
-}
-
-/// Operation-name token for an `AT` alias.
-#[inline]
-fn at_op_name(op1: u32, crm: u32, op2: u32) -> &'static str {
-    match (crm, op1, op2) {
-        (8, 0, 0) => "s1e1r",
-        (8, 0, 1) => "s1e1w",
-        (8, 0, 2) => "s1e0r",
-        (8, 0, 3) => "s1e0w",
-        (9, 0, 0) => "s1e1rp",
-        (9, 0, 1) => "s1e1wp",
-        (8, 4, 0) => "s1e2r",
-        (8, 4, 1) => "s1e2w",
-        (8, 4, 4) => "s12e1r",
-        (8, 4, 5) => "s12e1w",
-        (8, 4, 6) => "s12e0r",
-        (8, 4, 7) => "s12e0w",
-        (8, 6, 0) => "s1e3r",
-        (8, 6, 1) => "s1e3w",
-        (9, 4, 0) => "s1e2rp",
-        (9, 4, 1) => "s1e2wp",
-        _ => "s1e1r",
-    }
-}
-
-/// Operation-name token for a (non-range) `TLBI` alias.
-#[inline]
-fn tlbi_op_name(op1: u32, crm: u32, op2: u32) -> &'static str {
-    match (op1, crm, op2) {
-        // EL1 inner-shareable (CRm==3).
-        (0, 3, 0) => "vmalle1is",
-        (0, 3, 1) => "vae1is",
-        (0, 3, 2) => "aside1is",
-        (0, 3, 3) => "vaae1is",
-        (0, 3, 5) => "vale1is",
-        (0, 3, 7) => "vaale1is",
-        // EL1 (CRm==7).
-        (0, 7, 0) => "vmalle1",
-        (0, 7, 1) => "vae1",
-        (0, 7, 2) => "aside1",
-        (0, 7, 3) => "vaae1",
-        (0, 7, 5) => "vale1",
-        (0, 7, 7) => "vaale1",
-        // EL2 (op1==4).
-        (4, 0, 1) => "ipas2e1is",
-        (4, 0, 5) => "ipas2le1is",
-        (4, 3, 0) => "alle2is",
-        (4, 3, 1) => "vae2is",
-        (4, 3, 4) => "alle1is",
-        (4, 3, 5) => "vale2is",
-        (4, 3, 6) => "vmalls12e1is",
-        (4, 4, 1) => "ipas2e1",
-        (4, 4, 5) => "ipas2le1",
-        (4, 7, 0) => "alle2",
-        (4, 7, 1) => "vae2",
-        (4, 7, 4) => "alle1",
-        (4, 7, 5) => "vale2",
-        (4, 7, 6) => "vmalls12e1",
-        // EL3 (op1==6).
-        (6, 3, 0) => "alle3is",
-        (6, 3, 1) => "vae3is",
-        (6, 3, 5) => "vale3is",
-        (6, 7, 0) => "alle3",
-        (6, 7, 1) => "vae3",
-        (6, 7, 5) => "vale3",
-        _ => "alle1",
-    }
 }
 
 #[cfg(test)]
@@ -1658,8 +1544,18 @@ mod tests {
         assert_dis(0xD503223F, "psb     csync");
         assert_dis(0xD503245F, "bti     c");
         assert_dis(0xD503241F, "bti");
-        // DGH is not named by the oracle -> generic HINT.
-        assert_dis(0xD50320DF, "hint    #0x6");
+        // DGH (HINT #6, FEAT_DGH) is now named.
+        assert_dis(0xD50320DF, "dgh");
+        // T: newer named hints.
+        assert_dis(0xD503227F, "gcsb    dsync");
+        assert_dis(0xD50322DF, "clrbhb");
+        assert_dis(0xD50324FF, "pacm");
+        assert_dis(0xD503251F, "chkfeat x16");
+        assert_dis(0xD503267F, "shuh    ph");
+        assert_dis(0xD503265F, "shuh");
+        assert_dis(0xD503261F, "stshh   keep");
+        assert_dis(0xD503263F, "stshh   strm");
+        assert_dis(0xD503269F, "stcph");
     }
 
     #[test]

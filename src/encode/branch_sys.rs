@@ -65,12 +65,15 @@ pub fn encode(insn: &Instruction) -> R {
         // Unconditional branch (register).
         Br | Blr | Ret | Eret | Drps | Braaz | Brabz | Blraaz | Blrabz | Braa | Brab | Blraa
         | Blrab | Retaa | Retab | Eretaa | Eretab => enc_branch_reg(insn),
-        // Exception generation.
-        Svc | Hvc | Smc | Brk | Hlt | Tcancel | Dcps1 | Dcps2 | Dcps3 => enc_exception(insn),
-        // System: hints.
-        Nop | Yield | Wfe | Wfi | Sev | Sevl | Esb | Psb | Csdb | Bti | Tsb | HintGeneric => {
-            enc_hint(insn)
+        // Exception generation (incl. the FEAT_GCS TENTER).
+        Svc | Hvc | Smc | Brk | Hlt | Tcancel | Tenter | Dcps1 | Dcps2 | Dcps3 => {
+            enc_exception(insn)
         }
+        // System: hints (incl. GCSB/SHUH/STSHH/STCPH/CHKFEAT/DGH/CLRBHB/PACM).
+        Nop | Yield | Wfe | Wfi | Sev | Sevl | Esb | Psb | Csdb | Bti | Tsb | HintGeneric
+        | Gcsb | Shuh | Stshh | Stcph | Chkfeat | Dgh | Clrbhb | Pacm => enc_hint(insn),
+        // System: GCS stack-maintenance ops (SYS/SYSL forms).
+        Gcspushm | Gcspopm | Gcsss1 | Gcsss2 | Gcspushx | Gcspopx | Gcspopcx => enc_gcs_sys(insn),
         // System: WFET/WFIT.
         Wfet | Wfit => enc_wfxt(insn),
         // System: barriers.
@@ -464,6 +467,7 @@ fn enc_exception(insn: &Instruction) -> R {
         Brk => (0b001, 0b00),
         Hlt => (0b010, 0b00),
         Tcancel => (0b011, 0b00),
+        Tenter => (0b111, 0b00),
         Dcps1 => (0b101, 0b01),
         Dcps2 => (0b101, 0b10),
         _ => (0b101, 0b11), // Dcps3
@@ -472,6 +476,10 @@ fn enc_exception(insn: &Instruction) -> R {
     // DCPS* take an optional immediate (elided when zero); the rest require one.
     let imm16 = if matches!(code, Dcps1 | Dcps2 | Dcps3) && insn.op_count() == 0 {
         0
+    } else if code == Tenter {
+        // TENTER carries imm16<6:0> as its immediate and imm16<12> as the optional
+        // `nb` modifier (a trailing SysOp operand); the other bits are RES0.
+        (imm_u(insn, 0)? & 0x7f) | if insn.op_count() > 1 { 0x1000 } else { 0 }
     } else {
         imm_u(insn, 0)?
     };
@@ -498,10 +506,37 @@ fn enc_hint(insn: &Instruction) -> R {
         Wfi => 3,
         Sev => 4,
         Sevl => 5,
+        Dgh => 6,
         Esb => 16,
-        Psb => 17, // PSB CSYNC
-        Tsb => 18, // TSB CSYNC
+        Psb => 17,  // PSB CSYNC
+        Tsb => 18,  // TSB CSYNC
+        Gcsb => 19, // GCSB DSYNC
         Csdb => 20,
+        Clrbhb => 22,
+        Pacm => 39,
+        Chkfeat => 40, // CHKFEAT X16
+        Shuh => {
+            // SHUH (CRm==6): op2==2 (bare) or op2==3 (PH).
+            match insn.op(0) {
+                Operand::None => (0b0110 << 3) | 2,
+                Operand::SysOp(tok) if tok.name() == "ph" => (0b0110 << 3) | 3,
+                _ => return Err(EncodeError::InvalidOperand),
+            }
+        }
+        Stcph => (0b0110 << 3) | 4, // STCPH (CRm==6, op2==4)
+        Stshh => {
+            // STSHH (CRm==6): keep/strm (op2 0/1) or a numeric #imm (op2 5..7).
+            let op2 = match insn.op(0) {
+                Operand::SysOp(tok) => match tok.name() {
+                    "keep" => 0u32,
+                    "strm" => 1,
+                    _ => return Err(EncodeError::InvalidOperand),
+                },
+                Operand::ImmUnsigned(v) => v as u32 & 0x7,
+                _ => return Err(EncodeError::InvalidOperand),
+            };
+            (0b0110 << 3) | op2
+        }
         Bti => {
             // BTI {<targets>}: CRm==4, op2 in {0,2,4,6}.
             let op2 = match insn.op(0) {
@@ -532,6 +567,8 @@ fn enc_hint(insn: &Instruction) -> R {
             Mnemonic::Autiasp => 29,
             Mnemonic::Autibz => 30,
             Mnemonic::Autibsp => 31,
+            // PACM (HINT #39).
+            Mnemonic::Pacm => 39,
             // Generic `HINT #imm`.
             Mnemonic::Hint => imm_u(insn, 0)? as u32,
             _ => return Err(EncodeError::InvalidOperand),
@@ -762,7 +799,10 @@ fn enc_sysreg_move(insn: &Instruction) -> R {
 /// (`IC`/`DC`/`AT`/`TLBI`/`CFP`/`CPP`/`DVP`) we recover `(op1,CRn,CRm,op2)` from
 /// the operation-name keyword.
 fn enc_sys(insn: &Instruction) -> R {
-    if insn.code() == Code::Sysl {
+    // The *canonical* SYSL (mnemonic `Sysl`) reads its raw fields off the
+    // operands. A `Sysl`-coded *alias* (e.g. `GICR`) falls through to the named
+    // path below.
+    if insn.code() == Code::Sysl && insn.mnemonic() == Mnemonic::Sysl {
         // SYSL <Xt>, #op1, Cn, Cm, #op2.
         let rt = reg_num(insn, 0)?;
         let op1 = imm_u(insn, 1)? as u32;
@@ -772,8 +812,10 @@ fn enc_sys(insn: &Instruction) -> R {
         return Ok(system_word(1, 0b01, op1, crn, crm, op2, rt));
     }
 
-    // SYS write side. The alias forms carry a named operation keyword as the
-    // first operand; the canonical form carries the raw #op1 immediate.
+    let read = insn.code() == Code::Sysl;
+
+    // SYS/SYSL alias forms carry a named operation keyword; the canonical form
+    // carries the raw #op1 immediate.
     match insn.mnemonic() {
         // Canonical SYS #op1, Cn, Cm, #op2{, Xt}.
         Mnemonic::Sys => {
@@ -789,20 +831,83 @@ fn enc_sys(insn: &Instruction) -> R {
             };
             Ok(system_word(0, 0b01, op1, crn, crm, op2, rt))
         }
-        // Named alias: recover the tuple from the op-name keyword, then the
-        // optional Xt (whole-TLB/IALLU* forms drop it -> canonical XZR).
+        // CFP/CPP/DVP RCTX: handled with a fixed tuple (their keyword is "rctx").
+        Mnemonic::Cfp | Mnemonic::Cpp | Mnemonic::Dvp => {
+            let (op1, crn, crm, op2) = match insn.mnemonic() {
+                Mnemonic::Cfp => (3, 7, 3, 0b100),
+                Mnemonic::Dvp => (3, 7, 3, 0b101),
+                _ => (3, 7, 3, 0b111),
+            };
+            let rt = reg_num(insn, 1)?;
+            Ok(system_word(0, 0b01, op1, crn, crm, op2, rt))
+        }
+        // Named alias family (IC/DC/AT/TLBI/PLBI/GIC/GICR/MLBI/APAS/TRCIT/COSP):
+        // recover the tuple from the shared directory, keyed on `(mnem, op-name)`.
         m => {
-            let name = sysop_name(insn, 0)?;
-            let (op1, crn, crm, op2) =
-                sys_alias_fields(m, name).ok_or(EncodeError::InvalidOperand)?;
-            let rt = if insn.op_count() >= 2 {
-                reg_num(insn, 1)?
+            // Read-side register-first forms (`gicr <Xt>, <op>`) carry the keyword
+            // last; all the others carry it first.
+            let kw_slot = match m {
+                Mnemonic::Gicr => 1,
+                _ => 0,
+            };
+            // APAS/TRCIT take no keyword (their entry's `name` is "").
+            let name = if matches!(m, Mnemonic::Apas | Mnemonic::Trcit) {
+                ""
+            } else {
+                sysop_name(insn, kw_slot)?
+            };
+            let t = crate::tables::sysins::lookup_by_name(m, name)
+                .ok_or(EncodeError::InvalidOperand)?;
+            // The Xt slot: a keyword-first form with a keyword puts the register
+            // after it (slot 1); the register-first read forms (`gicr`) and the
+            // keyword-less forms (`apas`/`trcit`) put it at slot 0. Whole-structure
+            // forms (no Xt) default to canonical XZR.
+            let rt = if t.needs_rt {
+                let rt_slot = if t.kw_first && !t.name.is_empty() { 1 } else { 0 };
+                reg_num(insn, rt_slot)?
             } else {
                 0b11111
             };
-            Ok(system_word(0, 0b01, op1, crn, crm, op2, rt))
+            Ok(system_word(
+                u32::from(read),
+                0b01,
+                t.op1 as u32,
+                t.crn as u32,
+                t.crm as u32,
+                t.op2 as u32,
+                rt,
+            ))
         }
     }
+}
+
+/// The GCS stack-maintenance ops (`GCSPUSHM`/`GCSPOPM`/`GCSSS1`/`GCSSS2`/
+/// `GCSPUSHX`/`GCSPOPX`/`GCSPOPCX`) — the inverse of `decode_gcs_sys`. All live
+/// at `CRn==7, CRm==7`; the `*M`/`SS1`/`SS2` forms carry `<Xt>` (`GCSPOPM` elides
+/// `Rt==11111`), the `*X`/`*CX` forms take none.
+fn enc_gcs_sys(insn: &Instruction) -> R {
+    use Code::*;
+    // (read/L, op1, op2, takes_rt, elide_rt_31).
+    let (read, op1, op2, takes_rt, elide): (u32, u32, u32, bool, bool) = match insn.code() {
+        Gcspushx => (0, 0, 4, false, false),
+        Gcspopcx => (0, 0, 5, false, false),
+        Gcspopx => (0, 0, 6, false, false),
+        Gcspushm => (0, 3, 0, true, false),
+        Gcsss1 => (0, 3, 2, true, false),
+        Gcspopm => (1, 3, 1, true, true),
+        Gcsss2 => (1, 3, 3, true, false),
+        _ => return Err(EncodeError::Unsupported),
+    };
+    let rt = if takes_rt {
+        if elide && insn.op_count() == 0 {
+            0b11111
+        } else {
+            reg_num(insn, 0)?
+        }
+    } else {
+        0b11111
+    };
+    Ok(system_word(read, 0b01, op1, 0b0111, 0b0111, op2, rt))
 }
 
 /// The `CRn`/`CRm` 4-bit value of a `cN` [`Operand::SysOp`] token at slot `n`.
@@ -811,140 +916,6 @@ fn cr_num(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
     // `cN` tokens are "c0".."c15".
     let digits = name.strip_prefix('c').ok_or(EncodeError::InvalidOperand)?;
     digits.parse::<u32>().map_err(|_| EncodeError::InvalidOperand)
-}
-
-/// Recover the `(op1, CRn, CRm, op2)` tuple of a named system-instruction alias
-/// from its mnemonic and operation-name keyword. The inverse of the decoder's
-/// `sys_alias` + `alias_op_name`.
-fn sys_alias_fields(m: Mnemonic, name: &str) -> Option<(u32, u32, u32, u32)> {
-    match m {
-        // CFP/CPP/DVP RCTX: CRn==7, CRm==3, op1==3.
-        Mnemonic::Cfp => Some((3, 7, 3, 0b100)),
-        Mnemonic::Dvp => Some((3, 7, 3, 0b101)),
-        Mnemonic::Cpp => Some((3, 7, 3, 0b111)),
-        Mnemonic::Ic => ic_fields(name),
-        Mnemonic::Dc => dc_fields(name).map(|(op1, crm, op2)| (op1, 7, crm, op2)),
-        Mnemonic::At => at_fields(name).map(|(op1, crm, op2)| (op1, 7, crm, op2)),
-        Mnemonic::Tlbi => tlbi_fields(name).map(|(op1, crm, op2)| (op1, 8, crm, op2)),
-        _ => None,
-    }
-}
-
-/// IC operation-name -> `(op1, CRn, CRm, op2)`.
-#[inline]
-fn ic_fields(name: &str) -> Option<(u32, u32, u32, u32)> {
-    let t = match name {
-        "ialluis" => (0, 7, 1, 0),
-        "iallu" => (0, 7, 5, 0),
-        "ivau" => (3, 7, 5, 1),
-        _ => return None,
-    };
-    Some(t)
-}
-
-/// DC operation-name -> `(op1, CRm, op2)` (CRn is always 7).
-#[inline]
-fn dc_fields(name: &str) -> Option<(u32, u32, u32)> {
-    let t = match name {
-        "ivac" => (0, 6, 1),
-        "isw" => (0, 6, 2),
-        "igvac" => (0, 6, 3),
-        "igsw" => (0, 6, 4),
-        "igdvac" => (0, 6, 5),
-        "igdsw" => (0, 6, 6),
-        "csw" => (0, 10, 2),
-        "cgsw" => (0, 10, 4),
-        "cgdsw" => (0, 10, 6),
-        "cisw" => (0, 14, 2),
-        "cigsw" => (0, 14, 4),
-        "cigdsw" => (0, 14, 6),
-        "zva" => (3, 4, 1),
-        "cvac" => (3, 10, 1),
-        "cgvac" => (3, 10, 3),
-        "cgdvac" => (3, 10, 5),
-        "cvau" => (3, 11, 1),
-        "cvap" => (3, 12, 1),
-        "cgvap" => (3, 12, 3),
-        "cgdvap" => (3, 12, 5),
-        "cvadp" => (3, 13, 1),
-        "cgvadp" => (3, 13, 3),
-        "cgdvadp" => (3, 13, 5),
-        "civac" => (3, 14, 1),
-        "cigvac" => (3, 14, 3),
-        "cigdvac" => (3, 14, 5),
-        _ => return None,
-    };
-    Some(t)
-}
-
-/// AT operation-name -> `(op1, CRm, op2)` (CRn is always 7).
-#[inline]
-fn at_fields(name: &str) -> Option<(u32, u32, u32)> {
-    let t = match name {
-        "s1e1r" => (0, 8, 0),
-        "s1e1w" => (0, 8, 1),
-        "s1e0r" => (0, 8, 2),
-        "s1e0w" => (0, 8, 3),
-        "s1e1rp" => (0, 9, 0),
-        "s1e1wp" => (0, 9, 1),
-        "s1e2r" => (4, 8, 0),
-        "s1e2w" => (4, 8, 1),
-        "s12e1r" => (4, 8, 4),
-        "s12e1w" => (4, 8, 5),
-        "s12e0r" => (4, 8, 6),
-        "s12e0w" => (4, 8, 7),
-        "s1e3r" => (6, 8, 0),
-        "s1e3w" => (6, 8, 1),
-        "s1e2rp" => (4, 9, 0),
-        "s1e2wp" => (4, 9, 1),
-        _ => return None,
-    };
-    Some(t)
-}
-
-/// TLBI operation-name -> `(op1, CRm, op2)` (CRn is always 8).
-#[inline]
-fn tlbi_fields(name: &str) -> Option<(u32, u32, u32)> {
-    let t = match name {
-        // EL1 inner-shareable (CRm==3).
-        "vmalle1is" => (0, 3, 0),
-        "vae1is" => (0, 3, 1),
-        "aside1is" => (0, 3, 2),
-        "vaae1is" => (0, 3, 3),
-        "vale1is" => (0, 3, 5),
-        "vaale1is" => (0, 3, 7),
-        // EL1 (CRm==7).
-        "vmalle1" => (0, 7, 0),
-        "vae1" => (0, 7, 1),
-        "aside1" => (0, 7, 2),
-        "vaae1" => (0, 7, 3),
-        "vale1" => (0, 7, 5),
-        "vaale1" => (0, 7, 7),
-        // EL2 (op1==4).
-        "ipas2e1is" => (4, 0, 1),
-        "ipas2le1is" => (4, 0, 5),
-        "alle2is" => (4, 3, 0),
-        "vae2is" => (4, 3, 1),
-        "alle1is" => (4, 3, 4),
-        "vale2is" => (4, 3, 5),
-        "vmalls12e1is" => (4, 3, 6),
-        "ipas2e1" => (4, 4, 1),
-        "ipas2le1" => (4, 4, 5),
-        "alle2" => (4, 7, 0),
-        "vae2" => (4, 7, 1),
-        "alle1" => (4, 7, 4),
-        "vale2" => (4, 7, 5),
-        "vmalls12e1" => (4, 7, 6),
-        // EL3 (op1==6).
-        "alle3is" => (6, 3, 0),
-        "vae3is" => (6, 3, 1),
-        "vale3is" => (6, 3, 5),
-        "alle3" => (6, 7, 0),
-        "vae3" => (6, 7, 1),
-        "vale3" => (6, 7, 5),
-        _ => return None,
-    };
-    Some(t)
 }
 
 // ---------------------------------------------------------------------------
@@ -1003,12 +974,13 @@ fn enc_sysreg_pair(insn: &Instruction) -> R {
 /// (CRn is always 8) and always carries the pair.
 fn enc_sysp(insn: &Instruction) -> R {
     match insn.mnemonic() {
-        // TLBIP <op>, <Xt>, <Xt+1>: CRn==8, tuple from the TLBI op-name table.
+        // TLBIP <op>, <Xt>, <Xt+1>: tuple from the shared TLBI op-name directory.
         Mnemonic::Tlbip => {
             let name = sysop_name(insn, 0)?;
-            let (op1, crm, op2) = tlbi_fields(name).ok_or(EncodeError::InvalidOperand)?;
+            let t = crate::tables::sysins::lookup_by_name(Mnemonic::Tlbi, name)
+                .ok_or(EncodeError::InvalidOperand)?;
             let rt = reg_pair_base(insn, 1)?;
-            Ok(system_pair_word(0, 0b01, op1, 8, crm, op2, rt))
+            Ok(system_pair_word(0, 0b01, t.op1 as u32, t.crn as u32, t.crm as u32, t.op2 as u32, rt))
         }
         // Canonical SYSP #op1, Cn, Cm, #op2{, <Xt>, <Xt+1>}.
         _ => {
@@ -1183,8 +1155,18 @@ mod tests {
         rt(0xD503223F); // psb csync
         rt(0xD503245F); // bti c
         rt(0xD503241F); // bti
-        rt(0xD50320DF); // hint #6 (DGH)
+        rt(0xD50320DF); // dgh (HINT #6)
         rt(0xD503225F); // tsb csync
+        // T: newer named hints.
+        rt(0xD503227F); // gcsb dsync
+        rt(0xD50322DF); // clrbhb
+        rt(0xD50324FF); // pacm
+        rt(0xD503251F); // chkfeat x16
+        rt(0xD503267F); // shuh ph
+        rt(0xD503265F); // shuh
+        rt(0xD503261F); // stshh keep
+        rt(0xD503263F); // stshh strm
+        rt(0xD503269F); // stcph
         // Barriers.
         rt(0xD5033F9F); // dsb sy
         rt(0xD503369F); // dsb nshst

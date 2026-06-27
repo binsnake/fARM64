@@ -47,6 +47,8 @@ pub fn is_ldst(code: Code) -> bool {
             | LdiappOff | LdiappPost | StilpOff | StilpPre
             | StlrPre32 | StlrPre64 | LdaprPost32 | LdaprPost64
             | LdappPair | LdapPair | StlpPair
+            // FEAT_GCS stores.
+            | Gcsstr | Gcssttr
     ) {
         return true;
     }
@@ -139,6 +141,9 @@ pub fn encode(insn: &Instruction) -> R {
 
         // --- FEAT_LS64 single-copy atomic 64-byte ops. ---
         Ld64b | St64b | St64bv | St64bv0 => enc_ls64(insn),
+
+        // --- FEAT_GCS stores (GCSSTR/GCSSTTR). ---
+        Gcsstr | Gcssttr => enc_gcsstr(insn),
 
         // --- Pointer-authenticated LDRAA/LDRAB. ---
         LdraaOff | LdraaPre | LdrabOff | LdrabPre => enc_pac(insn),
@@ -1836,6 +1841,21 @@ fn enc_ls64(insn: &Instruction) -> R {
         _ => 0b010, // St64bv0
     };
     Ok(atomic_word(3, 0, 0, rs, 1, opc, rn, rt))
+}
+
+/// `GCSSTR`/`GCSSTTR <Xt>, [<Xn|SP>]` (FEAT_GCS) — the inverse of
+/// `decode_gcsstr`. Layout: `11 011001 0 00 11111 000 o(12) 11 Rn Rt`, `word<12>`
+/// selecting `GCSSTR`(0)/`GCSSTTR`(1).
+fn enc_gcsstr(insn: &Instruction) -> R {
+    let o = u32::from(insn.code() == Code::Gcssttr);
+    let rt = reg_num(insn, 0)?;
+    let (rn, imm, _) = mem_imm(insn, 1)?;
+    if imm != 0 {
+        return Err(EncodeError::InvalidImmediate);
+    }
+    // Fixed base `11 011001 0 00 11111 000 _ 11 _____ _____` (word<12> = o).
+    let word = 0xd91f_0000u32 | (o << 12) | (0b11 << 10) | (rn << 5) | rt;
+    Ok(word)
 }
 
 // ---------------------------------------------------------------------------

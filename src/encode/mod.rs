@@ -203,10 +203,13 @@ fn is_branch_sys(code: Code) -> bool {
         // Unconditional branch (register) + PAuth.
             | Br | Blr | Ret | Eret | Drps | Braaz | Brabz | Blraaz | Blrabz | Braa | Brab
             | Blraa | Blrab | Retaa | Retab | Eretaa | Eretab
-        // Exception generation.
-            | Svc | Hvc | Smc | Brk | Hlt | Tcancel | Dcps1 | Dcps2 | Dcps3
-        // System: hints.
+        // Exception generation (incl. FEAT_GCS TENTER).
+            | Svc | Hvc | Smc | Brk | Hlt | Tcancel | Tenter | Dcps1 | Dcps2 | Dcps3
+        // System: hints (incl. GCSB/SHUH/STSHH/STCPH/CHKFEAT/DGH/CLRBHB/PACM).
             | Nop | Yield | Wfe | Wfi | Sev | Sevl | Esb | Psb | Csdb | Bti | Tsb | HintGeneric
+            | Gcsb | Shuh | Stshh | Stcph | Chkfeat | Dgh | Clrbhb | Pacm
+        // System: GCS stack-maintenance ops (SYS/SYSL forms).
+            | Gcspushm | Gcspopm | Gcsss1 | Gcsss2 | Gcspushx | Gcspopx | Gcspopcx
         // System: WFET/WFIT.
             | Wfet | Wfit
         // System: barriers.

@@ -106,4 +106,37 @@ pub(crate) static SYSOP_NAMES: &[&str] = &[
     "vmalls12e1", "alle3is", "vae3is", "vale3is", "alle3", "vae3", "vale3",
     // K4: TCHANGE `nb` (no-barrier) modifier keyword.
     "nb",
+    // T: GCS / hint operand keywords (`gcsb dsync`, `shuh ph`, `stshh keep|strm`).
+    "dsync", "ph", "keep", "strm",
+    // T: newer TLBI/DC/AT ops (OS/NXS/range/GPT), PLBI, GIC/GICR, MLBI, COSP, and
+    // the GICR read-side op-names. Swept from the LLVM oracle.
+    "alle1isnxs", "alle1nxs", "alle1os", "alle1osnxs", "alle2isnxs", "alle2nxs", "alle2os", "alle2osnxs",
+    "alle3isnxs", "alle3nxs", "alle3os", "alle3osnxs", "aside1isnxs", "aside1nxs", "aside1os", "aside1osnxs",
+    "cdaff", "cddi", "cddis", "cden", "cdeoi", "cdhm", "cdia", "cdnmia",
+    "cdpend", "cdpri", "cdrcfg", "cgdvaoc", "cigdpae", "cigdpapa", "cigdvaoc", "cigdvaps",
+    "cipae", "cipapa", "civaoc", "civaps", "cvaoc", "gbva", "gva",
+    "gzva", "ipas2e1isnxs", "ipas2e1nxs", "ipas2e1os", "ipas2e1osnxs", "ipas2le1isnxs", "ipas2le1nxs", "ipas2le1os",
+    "ipas2le1osnxs", "ldaff", "lddi", "lddis", "lden", "ldhm", "ldpend",
+    "ldpri", "ldrcfg", "paall", "paallnxs", "paallos", "paallosnxs", "permae1", "permae1is",
+    "permae1isnxs", "permae1nxs", "permae1os", "permae1osnxs", "perme1", "perme1is", "perme1isnxs", "perme1nxs",
+    "perme1os", "perme1osnxs", "perme2", "perme2is", "perme2isnxs", "perme2nxs", "perme2os", "perme2osnxs",
+    "perme3", "perme3is", "perme3isnxs", "perme3nxs", "perme3os", "perme3osnxs", "ripas2e1",
+    "ripas2e1is", "ripas2e1isnxs", "ripas2e1nxs", "ripas2e1os", "ripas2e1osnxs", "ripas2le1", "ripas2le1is", "ripas2le1isnxs",
+    "ripas2le1nxs", "ripas2le1os", "ripas2le1osnxs", "rpalos", "rpalosnxs", "rpaos", "rpaosnxs", "rvaae1",
+    "rvaae1is", "rvaae1isnxs", "rvaae1nxs", "rvaae1os", "rvaae1osnxs", "rvaale1", "rvaale1is", "rvaale1isnxs",
+    "rvaale1nxs", "rvaale1os", "rvaale1osnxs", "rvae1", "rvae1is", "rvae1isnxs", "rvae1nxs", "rvae1os",
+    "rvae1osnxs", "rvae2", "rvae2is", "rvae2isnxs", "rvae2nxs", "rvae2os", "rvae2osnxs", "rvae3",
+    "rvae3is", "rvae3isnxs", "rvae3nxs", "rvae3os", "rvae3osnxs", "rvale1", "rvale1is", "rvale1isnxs",
+    "rvale1nxs", "rvale1os", "rvale1osnxs", "rvale2", "rvale2is", "rvale2isnxs", "rvale2nxs", "rvale2os",
+    "rvale2osnxs", "rvale3", "rvale3is", "rvale3isnxs", "rvale3nxs", "rvale3os", "rvale3osnxs", "s1e1a",
+    "s1e2a", "s1e3a", "vaae1isnxs", "vaae1nxs", "vaae1os", "vaae1osnxs", "vaale1isnxs",
+    "vaale1nxs", "vaale1os", "vaale1osnxs", "vae1isnxs", "vae1nxs", "vae1os", "vae1osnxs", "vae2isnxs",
+    "vae2nxs", "vae2os", "vae2osnxs", "vae3isnxs", "vae3nxs", "vae3os", "vae3osnxs", "vale1isnxs",
+    "vale1nxs", "vale1os", "vale1osnxs", "vale2isnxs", "vale2nxs", "vale2os", "vale2osnxs", "vale3isnxs",
+    "vale3nxs", "vale3os", "vale3osnxs", "vdaff", "vddi", "vddis", "vden", "vdhm",
+    "vdpend", "vdpri", "vdrcfg", "vmalle1isnxs", "vmalle1nxs", "vmalle1os", "vmalle1osnxs", "vmalls12e1isnxs",
+    "vmalls12e1nxs", "vmalls12e1os", "vmalls12e1osnxs", "vmallws2e1", "vmallws2e1is", "vmallws2e1isnxs", "vmallws2e1nxs", "vmallws2e1os",
+    "vmallws2e1osnxs", "vpide1", "vpmge1", "zgbva",
+    // T: GSB (GICv5 stream barrier) and BRB (branch-record buffer) op-names.
+    "sys", "ack", "iall", "inj",
 ];

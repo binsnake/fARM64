@@ -1,5 +1,21 @@
 # fARM64 — Remaining extensions / gaps (next-session handoff)
 
+## Beyond-LLVM system completion + TME/TEV (batch T, commit `ea47197`)
+After reaching LLVM parity, the remaining work was **extensions LLVM itself doesn't fully assemble**
+(found via the ARM docs, not the LLVM oracle):
+- **FEAT_TME** — `TSTART`/`TTEST`/`TCOMMIT`/`TCANCEL`: LLVM 22 **dropped** TME (its assembler doesn't
+  recognise the mnemonics), so fARM64 is correctly *more complete*. Verified complete + correct this
+  session (the 10 `tcancel` "over-decodes" in the LLVM differential are this LLVM limitation, not bugs).
+- **FEAT_TEV** — `TENTER #imm{, nb}`: added (`Feature::Tev`); `imm16<6:0>`=imm, `<12>`=nb, `<15:13>`/`<11:7>`
+  RES0 (fixed an initial over-decode that accepted the whole field).
+- **System region (0xD4/0xD5)** now names every ARM-defined system instruction, going BEYOND LLVM where
+  ARM defines ops LLVM renders generically: TLBI/DC/AT newer ops (`*OS`/`*NXS`/range/GPT, OCCMO, MEC,
+  ATS1A), **PLBI**, **GICv5** (`GIC`/`GICR`), **MLBI**, **APAS** (RME), **GCS** (full incl. `gcsstr`/
+  `gcssttr`), **TRCIT**, **COSP**, hints (`chkfeat`/`shuh`/`dgh`/`clrbhb`/`pacm`/`stshh`), `xaflag`/`axflag`.
+- Verified: full 614k random survey GAPS=0 / over-decode=10 (all `tcancel`); exhaustive HINT space (128)
+  and 0xD4/0xD5 sweep both GAPS=0 / OVERDECODE=0 (excl. the TME limitation).
+
+---
 Snapshot after the **G + extra + H** extension batches (2026-06-26). The §1 GAP worklist from the
 previous handoff is essentially closed; this revision records what landed and re-prioritises the
 remaining tail from a **fresh LLVM-22 differential survey** (`clang -c .inst` + `llvm-objdump

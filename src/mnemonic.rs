@@ -2855,6 +2855,14 @@ codes! {
     Retabsppc => Retabsppc, PauthLr, "`RETABSPPC <label>` (FEAT_PAuth_LR PC-relative return, key B).";
     Autiasppc => Autiasppc, PauthLr, "`AUTIASPPC <label>` (FEAT_PAuth_LR PC-relative authenticate LR, key A).";
     Autibsppc => Autibsppc, PauthLr, "`AUTIBSPPC <label>` (FEAT_PAuth_LR PC-relative authenticate LR, key B).";
+    Paciasppc => Paciasppc, PauthLr, "`PACIASPPC` (FEAT_PAuth_LR, sign LR using SP, key A, no offset).";
+    Pacibsppc => Pacibsppc, PauthLr, "`PACIBSPPC` (FEAT_PAuth_LR, sign LR using SP, key B, no offset).";
+    Pacnbiasppc => Pacnbiasppc, PauthLr, "`PACNBIASPPC` (FEAT_PAuth_LR, sign LR using SP without branch, key A).";
+    Pacnbibsppc => Pacnbibsppc, PauthLr, "`PACNBIBSPPC` (FEAT_PAuth_LR, sign LR using SP without branch, key B).";
+    Autiasppcr => Autiasppcr, PauthLr, "`AUTIASPPCR <Xm>` (FEAT_PAuth_LR authenticate LR, register modifier, key A).";
+    Autibsppcr => Autibsppcr, PauthLr, "`AUTIBSPPCR <Xm>` (FEAT_PAuth_LR authenticate LR, register modifier, key B).";
+    Retaasppcr => Retaasppcr, PauthLr, "`RETAASPPCR <Xm>` (FEAT_PAuth_LR return, register modifier, key A).";
+    Retabsppcr => Retabsppcr, PauthLr, "`RETABSPPCR <Xm>` (FEAT_PAuth_LR return, register modifier, key B).";
 
     // --- SME outer-product additional predicated forms (H2) ---
     // BFloat16 non-widening (FEAT_SME_B16B16): BMOPA/BMOPS `.s` and BFMOPA/BFMOPS `.h`.
@@ -6542,6 +6550,22 @@ pub enum Mnemonic {
     Autiasppc,
     /// `AUTIBSPPC` (FEAT_PAuth_LR PC-relative authenticate LR, key B).
     Autibsppc,
+    /// `PACIASPPC` (FEAT_PAuth_LR sign LR using SP, key A, no offset).
+    Paciasppc,
+    /// `PACIBSPPC` (FEAT_PAuth_LR sign LR using SP, key B, no offset).
+    Pacibsppc,
+    /// `PACNBIASPPC` (FEAT_PAuth_LR sign LR using SP without branch, key A).
+    Pacnbiasppc,
+    /// `PACNBIBSPPC` (FEAT_PAuth_LR sign LR using SP without branch, key B).
+    Pacnbibsppc,
+    /// `AUTIASPPCR <Xm>` (FEAT_PAuth_LR authenticate LR, register modifier, key A).
+    Autiasppcr,
+    /// `AUTIBSPPCR <Xm>` (FEAT_PAuth_LR authenticate LR, register modifier, key B).
+    Autibsppcr,
+    /// `RETAASPPCR <Xm>` (FEAT_PAuth_LR return, register modifier, key A).
+    Retaasppcr,
+    /// `RETABSPPCR <Xm>` (FEAT_PAuth_LR return, register modifier, key B).
+    Retabsppcr,
     // --- SME outer-product BFloat16 + 4-source MOP4 mnemonics (H2) ---
     /// `BMOPA` (SME BFloat16 outer product, accumulate).
     Bmopa,
@@ -7718,6 +7742,14 @@ mod tests {
         Code::AmxGenlut,
         Code::Genter,
         Code::Gexit,
+        Code::Paciasppc,
+        Code::Pacibsppc,
+        Code::Pacnbiasppc,
+        Code::Pacnbibsppc,
+        Code::Autiasppcr,
+        Code::Autibsppcr,
+        Code::Retaasppcr,
+        Code::Retabsppcr,
     ];
 
     #[test]

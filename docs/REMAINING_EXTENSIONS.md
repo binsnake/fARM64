@@ -1,5 +1,35 @@
 # fARM64 — Remaining extensions / gaps (next-session handoff)
 
+## Extension-completeness audit + FEAT_PAuth_LR gap closure (batch V)
+A multi-agent audit (independent ARM-spec enumeration grounded in
+`clang --print-supported-extensions` vs a fARM64 catalog grep, then per-extension
+adversarial verification against the LLVM oracle) checked **24 candidate extensions**,
+prioritising the 2024–2025 Armv9.6-A additions a mid-2024-parity disassembler would
+most plausibly miss: **FEAT_CMPBR** (CB/CBB/CBH compare-and-branch), **FEAT_LSUI**,
+NEON **FEAT_LUT**, **FEAT_SME_TMOP**, **FEAT_SME2p2**, **FEAT_SVE2p2**, **FEAT_SVE_AES2**,
+FP8 (FMA/DOT2/DOT4), **FEAT_FPRCVT**, **FEAT_LSFE**, **FEAT_CPA**, **FEAT_FAMINMAX**,
+**FEAT_OCCMO**/**FEAT_PoPS** (DC ops), etc. **Result: 0 real gaps** — every extension the
+local LLVM (clang 22.1.6) can assemble is already decoded+encoded by fARM64, round-tripping
+byte-for-byte.
+
+The audit surfaced **one genuine within-feature hole**, now fixed: **FEAT_PAuth_LR** was
+missing 8 forms that LLVM assembles but fARM64 left `Invalid` (the PC-relative `*SPPC <label>`
+siblings were present; these were not):
+- `PACIASPPC` (`DAC1A3FE`), `PACIBSPPC` (`DAC1A7FE`), `PACNBIASPPC` (`DAC183FE`),
+  `PACNBIBSPPC` (`DAC187FE`) — DP-1-source, no operand (implicit LR dest / SP source).
+- `AUTIASPPCR <Xm>` (`DAC1905E`), `AUTIBSPPCR <Xm>` (`DAC1945E`) — DP-1-source, Xm in `Rn`.
+- `RETAASPPCR <Xm>` (`D65F0BE2`), `RETABSPPCR <Xm>` (`D65F0FE2`) — branch-register, Xm in `op4`.
+
+Added decode (`dp_reg.rs` + `branch_sys.rs`) + encode + 8 `Code`/`Mnemonic` rows (gated
+`PauthLr`) + `tests/pauth_lr_sppc.rs`. A focused differential over **both** affected encoding
+slots (full `op4`/`Rn` sweeps + reserved neighbours, 135 words) shows **0 over-decode / 0 gap /
+0 mnemonic-diff** vs LLVM.
+
+**Not oracle-validatable (out of scope):** **FEAT_LS64WB** (Armv9.6-A writeback LS64) — the local
+clang 22.1.6 doesn't implement it either (`--print-supported-extensions` lists only `ls64`), so it
+can't be differentially checked; genuinely absent on both sides. Bleeding-edge Armv9.7 drops
+(SVE2p3/SME2p3/F16F32MM/…) are catalogued but not all individually round-tripped this pass.
+
 ## Apple IMPLEMENTATION-DEFINED instructions — AMX + GXF (batch U)
 The first instructions in fARM64 that are **not Arm-architectural at all** and are **not decodable by
 any LLVM/Binary-Ninja oracle** — they are Apple vendor opcodes, decoded from public reverse-engineering

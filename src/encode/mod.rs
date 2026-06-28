@@ -171,6 +171,8 @@ fn is_dp_reg(code: Code) -> bool {
             | PaciaDp | PacibDp | PacdaDp | PacdbDp | AutiaDp | AutibDp | AutdaDp | AutdbDp
             | PacizaDp | PacizbDp | PacdzaDp | PacdzbDp | AutizaDp | AutizbDp | AutdzaDp
             | AutdzbDp | XpaciDp | XpacdDp
+        // Data-processing (1 source) — FEAT_PAuth_LR (no-offset PAC + register AUT).
+            | Paciasppc | Pacibsppc | Pacnbiasppc | Pacnbibsppc | Autiasppcr | Autibsppcr
     )
 }
 
@@ -205,6 +207,8 @@ fn is_branch_sys(code: Code) -> bool {
         // Unconditional branch (register) + PAuth.
             | Br | Blr | Ret | Eret | Drps | Braaz | Brabz | Blraaz | Blrabz | Braa | Brab
             | Blraa | Blrab | Retaa | Retab | Eretaa | Eretab
+        // FEAT_PAuth_LR register-modifier returns.
+            | Retaasppcr | Retabsppcr
         // Exception generation (incl. FEAT_GCS TENTER).
             | Svc | Hvc | Smc | Brk | Hlt | Tcancel | Tenter | Dcps1 | Dcps2 | Dcps3
         // System: hints (incl. GCSB/SHUH/STSHH/STCPH/CHKFEAT/DGH/CLRBHB/PACM).

@@ -393,6 +393,7 @@ fn decode_uncond_branch_reg(word: u32, features: FeatureSet, out: &mut Instructi
     }
 
     let pauth = features.has(Feature::PAuth);
+    let pauthlr = features.has(Feature::PauthLr);
 
     match (opc, op3, op4) {
         // BR <Xn>
@@ -435,6 +436,17 @@ fn decode_uncond_branch_reg(word: u32, features: FeatureSet, out: &mut Instructi
         }
         (0b0010, 0b000011, 0b11111) if pauth && rn == 0b11111 => {
             out.set(Code::Retab);
+        }
+        // RETAASPPCR/RETABSPPCR <Xm> (FEAT_PAuth_LR): same as RETAA/RETAB but the
+        // op4 field holds the modifier register `Xm` instead of the `11111` that
+        // selects the implicit-SP RETAA/RETAB (handled above).
+        (0b0010, 0b000010, _) if pauthlr && rn == 0b11111 && op4 != 0b11111 => {
+            out.set(Code::Retaasppcr);
+            out.push_operand(xreg(false, op4));
+        }
+        (0b0010, 0b000011, _) if pauthlr && rn == 0b11111 && op4 != 0b11111 => {
+            out.set(Code::Retabsppcr);
+            out.push_operand(xreg(false, op4));
         }
         // ERET / ERETAA / ERETAB (Rn==11111).
         (0b0100, 0b000000, 0b00000) if rn == 0b11111 => {

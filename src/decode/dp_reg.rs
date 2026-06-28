@@ -1038,8 +1038,38 @@ fn decode_dp_1source_pauth(
     features: FeatureSet,
     out: &mut Instruction,
 ) {
-    // PAuth DP forms are 64-bit only and gated on FEAT_PAuth.
-    if sf != 1 || !features.has(Feature::PAuth) {
+    // PAuth DP forms are 64-bit only.
+    if sf != 1 {
+        return;
+    }
+
+    // FEAT_PAuth_LR forms in this same `opcode2 == 00001` slot (opcode<5> == 1):
+    // the no-offset `PACI*SPPC`/`PACNBI*SPPC` (implicit LR dest `Rd==11110`, SP
+    // source `Rn==11111`, no operands) and `AUTI*SPPCR <Xm>` (modifier in `Rn`,
+    // implicit LR dest `Rd==11110`). Not in the Arm ARM 8.x; gated on FEAT_PAuth_LR.
+    if features.has(Feature::PauthLr) && rd == 30 {
+        let lr_code = match (opcode, rn) {
+            (0b101000, 31) => Some(Code::Paciasppc),
+            (0b101001, 31) => Some(Code::Pacibsppc),
+            (0b100000, 31) => Some(Code::Pacnbiasppc),
+            (0b100001, 31) => Some(Code::Pacnbibsppc),
+            (0b100100, _) => Some(Code::Autiasppcr),
+            (0b100101, _) => Some(Code::Autibsppcr),
+            _ => None,
+        };
+        if let Some(code) = lr_code {
+            out.set(code);
+            // The AUTI*SPPCR forms carry the modifier register; the PAC* forms
+            // have no operands (LR/SP are implicit).
+            if matches!(code, Code::Autiasppcr | Code::Autibsppcr) {
+                out.push_operand(reg(false, RegWidth::X64, rn));
+            }
+            return;
+        }
+    }
+
+    // The remaining (FEAT_PAuth) PAC*/AUT*/XPAC* forms are gated on FEAT_PAuth.
+    if !features.has(Feature::PAuth) {
         return;
     }
 

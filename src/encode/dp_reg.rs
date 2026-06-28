@@ -86,7 +86,10 @@ pub fn encode(insn: &Instruction) -> R {
         }
         PaciaDp | PacibDp | PacdaDp | PacdbDp | AutiaDp | AutibDp | AutdaDp | AutdbDp
         | PacizaDp | PacizbDp | PacdzaDp | PacdzbDp | AutizaDp | AutizbDp | AutdzaDp
-        | AutdzbDp | XpaciDp | XpacdDp => enc_dp_1source_pauth(insn),
+        | AutdzbDp | XpaciDp | XpacdDp
+        | Paciasppc | Pacibsppc | Pacnbiasppc | Pacnbibsppc | Autiasppcr | Autibsppcr => {
+            enc_dp_1source_pauth(insn)
+        }
         _ => Err(EncodeError::Unsupported),
     }
 }
@@ -821,6 +824,29 @@ fn enc_dp_1source_basic(insn: &Instruction) -> R {
 fn enc_dp_1source_pauth(insn: &Instruction) -> R {
     use Code::*;
     let code = insn.code();
+
+    // FEAT_PAuth_LR forms: implicit LR destination (`Rd == 11110`); `Rn` is the
+    // SP (`11111`) for the no-operand `PAC*SPPC` forms, or the modifier `Xm` for
+    // `AUTI*SPPCR <Xm>`. `opcode2 == 00001` (set below), opcode<5> == 1.
+    if let Some((opcode, rn)) = match code {
+        Paciasppc => Some((0b101000u32, 31u32)),
+        Pacibsppc => Some((0b101001, 31)),
+        Pacnbiasppc => Some((0b100000, 31)),
+        Pacnbibsppc => Some((0b100001, 31)),
+        Autiasppcr => Some((0b100100, reg_num(insn, 0)?)),
+        Autibsppcr => Some((0b100101, reg_num(insn, 0)?)),
+        _ => None,
+    } {
+        let word = (1u32 << 31)
+            | (1 << 30)
+            | (0b11010110 << 21)
+            | (1 << 16)
+            | (opcode << 10)
+            | (rn << 5)
+            | 0b11110;
+        return Ok(word);
+    }
+
     let (opcode, z) = match code {
         PaciaDp => (0b000000u32, false),
         PacibDp => (0b000001, false),

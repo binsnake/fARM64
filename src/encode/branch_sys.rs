@@ -64,7 +64,7 @@ pub fn encode(insn: &Instruction) -> R {
         Tbz | Tbnz => enc_test_branch(insn),
         // Unconditional branch (register).
         Br | Blr | Ret | Eret | Drps | Braaz | Brabz | Blraaz | Blrabz | Braa | Brab | Blraa
-        | Blrab | Retaa | Retab | Eretaa | Eretab => enc_branch_reg(insn),
+        | Blrab | Retaa | Retab | Eretaa | Eretab | Retaasppcr | Retabsppcr => enc_branch_reg(insn),
         // Exception generation (incl. the FEAT_GCS TENTER).
         Svc | Hvc | Smc | Brk | Hlt | Tcancel | Tenter | Dcps1 | Dcps2 | Dcps3 => {
             enc_exception(insn)
@@ -435,6 +435,9 @@ fn enc_branch_reg(insn: &Instruction) -> R {
         // RETAA/RETAB/ERETAA/ERETAB: Rn == 11111, Rm(op4) == 11111.
         Retaa => (0b0010, 0b000010, 0b11111, 0b11111),
         Retab => (0b0010, 0b000011, 0b11111, 0b11111),
+        // RETAASPPCR/RETABSPPCR <Xm> (FEAT_PAuth_LR): op4 holds the modifier Xm.
+        Retaasppcr => (0b0010, 0b000010, 0b11111, reg_num(insn, 0)?),
+        Retabsppcr => (0b0010, 0b000011, 0b11111, reg_num(insn, 0)?),
         Eretaa => (0b0100, 0b000010, 0b11111, 0b11111),
         Eretab => (0b0100, 0b000011, 0b11111, 0b11111),
         // BRAA/BRAB/BLRAA/BLRAB <Xn>, <Xm|SP>: op4 holds Xm.

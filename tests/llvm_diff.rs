@@ -1,20 +1,21 @@
 //! LLVM-differential discovery + validation harness for fARM64.
 //!
-//! The binja corpus reached 100% parity, so it is exhausted as an oracle. This
-//! test uses **LLVM 21** (`llvm-mc --disassemble`) as the oracle to discover
-//! which A64 encodings LLVM decodes that fARM64 still returns `Invalid` for —
-//! the prioritized list that drives new-extension implementation work.
+//! The fixed Binary Ninja corpus remains useful for regression testing, but it
+//! does not cover every architectural extension and contains known rendering
+//! differences. This test uses `llvm-mc --disassemble` (developed against LLVM
+//! 21) as an independent discovery oracle for A64 encodings LLVM accepts that
+//! fARM64 still returns `Invalid` for.
 //!
 //! It is a **report-only** sweep: it NEVER hard-fails on a decode difference
 //! (only on harness/IO bugs), and it does not touch any decode/encode logic.
 //!
 //! ## Oracle invocation
 //!
-//! llvm-objdump in LLVM 21 cannot ingest a headerless raw blob (no `-b binary`),
-//! so we use `llvm-mc --disassemble --triple=aarch64 --mattr=+all`, which reads
+//! The supported `llvm-objdump` workflow cannot ingest this headerless raw blob,
+//! so the harness uses `llvm-mc --disassemble --triple=aarch64 --mattr=+all`, which reads
 //! a stream of `0xNN,0xNN,0xNN,0xNN` lines from stdin and disassembles the whole
-//! batch in ONE process. `--mattr=+all` enables every extension the installed
-//! LLVM 21 supports (verified to accept SVE/SME/MOPS/CSSC/... encodings).
+//! batch in ONE process. `--mattr=+all` enables the extensions supported by the
+//! installed LLVM build.
 //! Aliases are left ON (no `-M no-aliases`) so output matches our preferred
 //! disassembly style; the comparison is lenient (valid-vs-invalid + first-token).
 //!
@@ -55,7 +56,8 @@ const ADDRESS: u64 = 0x8000_0000_0000_0004;
 // Oracle discovery
 // ---------------------------------------------------------------------------
 
-/// Default `llvm-mc` locations to probe (the user's install is at LLVM21).
+/// Known LLVM 21 installation paths followed by executable names resolved via
+/// `PATH`.
 const LLVM_MC_CANDIDATES: &[&str] = &[
     "C:/Program Files/LLVM21/bin/llvm-mc.exe",
     "C:/Program Files/LLVM21/bin/llvm-mc",
@@ -116,7 +118,10 @@ fn pick_mattr(exe: &str) -> String {
             .spawn()
             .and_then(|mut c| {
                 let b = probe_word.to_le_bytes();
-                let line = format!("0x{:02x},0x{:02x},0x{:02x},0x{:02x}\n", b[0], b[1], b[2], b[3]);
+                let line = format!(
+                    "0x{:02x},0x{:02x},0x{:02x},0x{:02x}\n",
+                    b[0], b[1], b[2], b[3]
+                );
                 c.stdin.take().unwrap().write_all(line.as_bytes())?;
                 c.wait_with_output()
             });
@@ -199,7 +204,10 @@ fn llvm_disasm_chunk(exe: &str, mattr_arg: &str, words: &[u32]) -> Vec<Option<St
         // `<stdin>:LINE:COL: warning: invalid instruction encoding`
         if let Some(rest) = line.strip_prefix("<stdin>:") {
             if line.contains("invalid instruction encoding") {
-                if let Some(num) = rest.split(':').next().and_then(|n| n.trim().parse::<usize>().ok())
+                if let Some(num) = rest
+                    .split(':')
+                    .next()
+                    .and_then(|n| n.trim().parse::<usize>().ok())
                 {
                     if num >= 1 && num <= words.len() {
                         invalid[num - 1] = true;
@@ -303,12 +311,25 @@ fn build_sample(cap: usize) -> Vec<u32> {
 
     // Loads/stores: op0 = x1x0 (0100/0110/1100/1110). MOPS (CPY*/SET*), LSE128
     // (LDCLRP/LDSETP/SWPP), RCPC3 (LDAPUR/STLUR SIMD), LS64 live here.
-    for top in [0x1900_0000u32, 0x1D00_0000, 0x3800_0000, 0x3900_0000, 0x7800_0000,
-                0x7900_0000, 0xB800_0000, 0xB900_0000, 0xF800_0000, 0xF900_0000,
-                0x4800_0000, 0x0800_0000, 0xC800_0000,
-                // FEAT_THE unprivileged translation-enhanced pairs (opc=11, V=0):
-                // LDTP/STTP/LDTNP/STTNP live at 0xE8.. (load/store-pair, no SIMD).
-                0xE800_0000, 0xE900_0000] {
+    for top in [
+        0x1900_0000u32,
+        0x1D00_0000,
+        0x3800_0000,
+        0x3900_0000,
+        0x7800_0000,
+        0x7900_0000,
+        0xB800_0000,
+        0xB900_0000,
+        0xF800_0000,
+        0xF900_0000,
+        0x4800_0000,
+        0x0800_0000,
+        0xC800_0000,
+        // FEAT_THE unprivileged translation-enhanced pairs (opc=11, V=0):
+        // LDTP/STTP/LDTNP/STTNP live at 0xE8.. (load/store-pair, no SIMD).
+        0xE800_0000,
+        0xE900_0000,
+    ] {
         sweep(&mut words, top, 0x00FF_FFFF, 70_000, &mut rng);
     }
     // MOPS specifically: 0001_1001_... CPYP/SETP family base 0x19xxxxxx with
@@ -377,7 +398,10 @@ fn build_sample(cap: usize) -> Vec<u32> {
 
 /// First whitespace-separated token of a disassembly line, lowercased.
 fn first_token(s: &str) -> String {
-    s.split_whitespace().next().unwrap_or("").to_ascii_lowercase()
+    s.split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
 }
 
 /// A per-mnemonic bucket: count + one representative example.
@@ -425,7 +449,11 @@ fn llvm_diff() {
 
     eprintln!("[llvm_diff] disassembling with LLVM (batched) ...");
     let llvm = llvm_disasm_batch(&exe, &mattr, &words);
-    assert_eq!(llvm.len(), words.len(), "llvm result count must match sample");
+    assert_eq!(
+        llvm.len(),
+        words.len(),
+        "llvm result count must match sample"
+    );
 
     eprintln!("[llvm_diff] decoding with fARM64 (FeatureSet::ALL) ...");
 
@@ -471,10 +499,11 @@ fn llvm_diff() {
                 if !farm_invalid {
                     // REVERSE: fARM64 decodes, LLVM calls it invalid.
                     reverse_count += 1;
-                    reverses
-                        .entry(farm_mnem.to_string())
-                        .or_default()
-                        .record(word, "<llvm-invalid>", farm_mnem);
+                    reverses.entry(farm_mnem.to_string()).or_default().record(
+                        word,
+                        "<llvm-invalid>",
+                        farm_mnem,
+                    );
                 }
             }
         }
@@ -489,22 +518,41 @@ fn llvm_diff() {
     }
     if let Ok(mut f) = std::fs::File::create(&out_path) {
         let _ = writeln!(f, "# fARM64 vs LLVM 21 differential discovery sweep");
-        let _ = writeln!(f, "# oracle: {exe} --disassemble --triple=aarch64 --mattr={mattr}");
+        let _ = writeln!(
+            f,
+            "# oracle: {exe} --disassemble --triple=aarch64 --mattr={mattr}"
+        );
         let _ = writeln!(f, "# sample size (de-duped): {}", words.len());
         let _ = writeln!(f, "# llvm-valid: {llvm_valid}  farm64-valid: {farm_valid}");
-        let _ = writeln!(f, "# gaps: {gap_count}  disagreements: {disagree_count}  reverse: {reverse_count}");
+        let _ = writeln!(
+            f,
+            "# gaps: {gap_count}  disagreements: {disagree_count}  reverse: {reverse_count}"
+        );
         let _ = writeln!(f);
 
-        let _ = writeln!(f, "## (a) GAPS — LLVM decodes, fARM64 returns Invalid (by LLVM mnemonic)");
+        let _ = writeln!(
+            f,
+            "## (a) GAPS — LLVM decodes, fARM64 returns Invalid (by LLVM mnemonic)"
+        );
         let _ = writeln!(f, "# count\tmnemonic\texample_word\tllvm_text");
         for (m, b) in top(&gaps, 200) {
-            let ex = b.example.as_ref().map(|(w, t, _)| format!("{w:08X}\t{t}")).unwrap_or_default();
+            let ex = b
+                .example
+                .as_ref()
+                .map(|(w, t, _)| format!("{w:08X}\t{t}"))
+                .unwrap_or_default();
             let _ = writeln!(f, "{}\t{m}\t{ex}", b.count);
         }
         let _ = writeln!(f);
 
-        let _ = writeln!(f, "## (b) DISAGREEMENTS — both decode, first token differs (by fARM64 mnemonic)");
-        let _ = writeln!(f, "# count\tfarm64_mnem\texample_word\tllvm_text\tfarm64_mnem");
+        let _ = writeln!(
+            f,
+            "## (b) DISAGREEMENTS — both decode, first token differs (by fARM64 mnemonic)"
+        );
+        let _ = writeln!(
+            f,
+            "# count\tfarm64_mnem\texample_word\tllvm_text\tfarm64_mnem"
+        );
         for (m, b) in top(&disagrees, 200) {
             let ex = b
                 .example
@@ -515,10 +563,17 @@ fn llvm_diff() {
         }
         let _ = writeln!(f);
 
-        let _ = writeln!(f, "## (c) REVERSE — fARM64 decodes, LLVM Invalid (by fARM64 mnemonic)");
+        let _ = writeln!(
+            f,
+            "## (c) REVERSE — fARM64 decodes, LLVM Invalid (by fARM64 mnemonic)"
+        );
         let _ = writeln!(f, "# count\tfarm64_mnem\texample_word");
         for (m, b) in top(&reverses, 200) {
-            let ex = b.example.as_ref().map(|(w, _, _)| format!("{w:08X}")).unwrap_or_default();
+            let ex = b
+                .example
+                .as_ref()
+                .map(|(w, _, _)| format!("{w:08X}"))
+                .unwrap_or_default();
             let _ = writeln!(f, "{}\t{m}\t{ex}", b.count);
         }
     }
@@ -556,7 +611,11 @@ fn llvm_diff() {
     eprintln!("---------------------------------------------------");
     eprintln!("TOP REVERSE (fARM64 over-decodes vs LLVM):");
     for (m, b) in top(&reverses, 20) {
-        let ex = b.example.as_ref().map(|(w, _, _)| format!("{w:08X}")).unwrap_or_default();
+        let ex = b
+            .example
+            .as_ref()
+            .map(|(w, _, _)| format!("{w:08X}"))
+            .unwrap_or_default();
         eprintln!("  {:>8}  {:<16} e.g. {ex}", b.count, m);
     }
     eprintln!("===================================================");
@@ -571,7 +630,11 @@ fn llvm_diff() {
 #[test]
 fn sample_is_large_and_deduped() {
     let words = build_sample(200_000);
-    assert!(words.len() > 50_000, "sample should be substantial: {}", words.len());
+    assert!(
+        words.len() > 50_000,
+        "sample should be substantial: {}",
+        words.len()
+    );
     // De-dup invariant: sorted + unique.
     let mut sorted = words.clone();
     sorted.sort_unstable();

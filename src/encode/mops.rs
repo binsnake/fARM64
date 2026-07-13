@@ -9,7 +9,7 @@
 //! [0 0 0 1 1][o][0 1][ op1 ][ Rn ][ op2 ][0 1][ Rs ][ Rd ]
 //! ```
 //!
-//! where `(o, op1, op2)` come from [`mops_fields`] and `Rn`/`Rs`/`Rd` from the
+//! where `(o, op1, op2)` come from `mops_fields` and `Rn`/`Rs`/`Rd` from the
 //! operands (see [`crate::decode::mops`] for the per-family operand order).
 
 use crate::encode::EncodeError;

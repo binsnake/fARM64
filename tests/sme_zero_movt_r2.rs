@@ -41,10 +41,26 @@ fn norm(s: &str) -> String {
 /// Decode, assert disasm == `expected`, and prove a bit-exact encode round-trip.
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
@@ -54,7 +70,10 @@ fn is_invalid(word: u32) -> bool {
 
 fn without(fs: FeatureSet, f: Feature) -> FeatureSet {
     let bit = f as u32;
-    FeatureSet { features0: fs.features0 & !(1u64 << bit), features1: fs.features1 & !(1u64 << bit) }
+    FeatureSet {
+        features0: fs.features0 & !(1u64 << bit),
+        features1: fs.features1 & !(1u64 << bit),
+    }
 }
 
 // ===========================================================================
@@ -111,7 +130,10 @@ fn zero_zt0_example() {
     // Every neighbour is UNDEFINED.
     assert!(is_invalid(0xC0480000), "ZT0 zero <0>=0 should be Invalid");
     assert!(is_invalid(0xC0480003), "ZT0 zero <1>=1 should be Invalid");
-    assert!(is_invalid(0xC04800FF), "ZT0 zero mask bits should be Invalid");
+    assert!(
+        is_invalid(0xC04800FF),
+        "ZT0 zero mask bits should be Invalid"
+    );
 }
 
 #[test]
@@ -148,14 +170,26 @@ fn zero_array_examples() {
 fn zero_array_reserved_fields() {
     // `word<12:3>` are RES0.
     assert!(is_invalid(0xC00C0008), "ZERO array <3>=1 should be Invalid");
-    assert!(is_invalid(0xC00C1000), "ZERO array <12>=1 should be Invalid");
+    assert!(
+        is_invalid(0xC00C1000),
+        "ZERO array <12>=1 should be Invalid"
+    );
     // `word<22:20>` RES0.
-    assert!(is_invalid(0xC01C0000), "ZERO array <20>=1 should be Invalid");
+    assert!(
+        is_invalid(0xC01C0000),
+        "ZERO array <20>=1 should be Invalid"
+    );
     // Out-of-range field for the narrow shapes: span-4 vgx4 allows fld 0..=1,
     // so fld==2 (`word<2:0>==2`) is UNDEFINED.
-    assert!(is_invalid(0xC00F8002), "ZERO array span4/vgx4 fld=2 should be Invalid");
+    assert!(
+        is_invalid(0xC00F8002),
+        "ZERO array span4/vgx4 fld=2 should be Invalid"
+    );
     // span-2 vgx2 allows fld 0..=3, so fld==4 is UNDEFINED.
-    assert!(is_invalid(0xC00D0004), "ZERO array span2/vgx2 fld=4 should be Invalid");
+    assert!(
+        is_invalid(0xC00D0004),
+        "ZERO array span2/vgx2 fld=4 should be Invalid"
+    );
 }
 
 #[test]
@@ -198,14 +232,26 @@ fn movt_gp_load_examples() {
 #[test]
 fn movt_reserved_fields() {
     // `word<11:5> == 0x1F` is fixed for every MOVT skeleton.
-    assert!(is_invalid(0xC04F01E0), "MOVT <11:5>!=0x1F should be Invalid");
-    assert!(is_invalid(0xC04F07E0), "MOVT <11:5>!=0x1F should be Invalid");
+    assert!(
+        is_invalid(0xC04F01E0),
+        "MOVT <11:5>!=0x1F should be Invalid"
+    );
+    assert!(
+        is_invalid(0xC04F07E0),
+        "MOVT <11:5>!=0x1F should be Invalid"
+    );
     // Z-form: `word<15:14>` RES0 (index is only 2 bits).
     assert!(is_invalid(0xC04F43E0), "MOVT Z <14>=1 should be Invalid");
     assert!(is_invalid(0xC04F83E0), "MOVT Z <15>=1 should be Invalid");
     // GP forms: `word<15>` RES0.
-    assert!(is_invalid(0xC04E83E0), "MOVT GP-store <15>=1 should be Invalid");
-    assert!(is_invalid(0xC04C83E0), "MOVT GP-load <15>=1 should be Invalid");
+    assert!(
+        is_invalid(0xC04E83E0),
+        "MOVT GP-store <15>=1 should be Invalid"
+    );
+    assert!(
+        is_invalid(0xC04C83E0),
+        "MOVT GP-load <15>=1 should be Invalid"
+    );
     // `word<17:16> == 01` is unallocated (no `0x4D` MOVT row).
     assert!(is_invalid(0xC04D03E0), "MOVT <17:16>=01 should be Invalid");
 }
@@ -228,7 +274,12 @@ fn zero_mask_roundtrip_all_256() {
     for m in 0u32..=0xFF {
         let word = 0xC0080000 | m;
         let insn = decode(word, 0, FeatureSet::ALL);
-        assert!(!insn.is_invalid(), "{:08X} (mask {:#04x}) should decode", word, m);
+        assert!(
+            !insn.is_invalid(),
+            "{:08X} (mask {:#04x}) should decode",
+            word,
+            m
+        );
         assert_eq!(encode(&insn).unwrap(), word, "mask {:#04x} round-trip", m);
     }
 }
@@ -241,7 +292,12 @@ fn movt_roundtrip_sweep() {
             let word = 0xC04F03E0 | (idx << 12) | zt;
             let insn = decode(word, 0, FeatureSet::ALL);
             assert!(!insn.is_invalid(), "{:08X} MOVT-Z should decode", word);
-            assert_eq!(encode(&insn).unwrap(), word, "{:08X} MOVT-Z round-trip", word);
+            assert_eq!(
+                encode(&insn).unwrap(),
+                word,
+                "{:08X} MOVT-Z round-trip",
+                word
+            );
         }
     }
     // GP forms: off field 0..=7 (byte 0..56), Xt 0..=31, both directions.
@@ -251,7 +307,12 @@ fn movt_roundtrip_sweep() {
                 let word = base | (off << 12) | xt;
                 let insn = decode(word, 0, FeatureSet::ALL);
                 assert!(!insn.is_invalid(), "{:08X} MOVT-GP should decode", word);
-                assert_eq!(encode(&insn).unwrap(), word, "{:08X} MOVT-GP round-trip", word);
+                assert_eq!(
+                    encode(&insn).unwrap(),
+                    word,
+                    "{:08X} MOVT-GP round-trip",
+                    word
+                );
             }
         }
     }
@@ -279,7 +340,12 @@ fn zero_array_roundtrip_sweep() {
                 let word = 0xC00C0000 | (sel << 15) | (ws << 13) | fld;
                 let insn = decode(word, 0, FeatureSet::ALL);
                 assert!(!insn.is_invalid(), "{:08X} ZERO-array should decode", word);
-                assert_eq!(encode(&insn).unwrap(), word, "{:08X} ZERO-array round-trip", word);
+                assert_eq!(
+                    encode(&insn).unwrap(),
+                    word,
+                    "{:08X} ZERO-array round-trip",
+                    word
+                );
                 count += 1;
             }
         }

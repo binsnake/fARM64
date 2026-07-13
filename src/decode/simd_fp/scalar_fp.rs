@@ -19,7 +19,7 @@ use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::Code;
 use crate::operand::Operand;
-use crate::register::{gp_register, Register, RegWidth};
+use crate::register::{gp_register, RegWidth, Register};
 
 // ---------------------------------------------------------------------------
 // Small operand/precision helpers.
@@ -319,8 +319,8 @@ fn decode_fprcvt(
         return false;
     }
     let int_p = int_holder_prec(sf); // only ever S or D.
-    // The FP value precision and the integer-holder precision must differ
-    // (same-width pairs are UNALLOCATED in this slot).
+                                     // The FP value precision and the integer-holder precision must differ
+                                     // (same-width pairs are UNALLOCATED in this slot).
     if p == int_p {
         return false;
     }
@@ -658,7 +658,11 @@ pub fn decode_floatccmp(word: u32, features: FeatureSet, out: &mut Instruction) 
         return;
     }
 
-    let code = if op == 1 { fccmpe_code(p) } else { fccmp_code(p) };
+    let code = if op == 1 {
+        fccmpe_code(p)
+    } else {
+        fccmp_code(p)
+    };
     out.set(code);
     out.push_operand(fp_reg(p, rn));
     out.push_operand(fp_reg(p, rm));
@@ -848,28 +852,140 @@ fn v_d1(n: u32) -> Operand {
 // Contiguous register banks (indexed 0..=31). These mirror the append-only
 // discriminant order in `crate::register::Register`.
 const H_BANK: [Register; 32] = [
-    Register::H0, Register::H1, Register::H2, Register::H3, Register::H4, Register::H5, Register::H6, Register::H7,
-    Register::H8, Register::H9, Register::H10, Register::H11, Register::H12, Register::H13, Register::H14, Register::H15,
-    Register::H16, Register::H17, Register::H18, Register::H19, Register::H20, Register::H21, Register::H22, Register::H23,
-    Register::H24, Register::H25, Register::H26, Register::H27, Register::H28, Register::H29, Register::H30, Register::H31,
+    Register::H0,
+    Register::H1,
+    Register::H2,
+    Register::H3,
+    Register::H4,
+    Register::H5,
+    Register::H6,
+    Register::H7,
+    Register::H8,
+    Register::H9,
+    Register::H10,
+    Register::H11,
+    Register::H12,
+    Register::H13,
+    Register::H14,
+    Register::H15,
+    Register::H16,
+    Register::H17,
+    Register::H18,
+    Register::H19,
+    Register::H20,
+    Register::H21,
+    Register::H22,
+    Register::H23,
+    Register::H24,
+    Register::H25,
+    Register::H26,
+    Register::H27,
+    Register::H28,
+    Register::H29,
+    Register::H30,
+    Register::H31,
 ];
 const S_BANK: [Register; 32] = [
-    Register::S0, Register::S1, Register::S2, Register::S3, Register::S4, Register::S5, Register::S6, Register::S7,
-    Register::S8, Register::S9, Register::S10, Register::S11, Register::S12, Register::S13, Register::S14, Register::S15,
-    Register::S16, Register::S17, Register::S18, Register::S19, Register::S20, Register::S21, Register::S22, Register::S23,
-    Register::S24, Register::S25, Register::S26, Register::S27, Register::S28, Register::S29, Register::S30, Register::S31,
+    Register::S0,
+    Register::S1,
+    Register::S2,
+    Register::S3,
+    Register::S4,
+    Register::S5,
+    Register::S6,
+    Register::S7,
+    Register::S8,
+    Register::S9,
+    Register::S10,
+    Register::S11,
+    Register::S12,
+    Register::S13,
+    Register::S14,
+    Register::S15,
+    Register::S16,
+    Register::S17,
+    Register::S18,
+    Register::S19,
+    Register::S20,
+    Register::S21,
+    Register::S22,
+    Register::S23,
+    Register::S24,
+    Register::S25,
+    Register::S26,
+    Register::S27,
+    Register::S28,
+    Register::S29,
+    Register::S30,
+    Register::S31,
 ];
 const D_BANK: [Register; 32] = [
-    Register::D0, Register::D1, Register::D2, Register::D3, Register::D4, Register::D5, Register::D6, Register::D7,
-    Register::D8, Register::D9, Register::D10, Register::D11, Register::D12, Register::D13, Register::D14, Register::D15,
-    Register::D16, Register::D17, Register::D18, Register::D19, Register::D20, Register::D21, Register::D22, Register::D23,
-    Register::D24, Register::D25, Register::D26, Register::D27, Register::D28, Register::D29, Register::D30, Register::D31,
+    Register::D0,
+    Register::D1,
+    Register::D2,
+    Register::D3,
+    Register::D4,
+    Register::D5,
+    Register::D6,
+    Register::D7,
+    Register::D8,
+    Register::D9,
+    Register::D10,
+    Register::D11,
+    Register::D12,
+    Register::D13,
+    Register::D14,
+    Register::D15,
+    Register::D16,
+    Register::D17,
+    Register::D18,
+    Register::D19,
+    Register::D20,
+    Register::D21,
+    Register::D22,
+    Register::D23,
+    Register::D24,
+    Register::D25,
+    Register::D26,
+    Register::D27,
+    Register::D28,
+    Register::D29,
+    Register::D30,
+    Register::D31,
 ];
 const V_BANK: [Register; 32] = [
-    Register::V0, Register::V1, Register::V2, Register::V3, Register::V4, Register::V5, Register::V6, Register::V7,
-    Register::V8, Register::V9, Register::V10, Register::V11, Register::V12, Register::V13, Register::V14, Register::V15,
-    Register::V16, Register::V17, Register::V18, Register::V19, Register::V20, Register::V21, Register::V22, Register::V23,
-    Register::V24, Register::V25, Register::V26, Register::V27, Register::V28, Register::V29, Register::V30, Register::V31,
+    Register::V0,
+    Register::V1,
+    Register::V2,
+    Register::V3,
+    Register::V4,
+    Register::V5,
+    Register::V6,
+    Register::V7,
+    Register::V8,
+    Register::V9,
+    Register::V10,
+    Register::V11,
+    Register::V12,
+    Register::V13,
+    Register::V14,
+    Register::V15,
+    Register::V16,
+    Register::V17,
+    Register::V18,
+    Register::V19,
+    Register::V20,
+    Register::V21,
+    Register::V22,
+    Register::V23,
+    Register::V24,
+    Register::V25,
+    Register::V26,
+    Register::V27,
+    Register::V28,
+    Register::V29,
+    Register::V30,
+    Register::V31,
 ];
 
 // ---------------------------------------------------------------------------

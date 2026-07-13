@@ -22,9 +22,9 @@
 //!   integer and fixed-point, 1/2/3-source FP data-processing, compares,
 //!   conditional compare/select and the FP immediate move.
 //! * [`simd_arith`] — Advanced SIMD arithmetic (three-same / three-different /
-//!   pairwise / across-lanes / scalar variants). Currently a compiling stub.
+//!   pairwise / across-lanes / by-element / scalar variants).
 //! * [`simd_data`] — Advanced SIMD data-movement (permute / table / copy /
-//!   modified-immediate / shift-by-immediate / extract). Currently a stub.
+//!   modified-immediate / shift-by-immediate / extract).
 //!
 //! Modified-immediate helpers live in [`crate::decode::bits`]
 //! ([`adv_simd_expand_imm`](crate::decode::bits::adv_simd_expand_imm),
@@ -123,10 +123,9 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
     }
 
     // ---- Advanced SIMD rows. ----------------------------------------------
-    // The detailed SIMD classification is owned by the two SIMD sub-decoders
-    // (filled in by later agents). Route by the coarse scalar-vs-vector bit
-    // (`word<28>`, op0<0>) so each sub-decoder sees its own slice; both are
-    // currently compiling stubs that leave `out` invalid.
+    // The detailed SIMD classification is owned by the two SIMD sub-decoders.
+    // Their opcode regions overlap at this coarse level, so try arithmetic
+    // first and then data movement if no arithmetic form claimed the word.
     let _ = bit(word, 28);
     simd_arith::decode(word, ip, features, out);
     if out.is_invalid() {

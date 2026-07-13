@@ -45,10 +45,23 @@ fn assert_roundtrip(word: u32) {
     assert!(!insn.is_invalid(), "{word:08X} decoded Invalid");
     let enc = encode(&insn)
         .unwrap_or_else(|e| panic!("{word:08X} ({}) encode error {e:?}", insn.mnemonic().name()));
-    assert_eq!(enc, word, "{word:08X} ({}) re-encoded to {enc:08X}", insn.mnemonic().name());
+    assert_eq!(
+        enc,
+        word,
+        "{word:08X} ({}) re-encoded to {enc:08X}",
+        insn.mnemonic().name()
+    );
     let insn2 = decode(enc, 0x1000, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{word:08X} mnemonic drift");
-    assert_eq!(insn.op_count(), insn2.op_count(), "{word:08X} operand-count drift");
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{word:08X} mnemonic drift"
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{word:08X} operand-count drift"
+    );
 }
 
 /// `(word, expected disassembly)` pairs — the LLVM oracle renderings.
@@ -196,7 +209,10 @@ fn reserved_neighbours_invalid() {
         0x654C2113,
     ];
     for &w in &reserved {
-        assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{w:08X} must be Invalid");
+        assert!(
+            decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{w:08X} must be Invalid"
+        );
     }
 }
 
@@ -219,7 +235,10 @@ fn fp8_families_gated_on_fp8() {
     ];
     for &w in &fp8_words {
         assert!(decode(w, 0, base).is_invalid(), "{w:08X} must need Fp8");
-        assert!(!decode(w, 0, with_fp8).is_invalid(), "{w:08X} should decode with Fp8");
+        assert!(
+            !decode(w, 0, with_fp8).is_invalid(),
+            "{w:08X} should decode with Fp8"
+        );
     }
 }
 
@@ -234,10 +253,20 @@ fn int_to_fp_gated_on_sve2p3() {
         .with(Feature::Fp8)
         .with(Feature::Fp16);
     let with_p3 = base.with(Feature::Sve2p3);
-    let words = [0x654C3113u32, 0x654C3513, 0x654C3913, 0x654C3D13, 0x658C3113, 0x65CC3113];
+    let words = [
+        0x654C3113u32,
+        0x654C3513,
+        0x654C3913,
+        0x654C3D13,
+        0x658C3113,
+        0x65CC3113,
+    ];
     for &w in &words {
         assert!(decode(w, 0, base).is_invalid(), "{w:08X} must need Sve2p3");
-        assert!(!decode(w, 0, with_p3).is_invalid(), "{w:08X} should decode with Sve2p3");
+        assert!(
+            !decode(w, 0, with_p3).is_invalid(),
+            "{w:08X} should decode with Sve2p3"
+        );
     }
 }
 
@@ -284,11 +313,7 @@ fn sme_narrow_roundtrip_exhaustive() {
         for interleave in [0u32, 1] {
             for zn in (0u32..32).step_by(2) {
                 for zd in 0u32..32 {
-                    let w = 0xc120_e000
-                        | (size << 22)
-                        | ((zn / 2) << 6)
-                        | (interleave << 5)
-                        | zd;
+                    let w = 0xc120_e000 | (size << 22) | ((zn / 2) << 6) | (interleave << 5) | zd;
                     assert_roundtrip(w);
                 }
             }
@@ -316,7 +341,10 @@ fn sme_widen_roundtrip_exhaustive() {
 #[test]
 fn sme_reserved_neighbours_invalid() {
     for &w in &[0xC1E0E000u32, 0xC1E0E060] {
-        assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{w:08X} must be Invalid");
+        assert!(
+            decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{w:08X} must be Invalid"
+        );
     }
 }
 
@@ -329,11 +357,20 @@ fn sme_f16f16_gating() {
     let with_f16 = sme2_only.with(Feature::SmeF16f16);
     // Plain narrow FCVT / BFCVT: decode with SME2 alone.
     for &w in &[0xC120E000u32, 0xC160E000] {
-        assert!(!decode(w, 0, sme2_only).is_invalid(), "{w:08X} should decode with Sme2");
+        assert!(
+            !decode(w, 0, sme2_only).is_invalid(),
+            "{w:08X} should decode with Sme2"
+        );
     }
     // Interleaving narrow + widen: need SmeF16f16.
     for &w in &[0xC120E060u32, 0xC160E060, 0xC1A0E000, 0xC1A0E003] {
-        assert!(decode(w, 0, sme2_only).is_invalid(), "{w:08X} must need SmeF16f16");
-        assert!(!decode(w, 0, with_f16).is_invalid(), "{w:08X} should decode with SmeF16f16");
+        assert!(
+            decode(w, 0, sme2_only).is_invalid(),
+            "{w:08X} must need SmeF16f16"
+        );
+        assert!(
+            !decode(w, 0, with_f16).is_invalid(),
+            "{w:08X} should decode with SmeF16f16"
+        );
     }
 }

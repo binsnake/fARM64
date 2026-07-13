@@ -1,8 +1,8 @@
 //! SVE / SVE2 memory (load / store / prefetch) encodings.
 //!
 //! Hand-written from the *ARM Architecture Reference Manual* SVE encoding index
-//! and validated against the differential corpus (100% parity on the SVE memory
-//! groups). This module owns the SVE contiguous / gather / scatter loads and
+//! and cross-checked against the differential corpus's SVE memory cases. This
+//! module owns the SVE contiguous / gather / scatter loads and
 //! stores, the replicating (`LD1RQ`/`LD1RO`) and broadcast (`LD1R*`) loads, the
 //! first-fault (`LDFF1*`) / non-fault (`LDNF1*`) loads, the non-temporal
 //! (`LDNT1*`/`STNT1*`) forms (including the SVE2 vector-base gather/scatter
@@ -20,7 +20,7 @@
 //! carried by [`Operand::SveMem`] (and [`Operand::MemExt`] for scalar+scalar).
 //!
 //! Code identity follows the established convention: one [`Code`] per family +
-//! addressing [`Form`] (`Sve<Mnem><Form>`); the [`Mnemonic`] is carried by the
+//! addressing `Form` (`Sve<Mnem><Form>`); the [`Mnemonic`] is carried by the
 //! code. Every path is total and panic-free; unallocated encodings are left
 //! [`Code::Invalid`].
 
@@ -31,21 +31,63 @@ use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::{Code, Mnemonic};
 use crate::operand::{Operand, PredQual, SveMemMode};
-use crate::register::{gp_register, Register, RegWidth};
+use crate::register::{gp_register, RegWidth, Register};
 
 // ---------------------------------------------------------------------------
 // Register-bank tables.
 // ---------------------------------------------------------------------------
 
 const Z: [Register; 32] = [
-    Register::Z0, Register::Z1, Register::Z2, Register::Z3, Register::Z4, Register::Z5, Register::Z6, Register::Z7,
-    Register::Z8, Register::Z9, Register::Z10, Register::Z11, Register::Z12, Register::Z13, Register::Z14, Register::Z15,
-    Register::Z16, Register::Z17, Register::Z18, Register::Z19, Register::Z20, Register::Z21, Register::Z22, Register::Z23,
-    Register::Z24, Register::Z25, Register::Z26, Register::Z27, Register::Z28, Register::Z29, Register::Z30, Register::Z31,
+    Register::Z0,
+    Register::Z1,
+    Register::Z2,
+    Register::Z3,
+    Register::Z4,
+    Register::Z5,
+    Register::Z6,
+    Register::Z7,
+    Register::Z8,
+    Register::Z9,
+    Register::Z10,
+    Register::Z11,
+    Register::Z12,
+    Register::Z13,
+    Register::Z14,
+    Register::Z15,
+    Register::Z16,
+    Register::Z17,
+    Register::Z18,
+    Register::Z19,
+    Register::Z20,
+    Register::Z21,
+    Register::Z22,
+    Register::Z23,
+    Register::Z24,
+    Register::Z25,
+    Register::Z26,
+    Register::Z27,
+    Register::Z28,
+    Register::Z29,
+    Register::Z30,
+    Register::Z31,
 ];
 const P: [Register; 16] = [
-    Register::P0, Register::P1, Register::P2, Register::P3, Register::P4, Register::P5, Register::P6, Register::P7,
-    Register::P8, Register::P9, Register::P10, Register::P11, Register::P12, Register::P13, Register::P14, Register::P15,
+    Register::P0,
+    Register::P1,
+    Register::P2,
+    Register::P3,
+    Register::P4,
+    Register::P5,
+    Register::P6,
+    Register::P7,
+    Register::P8,
+    Register::P9,
+    Register::P10,
+    Register::P11,
+    Register::P12,
+    Register::P13,
+    Register::P14,
+    Register::P15,
 ];
 
 /// The SVE addressing [`Operand::SveMem`] / [`Code`] form selector.
@@ -65,9 +107,9 @@ enum Form {
     Vs,
 }
 
-/// The [`Code`] for a (mnemonic, addressing form) pair. Generated from the
-/// same family table that produced the `Sve*` code rows in `mnemonic.rs`;
-/// unallocated pairs fall back to [`Code::Invalid`].
+/// The [`Code`] for a (mnemonic, addressing form) pair. This mapping mirrors the
+/// committed `Sve*` code rows in `mnemonic.rs`; unallocated pairs fall back to
+/// [`Code::Invalid`].
 fn code_for(m: Mnemonic, form: Form) -> Code {
     match (m, form) {
         (Mnemonic::Ld1b, Form::Imm) => Code::SveLd1bImm,
@@ -295,69 +337,163 @@ fn code_for(m: Mnemonic, form: Form) -> Code {
 /// Element arrangement (`.b`/.h`/.s`/.d`) from a 2-bit size code.
 #[inline]
 fn esz(size: u32) -> VA {
-    match size & 3 { 0 => VA::Sb, 1 => VA::Sh, 2 => VA::Ss, _ => VA::Sd }
+    match size & 3 {
+        0 => VA::Sb,
+        1 => VA::Sh,
+        2 => VA::Ss,
+        _ => VA::Sd,
+    }
 }
 
 #[inline]
 fn pg_z(n: u32) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: Some(PredQual::Zeroing) }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: Some(PredQual::Zeroing),
+    }
 }
 #[inline]
 fn pg_plain(n: u32) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 #[inline]
 fn zlist(zt: u32, nreg: u8, a: VA) -> Operand {
     let mut regs = [Register::None; 4];
     let n = nreg.min(4);
     let mut i = 0u32;
-    while i < n as u32 { regs[i as usize] = Z[((zt + i) & 0x1f) as usize]; i += 1; }
-    Operand::MultiReg { regs, count: n, arr: Some(a), lane: None }
+    while i < n as u32 {
+        regs[i as usize] = Z[((zt + i) & 0x1f) as usize];
+        i += 1;
+    }
+    Operand::MultiReg {
+        regs,
+        count: n,
+        arr: Some(a),
+        lane: None,
+    }
 }
 #[inline]
 fn zbare(n: u32) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 #[inline]
 fn pbare(n: u32) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 // --- SVE addressing operands ---------------------------------------------
 
 #[inline]
 fn m_mulvl(rn: u32, imm: i32) -> Operand {
-    Operand::SveMem { base: gp_register(true, RegWidth::X64, rn as u8), offset: Register::None, arr: None, extend: ExtendType::Uxtx, imm, amount: 0, mode: SveMemMode::ScalarImmMulVl }
+    Operand::SveMem {
+        base: gp_register(true, RegWidth::X64, rn as u8),
+        offset: Register::None,
+        arr: None,
+        extend: ExtendType::Uxtx,
+        imm,
+        amount: 0,
+        mode: SveMemMode::ScalarImmMulVl,
+    }
 }
 #[inline]
 fn m_imm_hex(rn: u32, imm: i32) -> Operand {
-    Operand::SveMem { base: gp_register(true, RegWidth::X64, rn as u8), offset: Register::None, arr: None, extend: ExtendType::Uxtx, imm, amount: 0, mode: SveMemMode::ScalarImm }
+    Operand::SveMem {
+        base: gp_register(true, RegWidth::X64, rn as u8),
+        offset: Register::None,
+        arr: None,
+        extend: ExtendType::Uxtx,
+        imm,
+        amount: 0,
+        mode: SveMemMode::ScalarImm,
+    }
 }
 #[inline]
 fn m_imm_dec(rn: u32, imm: i32) -> Operand {
-    Operand::SveMem { base: gp_register(true, RegWidth::X64, rn as u8), offset: Register::None, arr: None, extend: ExtendType::Uxtx, imm, amount: 0, mode: SveMemMode::ScalarImmDec }
+    Operand::SveMem {
+        base: gp_register(true, RegWidth::X64, rn as u8),
+        offset: Register::None,
+        arr: None,
+        extend: ExtendType::Uxtx,
+        imm,
+        amount: 0,
+        mode: SveMemMode::ScalarImmDec,
+    }
 }
 /// `[Xn, Xm{, lsl #amt}]` via [`Operand::MemExt`] (S-bit packed so the
 /// formatter shows `lsl #amt` iff `amt != 0`).
 #[inline]
 fn m_ss(rn: u32, rm: u32, amt: u8) -> Operand {
     let shift = if amt != 0 { 0x80 | amt } else { 0 };
-    Operand::MemExt { base: gp_register(true, RegWidth::X64, rn as u8), index: gp_register(false, RegWidth::X64, rm as u8), extend: ExtendType::Uxtx, shift }
+    Operand::MemExt {
+        base: gp_register(true, RegWidth::X64, rn as u8),
+        index: gp_register(false, RegWidth::X64, rm as u8),
+        extend: ExtendType::Uxtx,
+        shift,
+    }
 }
 /// `[Xn, Zm.T{, <mod> #amt}]`; `amount == 0xFF` suppresses the `#amt`.
 #[inline]
 fn m_xz(rn: u32, zm: u32, a: VA, ext: ExtendType, amount: u8) -> Operand {
-    Operand::SveMem { base: gp_register(true, RegWidth::X64, rn as u8), offset: Z[(zm & 0x1f) as usize], arr: Some(a), extend: ext, imm: 0, amount, mode: SveMemMode::ScalarVec }
+    Operand::SveMem {
+        base: gp_register(true, RegWidth::X64, rn as u8),
+        offset: Z[(zm & 0x1f) as usize],
+        arr: Some(a),
+        extend: ext,
+        imm: 0,
+        amount,
+        mode: SveMemMode::ScalarVec,
+    }
 }
 /// `[Zn.T{, #imm}]`.
 #[inline]
 fn m_vi(zn: u32, a: VA, imm: i32) -> Operand {
-    Operand::SveMem { base: Z[(zn & 0x1f) as usize], offset: Register::None, arr: Some(a), extend: ExtendType::Uxtx, imm, amount: 0, mode: SveMemMode::VecImm }
+    Operand::SveMem {
+        base: Z[(zn & 0x1f) as usize],
+        offset: Register::None,
+        arr: Some(a),
+        extend: ExtendType::Uxtx,
+        imm,
+        amount: 0,
+        mode: SveMemMode::VecImm,
+    }
 }
 /// `[Zn.T, Xm]`.
 #[inline]
 fn m_vs(zn: u32, a: VA, rm: u32) -> Operand {
-    Operand::SveMem { base: Z[(zn & 0x1f) as usize], offset: gp_register(false, RegWidth::X64, rm as u8), arr: Some(a), extend: ExtendType::Uxtx, imm: 0, amount: 0, mode: SveMemMode::VecScalar }
+    Operand::SveMem {
+        base: Z[(zn & 0x1f) as usize],
+        offset: gp_register(false, RegWidth::X64, rm as u8),
+        arr: Some(a),
+        extend: ExtendType::Uxtx,
+        imm: 0,
+        amount: 0,
+        mode: SveMemMode::VecScalar,
+    }
 }
 
 /// Resolve the gather/scatter modifier + amount. `xs` selects `Sxtw`(1)/`Uxtw`(0)
@@ -366,7 +502,13 @@ fn m_vs(zn: u32, a: VA, rm: u32) -> Operand {
 /// otherwise `0xFF` suppresses it (matching the corpus, which omits `#0x0`).
 #[inline]
 fn gmod(xs: u32, packed: bool, scaled: bool, amt: u32) -> (ExtendType, u8) {
-    let ext = if packed { ExtendType::Uxtx } else if xs == 1 { ExtendType::Sxtw } else { ExtendType::Uxtw };
+    let ext = if packed {
+        ExtendType::Uxtx
+    } else if xs == 1 {
+        ExtendType::Sxtw
+    } else {
+        ExtendType::Uxtw
+    };
     let amount = if scaled && amt != 0 { amt as u8 } else { 0xFF };
     (ext, amount)
 }
@@ -378,19 +520,38 @@ fn gmod(xs: u32, packed: bool, scaled: bool, amt: u32) -> (ExtendType, u8) {
 /// Contiguous LOAD dtype table (`word<24:21>`) -> (mnemonic, element arrangement).
 fn load_dtype(dt: u32) -> (Mnemonic, VA) {
     match dt & 0xf {
-        0 => (Mnemonic::Ld1b, VA::Sb), 1 => (Mnemonic::Ld1b, VA::Sh), 2 => (Mnemonic::Ld1b, VA::Ss), 3 => (Mnemonic::Ld1b, VA::Sd),
-        4 => (Mnemonic::Ld1sw, VA::Sd), 5 => (Mnemonic::Ld1h, VA::Sh), 6 => (Mnemonic::Ld1h, VA::Ss), 7 => (Mnemonic::Ld1h, VA::Sd),
-        8 => (Mnemonic::Ld1sh, VA::Sd), 9 => (Mnemonic::Ld1sh, VA::Ss), 10 => (Mnemonic::Ld1w, VA::Ss), 11 => (Mnemonic::Ld1w, VA::Sd),
-        12 => (Mnemonic::Ld1sb, VA::Sd), 13 => (Mnemonic::Ld1sb, VA::Ss), 14 => (Mnemonic::Ld1sb, VA::Sh), _ => (Mnemonic::Ld1d, VA::Sd),
+        0 => (Mnemonic::Ld1b, VA::Sb),
+        1 => (Mnemonic::Ld1b, VA::Sh),
+        2 => (Mnemonic::Ld1b, VA::Ss),
+        3 => (Mnemonic::Ld1b, VA::Sd),
+        4 => (Mnemonic::Ld1sw, VA::Sd),
+        5 => (Mnemonic::Ld1h, VA::Sh),
+        6 => (Mnemonic::Ld1h, VA::Ss),
+        7 => (Mnemonic::Ld1h, VA::Sd),
+        8 => (Mnemonic::Ld1sh, VA::Sd),
+        9 => (Mnemonic::Ld1sh, VA::Ss),
+        10 => (Mnemonic::Ld1w, VA::Ss),
+        11 => (Mnemonic::Ld1w, VA::Sd),
+        12 => (Mnemonic::Ld1sb, VA::Sd),
+        13 => (Mnemonic::Ld1sb, VA::Ss),
+        14 => (Mnemonic::Ld1sb, VA::Sh),
+        _ => (Mnemonic::Ld1d, VA::Sd),
     }
 }
 /// Contiguous STORE dtype table (`word<24:21>`) -> (mnemonic, element); `None` for
 /// the unallocated rows and the `STR` rows (handled separately).
 fn store_dtype(dt: u32) -> Option<(Mnemonic, VA)> {
     Some(match dt & 0xf {
-        0 => (Mnemonic::St1b, VA::Sb), 1 => (Mnemonic::St1b, VA::Sh), 2 => (Mnemonic::St1b, VA::Ss), 3 => (Mnemonic::St1b, VA::Sd),
-        5 => (Mnemonic::St1h, VA::Sh), 6 => (Mnemonic::St1h, VA::Ss), 7 => (Mnemonic::St1h, VA::Sd),
-        10 => (Mnemonic::St1w, VA::Ss), 11 => (Mnemonic::St1w, VA::Sd), 15 => (Mnemonic::St1d, VA::Sd),
+        0 => (Mnemonic::St1b, VA::Sb),
+        1 => (Mnemonic::St1b, VA::Sh),
+        2 => (Mnemonic::St1b, VA::Ss),
+        3 => (Mnemonic::St1b, VA::Sd),
+        5 => (Mnemonic::St1h, VA::Sh),
+        6 => (Mnemonic::St1h, VA::Ss),
+        7 => (Mnemonic::St1h, VA::Sd),
+        10 => (Mnemonic::St1w, VA::Ss),
+        11 => (Mnemonic::St1w, VA::Sd),
+        15 => (Mnemonic::St1d, VA::Sd),
         _ => return None,
     })
 }
@@ -409,10 +570,22 @@ fn lsl_of_mnem(m: Mnemonic) -> u8 {
 /// element-size letter index into the `Ld1{b,h,w,d}`/`Ld1s{b,h,w}` families.
 fn gather_mnem(msz: u32, signed: bool, ff: bool) -> Mnemonic {
     match (msz & 3, signed, ff) {
-        (0, false, false) => Mnemonic::Ld1b, (1, false, false) => Mnemonic::Ld1h, (2, false, false) => Mnemonic::Ld1w, (3, false, false) => Mnemonic::Ld1d,
-        (0, false, true) => Mnemonic::Ldff1b, (1, false, true) => Mnemonic::Ldff1h, (2, false, true) => Mnemonic::Ldff1w, (3, false, true) => Mnemonic::Ldff1d,
-        (0, true, false) => Mnemonic::Ld1sb, (1, true, false) => Mnemonic::Ld1sh, (2, true, false) => Mnemonic::Ld1sw, (3, true, false) => Mnemonic::Ld1d,
-        (0, true, true) => Mnemonic::Ldff1sb, (1, true, true) => Mnemonic::Ldff1sh, (2, true, true) => Mnemonic::Ldff1sw, _ => Mnemonic::Ldff1d,
+        (0, false, false) => Mnemonic::Ld1b,
+        (1, false, false) => Mnemonic::Ld1h,
+        (2, false, false) => Mnemonic::Ld1w,
+        (3, false, false) => Mnemonic::Ld1d,
+        (0, false, true) => Mnemonic::Ldff1b,
+        (1, false, true) => Mnemonic::Ldff1h,
+        (2, false, true) => Mnemonic::Ldff1w,
+        (3, false, true) => Mnemonic::Ldff1d,
+        (0, true, false) => Mnemonic::Ld1sb,
+        (1, true, false) => Mnemonic::Ld1sh,
+        (2, true, false) => Mnemonic::Ld1sw,
+        (3, true, false) => Mnemonic::Ld1d,
+        (0, true, true) => Mnemonic::Ldff1sb,
+        (1, true, true) => Mnemonic::Ldff1sh,
+        (2, true, true) => Mnemonic::Ldff1sw,
+        _ => Mnemonic::Ldff1d,
     }
 }
 /// `true` if a 32-bit-element gather (`.s` destination, `0x84`/`0x85`) load of
@@ -438,42 +611,92 @@ fn gather64_load_reserved(msz: u32, signed: bool) -> bool {
 }
 /// Scatter `ST1{b,h,w,d}` mnemonic by `msz`.
 fn st1_mnem(msz: u32) -> Mnemonic {
-    match msz & 3 { 0 => Mnemonic::St1b, 1 => Mnemonic::St1h, 2 => Mnemonic::St1w, _ => Mnemonic::St1d }
+    match msz & 3 {
+        0 => Mnemonic::St1b,
+        1 => Mnemonic::St1h,
+        2 => Mnemonic::St1w,
+        _ => Mnemonic::St1d,
+    }
 }
 /// `LDNT1{,s}{b,h,w,d}` mnemonic for the vector-base gather.
 fn ldnt1_mnem(msz: u32, signed: bool) -> Mnemonic {
     match (msz & 3, signed) {
-        (0, false) => Mnemonic::Ldnt1b, (1, false) => Mnemonic::Ldnt1h, (2, false) => Mnemonic::Ldnt1w, (3, false) => Mnemonic::Ldnt1d,
-        (0, true) => Mnemonic::Ldnt1sb, (1, true) => Mnemonic::Ldnt1sh, _ => Mnemonic::Ldnt1sw,
+        (0, false) => Mnemonic::Ldnt1b,
+        (1, false) => Mnemonic::Ldnt1h,
+        (2, false) => Mnemonic::Ldnt1w,
+        (3, false) => Mnemonic::Ldnt1d,
+        (0, true) => Mnemonic::Ldnt1sb,
+        (1, true) => Mnemonic::Ldnt1sh,
+        _ => Mnemonic::Ldnt1sw,
     }
 }
 /// `STNT1{b,h,w,d}` mnemonic by `msz`.
 fn stnt1_mnem(msz: u32) -> Mnemonic {
-    match msz & 3 { 0 => Mnemonic::Stnt1b, 1 => Mnemonic::Stnt1h, 2 => Mnemonic::Stnt1w, _ => Mnemonic::Stnt1d }
+    match msz & 3 {
+        0 => Mnemonic::Stnt1b,
+        1 => Mnemonic::Stnt1h,
+        2 => Mnemonic::Stnt1w,
+        _ => Mnemonic::Stnt1d,
+    }
 }
 /// `PRF{b,h,w,d}` mnemonic by size code.
 fn prf_mnem(sz: u32) -> Mnemonic {
-    match sz & 3 { 0 => Mnemonic::Prfb, 1 => Mnemonic::Prfh, 2 => Mnemonic::Prfw, _ => Mnemonic::Prfd }
+    match sz & 3 {
+        0 => Mnemonic::Prfb,
+        1 => Mnemonic::Prfh,
+        2 => Mnemonic::Prfw,
+        _ => Mnemonic::Prfd,
+    }
 }
 /// Structured `LD{2,3,4}{b,h,w,d}` / `ST{2,3,4}{...}` mnemonic for `(nreg, msz)`.
 fn struct_mnem(nreg: u8, msz: u32, store: bool) -> Mnemonic {
     let m = msz & 3;
     match (nreg, store, m) {
-        (2, false, 0) => Mnemonic::Ld2b, (2, false, 1) => Mnemonic::Ld2h, (2, false, 2) => Mnemonic::Ld2w, (2, false, 3) => Mnemonic::Ld2d,
-        (3, false, 0) => Mnemonic::Ld3b, (3, false, 1) => Mnemonic::Ld3h, (3, false, 2) => Mnemonic::Ld3w, (3, false, 3) => Mnemonic::Ld3d,
-        (4, false, 0) => Mnemonic::Ld4b, (4, false, 1) => Mnemonic::Ld4h, (4, false, 2) => Mnemonic::Ld4w, (4, false, 3) => Mnemonic::Ld4d,
-        (2, true, 0) => Mnemonic::St2b, (2, true, 1) => Mnemonic::St2h, (2, true, 2) => Mnemonic::St2w, (2, true, 3) => Mnemonic::St2d,
-        (3, true, 0) => Mnemonic::St3b, (3, true, 1) => Mnemonic::St3h, (3, true, 2) => Mnemonic::St3w, (3, true, 3) => Mnemonic::St3d,
-        (4, true, 0) => Mnemonic::St4b, (4, true, 1) => Mnemonic::St4h, (4, true, 2) => Mnemonic::St4w, _ => Mnemonic::St4d,
+        (2, false, 0) => Mnemonic::Ld2b,
+        (2, false, 1) => Mnemonic::Ld2h,
+        (2, false, 2) => Mnemonic::Ld2w,
+        (2, false, 3) => Mnemonic::Ld2d,
+        (3, false, 0) => Mnemonic::Ld3b,
+        (3, false, 1) => Mnemonic::Ld3h,
+        (3, false, 2) => Mnemonic::Ld3w,
+        (3, false, 3) => Mnemonic::Ld3d,
+        (4, false, 0) => Mnemonic::Ld4b,
+        (4, false, 1) => Mnemonic::Ld4h,
+        (4, false, 2) => Mnemonic::Ld4w,
+        (4, false, 3) => Mnemonic::Ld4d,
+        (2, true, 0) => Mnemonic::St2b,
+        (2, true, 1) => Mnemonic::St2h,
+        (2, true, 2) => Mnemonic::St2w,
+        (2, true, 3) => Mnemonic::St2d,
+        (3, true, 0) => Mnemonic::St3b,
+        (3, true, 1) => Mnemonic::St3h,
+        (3, true, 2) => Mnemonic::St3w,
+        (3, true, 3) => Mnemonic::St3d,
+        (4, true, 0) => Mnemonic::St4b,
+        (4, true, 1) => Mnemonic::St4h,
+        (4, true, 2) => Mnemonic::St4w,
+        _ => Mnemonic::St4d,
     }
 }
 /// LD1R broadcast table (key = `(msz << 3) | op`, `op >= 4`) -> (mnemonic, element).
 fn ld1r_entry(key: u32) -> Option<(Mnemonic, VA)> {
     Some(match key {
-        4 => (Mnemonic::Ld1rb, VA::Sb), 5 => (Mnemonic::Ld1rb, VA::Sh), 6 => (Mnemonic::Ld1rb, VA::Ss), 7 => (Mnemonic::Ld1rb, VA::Sd),
-        12 => (Mnemonic::Ld1rsw, VA::Sd), 13 => (Mnemonic::Ld1rh, VA::Sh), 14 => (Mnemonic::Ld1rh, VA::Ss), 15 => (Mnemonic::Ld1rh, VA::Sd),
-        20 => (Mnemonic::Ld1rsh, VA::Sd), 21 => (Mnemonic::Ld1rsh, VA::Ss), 22 => (Mnemonic::Ld1rw, VA::Ss), 23 => (Mnemonic::Ld1rw, VA::Sd),
-        28 => (Mnemonic::Ld1rsb, VA::Sd), 29 => (Mnemonic::Ld1rsb, VA::Ss), 30 => (Mnemonic::Ld1rsb, VA::Sh), 31 => (Mnemonic::Ld1rd, VA::Sd),
+        4 => (Mnemonic::Ld1rb, VA::Sb),
+        5 => (Mnemonic::Ld1rb, VA::Sh),
+        6 => (Mnemonic::Ld1rb, VA::Ss),
+        7 => (Mnemonic::Ld1rb, VA::Sd),
+        12 => (Mnemonic::Ld1rsw, VA::Sd),
+        13 => (Mnemonic::Ld1rh, VA::Sh),
+        14 => (Mnemonic::Ld1rh, VA::Ss),
+        15 => (Mnemonic::Ld1rh, VA::Sd),
+        20 => (Mnemonic::Ld1rsh, VA::Sd),
+        21 => (Mnemonic::Ld1rsh, VA::Ss),
+        22 => (Mnemonic::Ld1rw, VA::Ss),
+        23 => (Mnemonic::Ld1rw, VA::Sd),
+        28 => (Mnemonic::Ld1rsb, VA::Sd),
+        29 => (Mnemonic::Ld1rsb, VA::Ss),
+        30 => (Mnemonic::Ld1rsb, VA::Sh),
+        31 => (Mnemonic::Ld1rd, VA::Sd),
         _ => return None,
     })
 }
@@ -513,7 +736,17 @@ fn st(out: &mut Instruction, m: Mnemonic, form: Form, a: VA, zt: u32, pg: u32, a
 // Decode-shaped helper: each parameter is a distinct already-decoded field.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn structured(out: &mut Instruction, m: Mnemonic, form: Form, a: VA, zt: u32, nreg: u8, pg: u32, addr: Operand, store: bool) {
+fn structured(
+    out: &mut Instruction,
+    m: Mnemonic,
+    form: Form,
+    a: VA,
+    zt: u32,
+    nreg: u8,
+    pg: u32,
+    addr: Operand,
+    store: bool,
+) {
     out.set(code_for(m, form));
     out.set_mnemonic(m);
     out.push_operand(zlist(zt, nreg, a));
@@ -712,7 +945,15 @@ fn decode_qword_single(word: u32, top: u32, pg: u32, rn: u32, zt: u32, out: &mut
 
 /// Decode the scalar+scalar / scalar+imm tail of a quadword structured form.
 #[inline]
-fn decode_qword_struct(word: u32, nreg: u8, store: bool, pg: u32, rn: u32, zt: u32, out: &mut Instruction) {
+fn decode_qword_struct(
+    word: u32,
+    nreg: u8,
+    store: bool,
+    pg: u32,
+    rn: u32,
+    zt: u32,
+    out: &mut Instruction,
+) {
     let ss_sel = if store { 0b000 } else { 0b100 };
     let imm_sel = if store { 0b000 } else { 0b111 };
     if bit(word, 21) == 1 && bits(word, 13, 3) == ss_sel {
@@ -727,7 +968,10 @@ fn decode_qword_struct(word: u32, nreg: u8, store: bool, pg: u32, rn: u32, zt: u
         out.push_operand(zlist(zt, nreg, VA::Sq));
         out.push_operand(if store { pg_plain(pg) } else { pg_z(pg) });
         out.push_operand(m_ss(rn, rm, 4));
-    } else if bit(word, 21) == 0 && bit(word, 20) == (if store { 0 } else { 1 }) && bits(word, 13, 3) == imm_sel {
+    } else if bit(word, 21) == 0
+        && bit(word, 20) == (if store { 0 } else { 1 })
+        && bits(word, 13, 3) == imm_sel
+    {
         // scalar + imm `[Xn{, #imm, mul vl}]`, imm4 scaled by nreg.
         let i4 = sign_extend(bits(word, 16, 4) as u64, 4) as i32;
         let code = qword_struct_code(nreg, store, false);
@@ -742,13 +986,20 @@ fn decode_qword_struct(word: u32, nreg: u8, store: bool, pg: u32, rn: u32, zt: u
 fn qword_struct_code(nreg: u8, store: bool, ss: bool) -> Code {
     use Code::*;
     match (nreg, store, ss) {
-        (2, false, true) => SveLd2qSs, (2, false, false) => SveLd2qImm,
-        (3, false, true) => SveLd3qSs, (3, false, false) => SveLd3qImm,
-        (4, false, true) => SveLd4qSs, (4, false, false) => SveLd4qImm,
-        (2, true, true) => SveSt2qSs, (2, true, false) => SveSt2qImm,
-        (3, true, true) => SveSt3qSs, (3, true, false) => SveSt3qImm,
-        (_, true, true) => SveSt4qSs, (_, true, false) => SveSt4qImm,
-        (_, false, true) => SveLd4qSs, (_, false, false) => SveLd4qImm,
+        (2, false, true) => SveLd2qSs,
+        (2, false, false) => SveLd2qImm,
+        (3, false, true) => SveLd3qSs,
+        (3, false, false) => SveLd3qImm,
+        (4, false, true) => SveLd4qSs,
+        (4, false, false) => SveLd4qImm,
+        (2, true, true) => SveSt2qSs,
+        (2, true, false) => SveSt2qImm,
+        (3, true, true) => SveSt3qSs,
+        (3, true, false) => SveSt3qImm,
+        (_, true, true) => SveSt4qSs,
+        (_, true, false) => SveSt4qImm,
+        (_, false, true) => SveLd4qSs,
+        (_, false, false) => SveLd4qImm,
     }
 }
 
@@ -792,8 +1043,14 @@ fn decode_contig(word: u32, out: &mut Instruction) {
                     return;
                 }
                 let m = match (b21, msz & 3) {
-                    (0, 0) => Mnemonic::Ld1rqb, (0, 1) => Mnemonic::Ld1rqh, (0, 2) => Mnemonic::Ld1rqw, (0, 3) => Mnemonic::Ld1rqd,
-                    (_, 0) => Mnemonic::Ld1rob, (_, 1) => Mnemonic::Ld1roh, (_, 2) => Mnemonic::Ld1row, _ => Mnemonic::Ld1rod,
+                    (0, 0) => Mnemonic::Ld1rqb,
+                    (0, 1) => Mnemonic::Ld1rqh,
+                    (0, 2) => Mnemonic::Ld1rqw,
+                    (0, 3) => Mnemonic::Ld1rqd,
+                    (_, 0) => Mnemonic::Ld1rob,
+                    (_, 1) => Mnemonic::Ld1roh,
+                    (_, 2) => Mnemonic::Ld1row,
+                    _ => Mnemonic::Ld1rod,
                 };
                 if op == 0 {
                     // scalar + scalar, lsl #msz. `Xm == 31` (xzr) is the
@@ -827,7 +1084,15 @@ fn decode_contig(word: u32, out: &mut Instruction) {
                 }
                 let (m, a) = load_dtype(dtype);
                 let mn = if op == 3 { ff_of(m) } else { m };
-                ld(out, mn, Form::Ss, a, zt, pg, m_ss(rn, rm, lsl_of_mnem(m) as u32 as u8));
+                ld(
+                    out,
+                    mn,
+                    Form::Ss,
+                    a,
+                    zt,
+                    pg,
+                    m_ss(rn, rm, lsl_of_mnem(m) as u32 as u8),
+                );
             }
             5 => {
                 let (m, a) = load_dtype(dtype);
@@ -861,10 +1126,30 @@ fn decode_contig(word: u32, out: &mut Instruction) {
                     let nreg = nr + 1;
                     let m = struct_mnem(nreg, msz, false);
                     if op == 6 {
-                        structured(out, m, Form::Ss, e2, zt, nreg, pg, m_ss(rn, rm, msz as u8), false);
+                        structured(
+                            out,
+                            m,
+                            Form::Ss,
+                            e2,
+                            zt,
+                            nreg,
+                            pg,
+                            m_ss(rn, rm, msz as u8),
+                            false,
+                        );
                     } else {
                         let i4 = sign_extend(bits(word, 16, 4) as u64, 4) as i32;
-                        structured(out, m, Form::Imm, e2, zt, nreg, pg, m_mulvl(rn, i4 * nreg as i32), false);
+                        structured(
+                            out,
+                            m,
+                            Form::Imm,
+                            e2,
+                            zt,
+                            nreg,
+                            pg,
+                            m_mulvl(rn, i4 * nreg as i32),
+                            false,
+                        );
                     }
                 }
             }
@@ -886,7 +1171,15 @@ fn decode_contig(word: u32, out: &mut Instruction) {
                 return;
             }
             if let Some((m, a)) = store_dtype(dtype) {
-                st(out, m, Form::Ss, a, zt, pg, m_ss(rn, rm, lsl_of_mnem(m) as u32 as u8));
+                st(
+                    out,
+                    m,
+                    Form::Ss,
+                    a,
+                    zt,
+                    pg,
+                    m_ss(rn, rm, lsl_of_mnem(m) as u32 as u8),
+                );
             }
         }
         3 => {
@@ -902,7 +1195,17 @@ fn decode_contig(word: u32, out: &mut Instruction) {
             } else {
                 let nreg = nr + 1;
                 let m = struct_mnem(nreg, msz, true);
-                structured(out, m, Form::Ss, e2, zt, nreg, pg, m_ss(rn, rm, msz as u8), true);
+                structured(
+                    out,
+                    m,
+                    Form::Ss,
+                    e2,
+                    zt,
+                    nreg,
+                    pg,
+                    m_ss(rn, rm, msz as u8),
+                    true,
+                );
             }
         }
         7 => {
@@ -922,7 +1225,17 @@ fn decode_contig(word: u32, out: &mut Instruction) {
                 } else {
                     let nreg = nr + 1;
                     let m = struct_mnem(nreg, msz, true);
-                    structured(out, m, Form::Imm, e2, zt, nreg, pg, m_mulvl(rn, i4 * nreg as i32), true);
+                    structured(
+                        out,
+                        m,
+                        Form::Imm,
+                        e2,
+                        zt,
+                        nreg,
+                        pg,
+                        m_mulvl(rn, i4 * nreg as i32),
+                        true,
+                    );
                 }
             }
         }
@@ -933,15 +1246,27 @@ fn decode_contig(word: u32, out: &mut Instruction) {
 /// First-fault variant of a contiguous load mnemonic.
 fn ff_of(m: Mnemonic) -> Mnemonic {
     match m {
-        Mnemonic::Ld1b => Mnemonic::Ldff1b, Mnemonic::Ld1h => Mnemonic::Ldff1h, Mnemonic::Ld1w => Mnemonic::Ldff1w, Mnemonic::Ld1d => Mnemonic::Ldff1d,
-        Mnemonic::Ld1sb => Mnemonic::Ldff1sb, Mnemonic::Ld1sh => Mnemonic::Ldff1sh, Mnemonic::Ld1sw => Mnemonic::Ldff1sw, other => other,
+        Mnemonic::Ld1b => Mnemonic::Ldff1b,
+        Mnemonic::Ld1h => Mnemonic::Ldff1h,
+        Mnemonic::Ld1w => Mnemonic::Ldff1w,
+        Mnemonic::Ld1d => Mnemonic::Ldff1d,
+        Mnemonic::Ld1sb => Mnemonic::Ldff1sb,
+        Mnemonic::Ld1sh => Mnemonic::Ldff1sh,
+        Mnemonic::Ld1sw => Mnemonic::Ldff1sw,
+        other => other,
     }
 }
 /// Non-fault variant of a contiguous load mnemonic.
 fn nf_of(m: Mnemonic) -> Mnemonic {
     match m {
-        Mnemonic::Ld1b => Mnemonic::Ldnf1b, Mnemonic::Ld1h => Mnemonic::Ldnf1h, Mnemonic::Ld1w => Mnemonic::Ldnf1w, Mnemonic::Ld1d => Mnemonic::Ldnf1d,
-        Mnemonic::Ld1sb => Mnemonic::Ldnf1sb, Mnemonic::Ld1sh => Mnemonic::Ldnf1sh, Mnemonic::Ld1sw => Mnemonic::Ldnf1sw, other => other,
+        Mnemonic::Ld1b => Mnemonic::Ldnf1b,
+        Mnemonic::Ld1h => Mnemonic::Ldnf1h,
+        Mnemonic::Ld1w => Mnemonic::Ldnf1w,
+        Mnemonic::Ld1d => Mnemonic::Ldnf1d,
+        Mnemonic::Ld1sb => Mnemonic::Ldnf1sb,
+        Mnemonic::Ld1sh => Mnemonic::Ldnf1sh,
+        Mnemonic::Ld1sw => Mnemonic::Ldnf1sw,
+        other => other,
     }
 }
 
@@ -982,7 +1307,15 @@ fn decode_scatter(word: u32, out: &mut Instruction) {
             let xs = if op == 6 { 1 } else { 0 };
             let (ext, amt) = gmod(xs, false, b21 == 1, msz);
             let f = if oe == VA::Ss { Form::G32 } else { Form::G64 };
-            st(out, st1_mnem(msz), f, oe, zt, pg, m_xz(rn, zm, oe, ext, amt));
+            st(
+                out,
+                st1_mnem(msz),
+                f,
+                oe,
+                zt,
+                pg,
+                m_xz(rn, zm, oe, ext, amt),
+            );
         }
         5 => {
             if b22 == 0 {
@@ -992,7 +1325,15 @@ fn decode_scatter(word: u32, out: &mut Instruction) {
                     return;
                 }
                 let (ext, amt) = gmod(0, true, b21 == 1, msz);
-                st(out, st1_mnem(msz), Form::G64, VA::Sd, zt, pg, m_xz(rn, zm, VA::Sd, ext, amt));
+                st(
+                    out,
+                    st1_mnem(msz),
+                    Form::G64,
+                    VA::Sd,
+                    zt,
+                    pg,
+                    m_xz(rn, zm, VA::Sd, ext, amt),
+                );
             } else {
                 // ST1 vec+imm [Zn.elt, #imm], element b21?s:d. A `.s` element
                 // (`b21==1`) cannot store a `dword` (`msz==3`) → reserved.
@@ -1052,7 +1393,21 @@ fn decode_gather(word: u32, out: &mut Instruction) {
 /// unpacked (`uxtw`/`sxtw`); `b22==1, op>=4` is the LD1R* broadcast region.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn decode_gather_32(word: u32, _top: u32, msz: u32, b22: u32, b21: u32, op: u32, pg: u32, rn: u32, zt: u32, rm: u32, zm: u32, dst: VA, out: &mut Instruction) {
+fn decode_gather_32(
+    word: u32,
+    _top: u32,
+    msz: u32,
+    b22: u32,
+    b21: u32,
+    op: u32,
+    pg: u32,
+    rn: u32,
+    zt: u32,
+    rm: u32,
+    zm: u32,
+    dst: VA,
+    out: &mut Instruction,
+) {
     // Region 10/11, op>=4: LD1R* broadcast.
     if b22 == 1 && op >= 4 {
         decode_ld1r(word, out);
@@ -1061,7 +1416,14 @@ fn decode_gather_32(word: u32, _top: u32, msz: u32, b22: u32, b21: u32, op: u32,
     // PRF scalar+vec (only msz==0) at region 01/11, op0-3.
     if msz == 0 && b21 == 1 && op < 4 {
         let (ext, amt) = gmod(b22, false, op > 0, op);
-        prf(out, prf_mnem(op), Form::G32, zt, pg, m_xz(rn, zm, dst, ext, amt));
+        prf(
+            out,
+            prf_mnem(op),
+            Form::G32,
+            zt,
+            pg,
+            m_xz(rn, zm, dst, ext, amt),
+        );
         return;
     }
     // Vector+imm gather: region 01 op4-7 (region 11 op>=4 handled as LD1R above).
@@ -1094,7 +1456,14 @@ fn decode_gather_32(word: u32, _top: u32, msz: u32, b22: u32, b21: u32, op: u32,
     match op {
         // PRF scalar+scalar: `Xm == 31` (xzr) is the no-offset immediate form
         // → UNDEFINED (same reservation as the contiguous ld/st ss forms).
-        6 if rm != 0b11111 => prf(out, prf_mnem(msz), Form::Ss, zt, pg, m_ss(rn, rm, msz as u8)),
+        6 if rm != 0b11111 => prf(
+            out,
+            prf_mnem(msz),
+            Form::Ss,
+            zt,
+            pg,
+            m_ss(rn, rm, msz as u8),
+        ),
         7 => {
             let imm = (bits(word, 16, 5) as i32) * (1i32 << msz);
             prf(out, prf_mnem(msz), Form::Vi, zt, pg, m_vi(rn, dst, imm));
@@ -1117,18 +1486,45 @@ fn decode_gather_32(word: u32, _top: u32, msz: u32, b22: u32, b21: u32, op: u32,
 /// (`lsl`/none, op4-7 regions 10/11). PRF occupies `msz==0` slots.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn decode_gather_64(word: u32, msz: u32, b22: u32, b21: u32, op: u32, pg: u32, rn: u32, zt: u32, rm: u32, zm: u32, dst: VA, out: &mut Instruction) {
+fn decode_gather_64(
+    word: u32,
+    msz: u32,
+    b22: u32,
+    b21: u32,
+    op: u32,
+    pg: u32,
+    rn: u32,
+    zt: u32,
+    rm: u32,
+    zm: u32,
+    dst: VA,
+    out: &mut Instruction,
+) {
     // PRF scalar+vec op0-3 (msz==0, region 01 uxtw# / region 11 sxtw#).
     if msz == 0 && op < 4 && b21 == 1 {
         let (ext, amt) = gmod(b22, false, true, op);
-        prf(out, prf_mnem(op), Form::G64, zt, pg, m_xz(rn, zm, dst, ext, amt));
+        prf(
+            out,
+            prf_mnem(op),
+            Form::G64,
+            zt,
+            pg,
+            m_xz(rn, zm, dst, ext, amt),
+        );
         return;
     }
     // PRF op4-7 region 11 (64-bit packed: plain/lsl).
     if msz == 0 && op >= 4 && b22 == 1 && b21 == 1 {
         let sz = op - 4;
         let (ext, amt) = gmod(0, true, sz > 0, sz);
-        prf(out, prf_mnem(sz), Form::G64, zt, pg, m_xz(rn, zm, dst, ext, amt));
+        prf(
+            out,
+            prf_mnem(sz),
+            Form::G64,
+            zt,
+            pg,
+            m_xz(rn, zm, dst, ext, amt),
+        );
         return;
     }
     // PRF vec+imm op7 region 00 (prfb only, msz==0).
@@ -1203,7 +1599,15 @@ fn decode_ld1r(word: u32, out: &mut Instruction) {
         None => return,
     };
     let imm = (bits(word, 16, 6) as i32) * ld1r_scale(m);
-    ld(out, m, Form::Imm, a, bits(word, 0, 5), bits(word, 10, 3), m_imm_hex(bits(word, 5, 5), imm));
+    ld(
+        out,
+        m,
+        Form::Imm,
+        a,
+        bits(word, 0, 5),
+        bits(word, 10, 3),
+        m_imm_hex(bits(word, 5, 5), imm),
+    );
 }
 
 // ===========================================================================
@@ -1285,7 +1689,10 @@ mod tests {
 
     #[test]
     fn structured_loads_stores() {
-        check(0xA522FB80, "ld2w    {z0.s, z1.s}, p6/z, [x28, #0x4, mul vl]");
+        check(
+            0xA522FB80,
+            "ld2w    {z0.s, z1.s}, p6/z, [x28, #0x4, mul vl]",
+        );
         check(0xE463F31B, "st1b    {z27.d}, p4, [x24, #0x3, mul vl]");
     }
 

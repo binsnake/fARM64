@@ -2,10 +2,10 @@
 name = "xtask"
 version = "0.0.1"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.74.1"
 publish = false
-description = "Host-only generator for fARM64's mechanical enum + name tables from a curated ARM-spec dataset. NOT part of the published library."
+description = "Host-only scaffold for a future fARM64 mechanical-table generator; not part of the published library."
 
 [dependencies]
-# Host-only tool: free to use std and host-only deps. Kept dependency-light;
-# data-format deps (if any) are added as the generator is fleshed out.
+# Host-only tool: free to use std and host-only dependencies. Keep the
+# dependency surface empty while the generator remains a scaffold.

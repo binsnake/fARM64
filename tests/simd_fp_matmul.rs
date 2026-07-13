@@ -56,15 +56,26 @@ fn text(word: u32) -> String {
 /// (bit-for-bit) encoder round-trip.
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
     assert_eq!(
         norm(&text(word)),
         norm(expected),
         "{:08X} disasm mismatch",
         word
     );
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
@@ -133,12 +144,21 @@ fn sve_bf16_indexed_examples() {
 
 #[test]
 fn sme2_multivector_fmul_examples() {
-    check(0xC160E798, "fmul {z24.h, z25.h}, {z28.h, z29.h}, {z0.h, z1.h}");
+    check(
+        0xC160E798,
+        "fmul {z24.h, z25.h}, {z28.h, z29.h}, {z0.h, z1.h}",
+    );
     check(0xC160E400, "fmul {z0.h, z1.h}, {z0.h, z1.h}, {z0.h, z1.h}");
     check(0xC1A0E400, "fmul {z0.s, z1.s}, {z0.s, z1.s}, {z0.s, z1.s}");
     check(0xC1E0E400, "fmul {z0.d, z1.d}, {z0.d, z1.d}, {z0.d, z1.d}");
-    check(0xC161E400, "fmul {z0.h - z3.h}, {z0.h - z3.h}, {z0.h - z3.h}");
-    check(0xC1A1E400, "fmul {z0.s - z3.s}, {z0.s - z3.s}, {z0.s - z3.s}");
+    check(
+        0xC161E400,
+        "fmul {z0.h - z3.h}, {z0.h - z3.h}, {z0.h - z3.h}",
+    );
+    check(
+        0xC1A1E400,
+        "fmul {z0.s - z3.s}, {z0.s - z3.s}, {z0.s - z3.s}",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -148,8 +168,14 @@ fn sme2_multivector_fmul_examples() {
 fn assert_rt(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} Invalid", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
@@ -200,11 +226,8 @@ fn sve_fp8_mlal_roundtrip_sweep() {
     for bt in 0u32..4 {
         for idx in [0u32, 1, 7, 15] {
             for zm in [0u32, 3, 7] {
-                let w = 0x6420_C000
-                    | (bt << 22)
-                    | ((idx >> 2) << 19)
-                    | (zm << 16)
-                    | ((idx & 3) << 10);
+                let w =
+                    0x6420_C000 | (bt << 22) | ((idx >> 2) << 19) | (zm << 16) | ((idx & 3) << 10);
                 assert_rt(w);
             }
         }
@@ -278,7 +301,7 @@ fn no_over_decode() {
     check_invalid(0x4EC0A400); // size 11
     check_invalid(0x4E80A800); // wrong opcode bit
     check_invalid(0x6E80AC00); // (U=1,B=1) unallocated
-    // SVE FP8 fmlalb requires <22>==0 (with <22>==1 the slot is unallocated).
+                               // SVE FP8 fmlalb requires <22>==0 (with <22>==1 the slot is unallocated).
     check_invalid(0x64605022);
     // multi-vector FMUL: size 00 is the (unimplemented) BF16 BFMUL neighbour,
     // bit5 / bit0 set, and a 4-register form with a stray <17> set are all

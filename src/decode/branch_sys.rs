@@ -124,7 +124,11 @@ pub fn decode(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction) {
 
     // Unconditional branch (immediate): word<30:26> == 00101.
     if bits(word, 26, 5) == 0b00101 {
-        out.set(if op & 0b100 != 0 { Code::BlImm } else { Code::BUncond });
+        out.set(if op & 0b100 != 0 {
+            Code::BlImm
+        } else {
+            Code::BUncond
+        });
         let imm26 = bits(word, 0, 26);
         let off = sign_extend((imm26 as u64) << 2, 28);
         out.push_operand(Operand::Label(ip.wrapping_add(off as u64)));
@@ -240,7 +244,11 @@ fn decode_compare_branch(word: u32, ip: u64, out: &mut Instruction) {
     let op = bit(word, 24); // 0 = CBZ, 1 = CBNZ
     let imm19 = bits(word, 5, 19);
     let rt = bits(word, 0, 5);
-    let w = if sf == 1 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if sf == 1 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
 
     out.set(match (op, sf) {
         (0, 0) => Code::Cbz32,
@@ -265,7 +273,11 @@ fn decode_test_branch(word: u32, ip: u64, out: &mut Instruction) {
     let rt = bits(word, 0, 5);
     let bitpos = (b5 << 5) | b40;
     // Binary Ninja prints the register width following b5 (X when b5==1).
-    let w = if b5 == 1 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if b5 == 1 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
 
     out.set(if op == 1 { Code::Tbnz } else { Code::Tbz });
     out.push_operand(reg(false, w, rt));
@@ -364,7 +376,11 @@ fn decode_cmpbr(word: u32, ip: u64, features: FeatureSet, out: &mut Instruction)
         0b111 => Code::Cbne,
         _ => return,
     };
-    let w = if sf == 1 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if sf == 1 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
     let imm6 = bits(word, 15, 6);
     out.set(code);
     out.push_operand(reg(false, w, rt));
@@ -602,14 +618,22 @@ fn decode_tchange(word: u32, features: FeatureSet, out: &mut Instruction) {
                 return;
             }
             let xn = bits(word, 5, 5);
-            out.set(if backward { Code::TchangebReg } else { Code::TchangefReg });
+            out.set(if backward {
+                Code::TchangebReg
+            } else {
+                Code::TchangefReg
+            });
             out.push_operand(xreg(false, rt));
             out.push_operand(xreg(false, xn));
         }
         0b10 => {
             // Immediate form: `imm7 = word<11:5>`.
             let imm = bits(word, 5, 7);
-            out.set(if backward { Code::TchangebImm } else { Code::TchangefImm });
+            out.set(if backward {
+                Code::TchangebImm
+            } else {
+                Code::TchangefImm
+            });
             out.push_operand(xreg(false, rt));
             out.push_operand(Operand::ImmUnsigned(imm as u64));
         }
@@ -761,7 +785,11 @@ fn decode_msr_imm(out: &mut Instruction, op1: u32, op2: u32, crm: u32, rt: u32) 
         let is_start = (crm & 0b0001) != 0;
         let sm = (crm & 0b0010) != 0;
         let za = (crm & 0b0100) != 0;
-        out.set(if is_start { Code::Smstart } else { Code::Smstop });
+        out.set(if is_start {
+            Code::Smstart
+        } else {
+            Code::Smstop
+        });
         // Option keyword: `sm` (SM only), `za` (ZA only), or none (SM and ZA).
         match (sm, za) {
             (true, false) => out.push_operand(sysop("sm")),
@@ -863,7 +891,7 @@ fn decode_hint(out: &mut Instruction, features: FeatureSet, crm: u32, op2: u32, 
         12 if pauth => return set_pauth_hint(out, Mnemonic::Autia1716),
         14 if pauth => return set_pauth_hint(out, Mnemonic::Autib1716),
         16 => Code::Esb,
-        17 => Code::Psb,  // PSB CSYNC
+        17 => Code::Psb, // PSB CSYNC
         18 => {
             // TSB CSYNC (FEAT_TRF).
             if features.has(Feature::Trf) {
@@ -1410,7 +1438,10 @@ mod tests {
         let mut buf = [0u8; 128];
         let mut sink = BufSink::new(&mut buf);
         FmtFormatter::new().format(&insn, &mut sink);
-        assert!(!sink.overflowed(), "BufSink overflowed rendering {expected:?}");
+        assert!(
+            !sink.overflowed(),
+            "BufSink overflowed rendering {expected:?}"
+        );
         assert_eq!(sink.as_str(), expected, "word={word:#010x}");
     }
 
@@ -1505,11 +1536,23 @@ mod tests {
         assert_eq!(imm.code(), Code::Cbgt);
         assert!(matches!(imm.op(1), Operand::ImmUnsigned(10)));
         // Byte/halfword codes are distinct.
-        assert_eq!(decode(0x74E0841D, ADDRESS, FeatureSet::ALL).code(), Code::Cbbne);
-        assert_eq!(decode(0x74E0C6BA, ADDRESS, FeatureSet::ALL).code(), Code::Cbhne);
+        assert_eq!(
+            decode(0x74E0841D, ADDRESS, FeatureSet::ALL).code(),
+            Code::Cbbne
+        );
+        assert_eq!(
+            decode(0x74E0C6BA, ADDRESS, FeatureSet::ALL).code(),
+            Code::Cbhne
+        );
         // Immediate-only spellings.
-        assert_eq!(decode(0x752002C9, ADDRESS, FeatureSet::ALL).code(), Code::Cblt);
-        assert_eq!(decode(0x75600E4B, ADDRESS, FeatureSet::ALL).code(), Code::Cblo);
+        assert_eq!(
+            decode(0x752002C9, ADDRESS, FeatureSet::ALL).code(),
+            Code::Cblt
+        );
+        assert_eq!(
+            decode(0x75600E4B, ADDRESS, FeatureSet::ALL).code(),
+            Code::Cblo
+        );
     }
 
     #[test]
@@ -1600,7 +1643,10 @@ mod tests {
         assert_dis(0xD50330FF, "sb");
         assert_dis(0xD50331FF, "sb");
         assert_dis(0xD5033FFF, "sb");
-        assert_eq!(decode(0xD5033FFF, ADDRESS, FeatureSet::ALL).code(), Code::Sb);
+        assert_eq!(
+            decode(0xD5033FFF, ADDRESS, FeatureSet::ALL).code(),
+            Code::Sb
+        );
     }
 
     #[test]

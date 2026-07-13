@@ -22,7 +22,14 @@ use fARM64::{encode, FeatureSet};
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
-    let enc = encode(&insn).unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     let insn2 = decode(enc, 0, FeatureSet::ALL);
     assert_eq!(
         insn.mnemonic(),
@@ -33,7 +40,12 @@ fn assert_roundtrip(word: u32) {
         insn2.mnemonic().name(),
         enc
     );
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
     for i in 0..insn.op_count() {
         assert_eq!(
             format!("{:?}", insn.op(i)),
@@ -48,7 +60,17 @@ fn assert_roundtrip(word: u32) {
 
 /// Word in the `011001` major: `size 011 0 01 A R 1 Rs o3 opc op2 Rn Rt`.
 #[allow(clippy::too_many_arguments)]
-fn mk_tag_major(sz: u32, a: u32, r: u32, rs: u32, o3: u32, opc: u32, op2: u32, rn: u32, rt: u32) -> u32 {
+fn mk_tag_major(
+    sz: u32,
+    a: u32,
+    r: u32,
+    rs: u32,
+    o3: u32,
+    opc: u32,
+    op2: u32,
+    rn: u32,
+    rt: u32,
+) -> u32 {
     (sz << 30)
         | (0b011 << 27)
         | (0b01 << 24)
@@ -108,7 +130,12 @@ fn examples_decode_as_expected() {
     ];
     for &(w, m, n) in cases {
         let insn = decode(w, 0, FeatureSet::ALL);
-        assert!(!insn.is_invalid(), "{:08X} decoded Invalid (expected {})", w, m);
+        assert!(
+            !insn.is_invalid(),
+            "{:08X} decoded Invalid (expected {})",
+            w,
+            m
+        );
         assert_eq!(insn.mnemonic().name(), m, "{:08X} mnemonic", w);
         assert_eq!(insn.op_count(), n, "{:08X} operand count", w);
         assert_roundtrip(w);
@@ -171,7 +198,11 @@ fn exhaustive_roundtrip() {
         }
     }
 
-    assert!(decoded > 400, "expected >400 THE/LSE128 encodings, got {}", decoded);
+    assert!(
+        decoded > 400,
+        "expected >400 THE/LSE128 encodings, got {}",
+        decoded
+    );
 }
 
 #[test]
@@ -180,11 +211,20 @@ fn pair_ops_reject_reg31() {
     // rcwclrp with Rt=31 (Rs=5) and with Rs=31 (Rt=5) must be Invalid.
     let rt31 = mk_tag_major(0, 0, 0, 5, 1, 0b001, 0b00, 7, 31);
     let rs31 = mk_tag_major(0, 0, 0, 31, 1, 0b001, 0b00, 7, 5);
-    assert!(decode(rt31, 0, FeatureSet::ALL).is_invalid(), "rcwclrp Rt=31 should be Invalid");
-    assert!(decode(rs31, 0, FeatureSet::ALL).is_invalid(), "rcwclrp Rs=31 should be Invalid");
+    assert!(
+        decode(rt31, 0, FeatureSet::ALL).is_invalid(),
+        "rcwclrp Rt=31 should be Invalid"
+    );
+    assert!(
+        decode(rs31, 0, FeatureSet::ALL).is_invalid(),
+        "rcwclrp Rs=31 should be Invalid"
+    );
     // But the single-register forms permit register 31 (xzr).
     let single = mk_lse_major(0, 0, 0, 31, 1, 0b001, 7, 5); // rcwclr xzr, x5, [x7]
-    assert!(!decode(single, 0, FeatureSet::ALL).is_invalid(), "rcwclr Rs=31 should decode");
+    assert!(
+        !decode(single, 0, FeatureSet::ALL).is_invalid(),
+        "rcwclr Rs=31 should decode"
+    );
 }
 
 #[test]
@@ -193,9 +233,18 @@ fn casp_requires_even_registers() {
     let odd_rs = mk_tag_major(0, 0, 0, 5, 0, 0b000, 0b11, 7, 6);
     let odd_rt = mk_tag_major(0, 0, 0, 4, 0, 0b000, 0b11, 7, 7);
     let even = mk_tag_major(0, 0, 0, 4, 0, 0b000, 0b11, 7, 6);
-    assert!(decode(odd_rs, 0, FeatureSet::ALL).is_invalid(), "rcwcasp odd Rs should be Invalid");
-    assert!(decode(odd_rt, 0, FeatureSet::ALL).is_invalid(), "rcwcasp odd Rt should be Invalid");
-    assert!(!decode(even, 0, FeatureSet::ALL).is_invalid(), "rcwcasp even pair should decode");
+    assert!(
+        decode(odd_rs, 0, FeatureSet::ALL).is_invalid(),
+        "rcwcasp odd Rs should be Invalid"
+    );
+    assert!(
+        decode(odd_rt, 0, FeatureSet::ALL).is_invalid(),
+        "rcwcasp odd Rt should be Invalid"
+    );
+    assert!(
+        !decode(even, 0, FeatureSet::ALL).is_invalid(),
+        "rcwcasp even pair should decode"
+    );
 }
 
 #[test]
@@ -203,7 +252,10 @@ fn the_gated_by_feature() {
     // With FEAT_THE absent, the THE encodings must not decode.
     let no_the = FeatureSet::ALL.without_the();
     let ldtadd = 0x19200401u32;
-    assert!(decode(ldtadd, 0, no_the).is_invalid(), "ldtadd should require FEAT_THE");
+    assert!(
+        decode(ldtadd, 0, no_the).is_invalid(),
+        "ldtadd should require FEAT_THE"
+    );
     assert!(!decode(ldtadd, 0, FeatureSet::ALL).is_invalid());
 }
 

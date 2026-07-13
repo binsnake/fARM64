@@ -277,7 +277,10 @@ fn print_summary(overall: &Tally, by_group: &BTreeMap<String, Tally>) {
     gaps.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
     eprintln!();
     eprintln!("--- biggest gaps (decoded but encoder Unsupported) ---");
-    eprintln!("{:<16} {:>8} {:>9} {:>7}", "GROUP", "decoded", "attempt", "gap");
+    eprintln!(
+        "{:<16} {:>8} {:>9} {:>7}",
+        "GROUP", "decoded", "attempt", "gap"
+    );
     for (g, gap, t) in gaps.iter().take(30) {
         eprintln!("{:<16} {:>8} {:>9} {:>7}", g, t.decoded, t.attempted, gap);
     }
@@ -334,7 +337,8 @@ fn roundtrip_known_dp_imm_words() {
             .encode()
             .unwrap_or_else(|e| panic!("{desc}: encode failed: {e:?}"));
         assert_eq!(
-            got, word,
+            got,
+            word,
             "{desc}: round-trip mismatch {word:#010x} -> {got:#010x} (code={:?}, mnem={:?})",
             insn.code(),
             insn.mnemonic()
@@ -380,14 +384,16 @@ fn roundtrip_mops() {
                         .encode()
                         .unwrap_or_else(|e| panic!("MOPS {word:#010x} encode failed: {e:?}"));
                     assert_eq!(
-                        got, word,
+                        got,
+                        word,
                         "MOPS round-trip word mismatch {word:#010x} -> {got:#010x} (code={:?})",
                         insn.code()
                     );
                     // Re-decode the re-encoded word: must equal the original.
                     let insn2 = decode_all(got);
                     assert_eq!(
-                        insn, insn2,
+                        insn,
+                        insn2,
                         "MOPS re-decode mismatch for {word:#010x} (code={:?})",
                         insn.code()
                     );

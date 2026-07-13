@@ -46,17 +46,36 @@ fn norm(s: &str) -> String {
 #[track_caller]
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
 /// Assert a word is rejected (reserved / UNDEFINED).
 #[track_caller]
 fn reserved(word: u32) {
-    assert!(decode(word, 0, FeatureSet::ALL).is_invalid(), "{word:08X} should be reserved (Invalid)");
+    assert!(
+        decode(word, 0, FeatureSet::ALL).is_invalid(),
+        "{word:08X} should be reserved (Invalid)"
+    );
 }
 
 /// Whether a word decodes to *some* non-Invalid instruction.

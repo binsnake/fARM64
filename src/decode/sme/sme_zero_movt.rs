@@ -133,7 +133,10 @@ fn decode_movt(word: u32, features: FeatureSet, out: &mut Instruction) {
             let index = bits(word, 12, 2) as u8;
             let zt = bits(word, 0, 5);
             out.set(Code::SmeMovtZt0Z);
-            out.push_operand(Operand::SmeZt0Index { index, mul_vl: true });
+            out.push_operand(Operand::SmeZt0Index {
+                index,
+                mul_vl: true,
+            });
             out.push_operand(zreg(zt));
         }
         0b10 => {
@@ -145,7 +148,10 @@ fn decode_movt(word: u32, features: FeatureSet, out: &mut Instruction) {
             let off = (bits(word, 12, 3) * 8) as u8;
             let xt = bits(word, 0, 5);
             out.set(Code::SmeMovtZt0X);
-            out.push_operand(Operand::SmeZt0Index { index: off, mul_vl: false });
+            out.push_operand(Operand::SmeZt0Index {
+                index: off,
+                mul_vl: false,
+            });
             out.push_operand(xreg(xt));
         }
         0b00 => {
@@ -158,7 +164,10 @@ fn decode_movt(word: u32, features: FeatureSet, out: &mut Instruction) {
             let xt = bits(word, 0, 5);
             out.set(Code::SmeMovtXZt0);
             out.push_operand(xreg(xt));
-            out.push_operand(Operand::SmeZt0Index { index: off, mul_vl: false });
+            out.push_operand(Operand::SmeZt0Index {
+                index: off,
+                mul_vl: false,
+            });
         }
         _ => {}
     }

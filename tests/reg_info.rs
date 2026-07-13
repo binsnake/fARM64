@@ -35,7 +35,8 @@ fn assert_regs(word: u32, expected: &[(Register, OpAccess)]) {
         let found = got.iter().find(|u| u.register == reg);
         match found {
             Some(u) => assert_eq!(
-                u.access, access,
+                u.access,
+                access,
                 "access mismatch for {reg:?} in {:#010x} ({:?}): got {:?}, expected {:?}",
                 word,
                 insn.mnemonic(),
@@ -58,7 +59,11 @@ fn assert_one_mem(word: u32, base: Register, index: Register, access: OpAccess) 
     let insn = decode(word);
     let info = instruction_info(&insn);
     let mem = info.used_memory();
-    assert_eq!(mem.len(), 1, "expected exactly one memory access for {word:#010x}: {mem:?}");
+    assert_eq!(
+        mem.len(),
+        1,
+        "expected exactly one memory access for {word:#010x}: {mem:?}"
+    );
     assert_eq!(mem[0].base, base, "mem base for {word:#010x}");
     assert_eq!(mem[0].index, index, "mem index for {word:#010x}");
     assert_eq!(mem[0].access, access, "mem access for {word:#010x}");
@@ -68,7 +73,12 @@ fn assert_one_mem(word: u32, base: Register, index: Register, access: OpAccess) 
 fn assert_flags(word: u32, read: bool, written: bool) {
     let insn = decode(word);
     let info = instruction_info(&insn);
-    assert_eq!(info.flags_read(), read, "flags_read for {word:#010x} ({:?})", insn.mnemonic());
+    assert_eq!(
+        info.flags_read(),
+        read,
+        "flags_read for {word:#010x} ({:?})",
+        insn.mnemonic()
+    );
     assert_eq!(
         info.flags_written(),
         written,
@@ -118,7 +128,10 @@ fn cmp_has_no_dest_and_sets_flags() {
     let w = 0xeb02_003f;
     assert_regs(
         w,
-        &[(Register::X1, OpAccess::Read), (Register::X2, OpAccess::Read)],
+        &[
+            (Register::X1, OpAccess::Read),
+            (Register::X2, OpAccess::Read),
+        ],
     );
     assert_flags(w, false, true);
 }
@@ -190,8 +203,16 @@ fn mov_writes_dest_reads_source() {
     let insn = decode(w);
     let info = instruction_info(&insn);
     // x0 written, x1 read (the xzr source is included with Read, iced-style).
-    let x0 = info.used_registers().iter().find(|u| u.register == Register::X0).unwrap();
-    let x1 = info.used_registers().iter().find(|u| u.register == Register::X1).unwrap();
+    let x0 = info
+        .used_registers()
+        .iter()
+        .find(|u| u.register == Register::X0)
+        .unwrap();
+    let x1 = info
+        .used_registers()
+        .iter()
+        .find(|u| u.register == Register::X1)
+        .unwrap();
     assert_eq!(x0.access, OpAccess::Write);
     assert_eq!(x1.access, OpAccess::Read);
 }
@@ -228,7 +249,10 @@ fn ldr_writes_data_reads_mem() {
     let w = 0xf940_0020;
     assert_regs(
         w,
-        &[(Register::X0, OpAccess::Write), (Register::X1, OpAccess::Read)],
+        &[
+            (Register::X0, OpAccess::Write),
+            (Register::X1, OpAccess::Read),
+        ],
     );
     assert_one_mem(w, Register::X1, Register::None, OpAccess::Read);
 }
@@ -268,7 +292,10 @@ fn str_reads_data_and_base_writes_mem() {
     let w = 0xf900_0020;
     assert_regs(
         w,
-        &[(Register::X0, OpAccess::Read), (Register::X1, OpAccess::Read)],
+        &[
+            (Register::X0, OpAccess::Read),
+            (Register::X1, OpAccess::Read),
+        ],
     );
     assert_one_mem(w, Register::X1, Register::None, OpAccess::Write);
 }
@@ -328,7 +355,12 @@ fn cas_compare_reg_is_read_write() {
     // Encoding: cas x0, x1, [x2] = 0xc8a07c41? compute below via decode check.
     let w = 0xc8a0_7c41; // cas x0, x1, [x2]  (size=11 L=0 o0=0, Rs=0, Rt=1, Rn=2)
     let insn = decode(w);
-    assert_eq!(insn.mnemonic(), fARM64::Mnemonic::Cas, "decoded {:?}", insn.mnemonic());
+    assert_eq!(
+        insn.mnemonic(),
+        fARM64::Mnemonic::Cas,
+        "decoded {:?}",
+        insn.mnemonic()
+    );
     assert_regs(
         w,
         &[
@@ -345,7 +377,12 @@ fn stxr_status_write_data_read_mem_write() {
     // stxr w0, x1, [x2] -> W w0 (status); R x1 (data); mem Write.
     let w = 0xc800_7c41; // stxr w0, x1, [x2]
     let insn = decode(w);
-    assert_eq!(insn.mnemonic(), fARM64::Mnemonic::Stxr, "decoded {:?}", insn.mnemonic());
+    assert_eq!(
+        insn.mnemonic(),
+        fARM64::Mnemonic::Stxr,
+        "decoded {:?}",
+        insn.mnemonic()
+    );
     assert_regs(
         w,
         &[
@@ -362,7 +399,12 @@ fn swp_value_read_result_write() {
     // swp x0, x1, [x2] -> R x0 (value); W x1 (result); mem RW.
     let w = 0xf820_8041;
     let insn = decode(w);
-    assert_eq!(insn.mnemonic(), fARM64::Mnemonic::Swp, "decoded {:?}", insn.mnemonic());
+    assert_eq!(
+        insn.mnemonic(),
+        fARM64::Mnemonic::Swp,
+        "decoded {:?}",
+        insn.mnemonic()
+    );
     assert_regs(
         w,
         &[
@@ -379,7 +421,12 @@ fn casp_compare_pair_is_read_write() {
     // casp x0, x1, x2, x3, [x4] -> RW x0,x1 (compare pair); R x2,x3 (value pair).
     let w = 0x4820_7c82;
     let insn = decode(w);
-    assert_eq!(insn.mnemonic(), fARM64::Mnemonic::Casp, "decoded {:?}", insn.mnemonic());
+    assert_eq!(
+        insn.mnemonic(),
+        fARM64::Mnemonic::Casp,
+        "decoded {:?}",
+        insn.mnemonic()
+    );
     assert_regs(
         w,
         &[
@@ -424,7 +471,10 @@ fn blr_writes_link_reads_target() {
     let w = 0xd63f_0020;
     assert_regs(
         w,
-        &[(Register::X1, OpAccess::Read), (Register::X30, OpAccess::Write)],
+        &[
+            (Register::X1, OpAccess::Read),
+            (Register::X30, OpAccess::Write),
+        ],
     );
 }
 
@@ -454,13 +504,25 @@ fn sve_predicated_add_reads_governing_predicate() {
     assert_eq!(insn.mnemonic(), fARM64::Mnemonic::Fadd);
     let info = instruction_info(&insn);
     // z0 is both destination (slot 0, Write) and source (slot 2, Read) -> RW.
-    let z0 = info.used_registers().iter().find(|u| u.register == Register::Z0).unwrap();
+    let z0 = info
+        .used_registers()
+        .iter()
+        .find(|u| u.register == Register::Z0)
+        .unwrap();
     assert_eq!(z0.access, OpAccess::ReadWrite);
     // Governing predicate p0 is read.
-    let p0 = info.used_registers().iter().find(|u| u.register == Register::P0).unwrap();
+    let p0 = info
+        .used_registers()
+        .iter()
+        .find(|u| u.register == Register::P0)
+        .unwrap();
     assert_eq!(p0.access, OpAccess::Read);
     // z1 source read.
-    let z1 = info.used_registers().iter().find(|u| u.register == Register::Z1).unwrap();
+    let z1 = info
+        .used_registers()
+        .iter()
+        .find(|u| u.register == Register::Z1)
+        .unwrap();
     assert_eq!(z1.access, OpAccess::Read);
 }
 
@@ -470,16 +532,33 @@ fn sme_fmopa_za_dest_is_read_write() {
     // ZAda accumulator (rendered as z0) is RW; predicates p0/p1 read; z1 read.
     let w = 0x8081_2000;
     let insn = decode(w);
-    assert_eq!(insn.mnemonic(), fARM64::Mnemonic::Fmopa, "decoded {:?}", insn.mnemonic());
+    assert_eq!(
+        insn.mnemonic(),
+        fARM64::Mnemonic::Fmopa,
+        "decoded {:?}",
+        insn.mnemonic()
+    );
     let info = instruction_info(&insn);
     // Slot-0 accumulator z0 read-modify-written (also appears as source z0 -> RW).
-    let z0 = info.used_registers().iter().find(|u| u.register == Register::Z0).unwrap();
+    let z0 = info
+        .used_registers()
+        .iter()
+        .find(|u| u.register == Register::Z0)
+        .unwrap();
     assert_eq!(z0.access, OpAccess::ReadWrite);
     for p in [Register::P0, Register::P1] {
-        let pr = info.used_registers().iter().find(|u| u.register == p).unwrap();
+        let pr = info
+            .used_registers()
+            .iter()
+            .find(|u| u.register == p)
+            .unwrap();
         assert_eq!(pr.access, OpAccess::Read, "predicate {p:?} should be read");
     }
-    let z1 = info.used_registers().iter().find(|u| u.register == Register::Z1).unwrap();
+    let z1 = info
+        .used_registers()
+        .iter()
+        .find(|u| u.register == Register::Z1)
+        .unwrap();
     assert_eq!(z1.access, OpAccess::Read);
 }
 

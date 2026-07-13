@@ -50,32 +50,93 @@ fn assert_roundtrip(word: u32) {
     assert!(!insn.is_invalid(), "{word:08X} decoded Invalid");
     let enc = encode(&insn)
         .unwrap_or_else(|e| panic!("{word:08X} ({}) encode error {e:?}", insn.mnemonic().name()));
-    assert_eq!(enc, word, "{word:08X} ({}) re-encoded to {enc:08X}", insn.mnemonic().name());
+    assert_eq!(
+        enc,
+        word,
+        "{word:08X} ({}) re-encoded to {enc:08X}",
+        insn.mnemonic().name()
+    );
     let insn2 = decode(enc, 0x1000, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{word:08X} mnemonic drift");
-    assert_eq!(insn.op_count(), insn2.op_count(), "{word:08X} operand-count drift");
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{word:08X} mnemonic drift"
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{word:08X} operand-count drift"
+    );
 }
 
 /// `(word, expected disassembly)` pairs — the LLVM oracle renderings.
 const CASES: &[(u32, &str)] = &[
     // Q1: multi × multi-vector in-place ALU.
-    (0xC126B038, "smin { z24.b, z25.b }, { z24.b, z25.b }, { z6.b, z7.b }"),
-    (0xC1ACB824, "smin { z4.s - z7.s }, { z4.s - z7.s }, { z12.s - z15.s }"),
-    (0xC174B01D, "umax { z28.h, z29.h }, { z28.h, z29.h }, { z20.h, z21.h }"),
-    (0xC1B8B03F, "umin { z30.s, z31.s }, { z30.s, z31.s }, { z24.s, z25.s }"),
-    (0xC1ACB018, "smax { z24.s, z25.s }, { z24.s, z25.s }, { z12.s, z13.s }"),
-    (0xC13CB225, "urshl { z4.b, z5.b }, { z4.b, z5.b }, { z28.b, z29.b }"),
-    (0xC174B220, "srshl { z0.h, z1.h }, { z0.h, z1.h }, { z20.h, z21.h }"),
-    (0xC120B40E, "sqdmulh { z14.b, z15.b }, { z14.b, z15.b }, { z0.b, z1.b }"),
-    (0xC1E4B148, "famax { z8.d, z9.d }, { z8.d, z9.d }, { z4.d, z5.d }"),
-    (0xC1ACB14D, "famin { z12.s, z13.s }, { z12.s, z13.s }, { z12.s, z13.s }"),
-    (0xC1A2B18A, "fscale { z10.s, z11.s }, { z10.s, z11.s }, { z2.s, z3.s }"),
+    (
+        0xC126B038,
+        "smin { z24.b, z25.b }, { z24.b, z25.b }, { z6.b, z7.b }",
+    ),
+    (
+        0xC1ACB824,
+        "smin { z4.s - z7.s }, { z4.s - z7.s }, { z12.s - z15.s }",
+    ),
+    (
+        0xC174B01D,
+        "umax { z28.h, z29.h }, { z28.h, z29.h }, { z20.h, z21.h }",
+    ),
+    (
+        0xC1B8B03F,
+        "umin { z30.s, z31.s }, { z30.s, z31.s }, { z24.s, z25.s }",
+    ),
+    (
+        0xC1ACB018,
+        "smax { z24.s, z25.s }, { z24.s, z25.s }, { z12.s, z13.s }",
+    ),
+    (
+        0xC13CB225,
+        "urshl { z4.b, z5.b }, { z4.b, z5.b }, { z28.b, z29.b }",
+    ),
+    (
+        0xC174B220,
+        "srshl { z0.h, z1.h }, { z0.h, z1.h }, { z20.h, z21.h }",
+    ),
+    (
+        0xC120B40E,
+        "sqdmulh { z14.b, z15.b }, { z14.b, z15.b }, { z0.b, z1.b }",
+    ),
+    (
+        0xC1E4B148,
+        "famax { z8.d, z9.d }, { z8.d, z9.d }, { z4.d, z5.d }",
+    ),
+    (
+        0xC1ACB14D,
+        "famin { z12.s, z13.s }, { z12.s, z13.s }, { z12.s, z13.s }",
+    ),
+    (
+        0xC1A2B18A,
+        "fscale { z10.s, z11.s }, { z10.s, z11.s }, { z2.s, z3.s }",
+    ),
     // Q1: BF16 (size==00) re-types.
-    (0xC126B106, "bfmax { z6.h, z7.h }, { z6.h, z7.h }, { z6.h, z7.h }"),
-    (0xC128B103, "bfmin { z2.h, z3.h }, { z2.h, z3.h }, { z8.h, z9.h }"),
-    (0xC130B93C, "bfmaxnm { z28.h - z31.h }, { z28.h - z31.h }, { z16.h - z19.h }"),
-    (0xC132B12D, "bfminnm { z12.h, z13.h }, { z12.h, z13.h }, { z18.h, z19.h }"),
-    (0xC132B194, "bfscale { z20.h, z21.h }, { z20.h, z21.h }, { z18.h, z19.h }"),
+    (
+        0xC126B106,
+        "bfmax { z6.h, z7.h }, { z6.h, z7.h }, { z6.h, z7.h }",
+    ),
+    (
+        0xC128B103,
+        "bfmin { z2.h, z3.h }, { z2.h, z3.h }, { z8.h, z9.h }",
+    ),
+    (
+        0xC130B93C,
+        "bfmaxnm { z28.h - z31.h }, { z28.h - z31.h }, { z16.h - z19.h }",
+    ),
+    (
+        0xC132B12D,
+        "bfminnm { z12.h, z13.h }, { z12.h, z13.h }, { z18.h, z19.h }",
+    ),
+    (
+        0xC132B194,
+        "bfscale { z20.h, z21.h }, { z20.h, z21.h }, { z18.h, z19.h }",
+    ),
     // Q2: ZA-array-vector MOV/MOVAZ (.d only).
     (0xC006283E, "mov { z30.d, z31.d }, za.d[w9, 1, vgx2]"),
     (0xC0062C44, "mov { z4.d - z7.d }, za.d[w9, 2, vgx4]"),
@@ -140,9 +201,7 @@ const RESERVED: &[u32] = &[
     0xC0066900, // to-vec <8>=1
     0xC0062EAE, // movaz vgx4 <1>=1
     // Q3: LUTI6 single reserved (<10>=1 / <12>=1 / <14>=0).
-    0xC0C84400,
-    0xC0C85000,
-    0xC0C80000,
+    0xC0C84400, 0xC0C85000, 0xC0C80000,
     // Q5/Q6: reserved opcode / size in the convert slot.
     0xC1A9E001, // frintp with <0>=1
     0xC134E040, // fcvt narrow .s4 with <6>=1 reserved
@@ -152,7 +211,11 @@ const RESERVED: &[u32] = &[
 fn reserved_stays_invalid() {
     for &word in RESERVED {
         let insn = decode(word, 0x1000, FeatureSet::ALL);
-        assert!(insn.is_invalid(), "{word:08X} should be Invalid, got {}", text(word));
+        assert!(
+            insn.is_invalid(),
+            "{word:08X} should be Invalid, got {}",
+            text(word)
+        );
     }
 }
 
@@ -161,7 +224,10 @@ fn reserved_stays_invalid() {
 fn feature_gating() {
     // Q1 integer multi×multi requires FEAT_SME2.
     let base = FeatureSet::BASE;
-    assert!(decode(0xC126B038, 0x1000, base).is_invalid(), "smin needs SME2");
+    assert!(
+        decode(0xC126B038, 0x1000, base).is_invalid(),
+        "smin needs SME2"
+    );
     // Q1 BF16 re-types require FEAT_SME_B16B16 (a SME2-only set leaves them Invalid).
     let sme2_only = FeatureSet::BASE.with(Feature::Sme).with(Feature::Sme2);
     assert!(
@@ -174,7 +240,10 @@ fn feature_gating() {
         "bfadd needs SME_B16B16"
     );
     // Q3 LUTI6 needs FEAT_LUT.
-    assert!(decode(0xC0C84009, 0x1000, sme2_only).is_invalid(), "luti6 needs LUT");
+    assert!(
+        decode(0xC0C84009, 0x1000, sme2_only).is_invalid(),
+        "luti6 needs LUT"
+    );
     // Q5 FP8 convert needs FEAT_SME_F8F16.
     assert!(
         decode(0xC124E000, 0x1000, sme2_only).is_invalid(),

@@ -46,10 +46,26 @@ fn norm(s: &str) -> String {
 /// Decode, assert disasm == `expected`, and prove a bit-exact encode round-trip.
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
@@ -59,7 +75,10 @@ fn is_invalid(word: u32) -> bool {
 
 fn without(fs: FeatureSet, f: Feature) -> FeatureSet {
     let bit = f as u32;
-    FeatureSet { features0: fs.features0 & !(1u64 << bit), features1: fs.features1 & !(1u64 << bit) }
+    FeatureSet {
+        features0: fs.features0 & !(1u64 << bit),
+        features1: fs.features1 & !(1u64 << bit),
+    }
 }
 
 // ===========================================================================
@@ -94,12 +113,24 @@ fn pext_pair_examples() {
 fn pext_reserved_fields() {
     // `<20:16>` must be 0; `<9>` past the 2-bit single-form index is reserved.
     assert!(is_invalid(0x25217010), "PEXT <16>=1 should be Invalid");
-    assert!(is_invalid(0x25207910), "PEXT single <9>=1 should be Invalid");
+    assert!(
+        is_invalid(0x25207910),
+        "PEXT single <9>=1 should be Invalid"
+    );
     // The pair form has only a 1-bit index (`<8>`); `<9>=1` is reserved.
-    assert!(is_invalid(0x25207610), "PEXT pair index <9>=1 should be Invalid");
-    assert!(is_invalid(0x25207710), "PEXT pair index <9>=1 should be Invalid");
+    assert!(
+        is_invalid(0x25207610),
+        "PEXT pair index <9>=1 should be Invalid"
+    );
+    assert!(
+        is_invalid(0x25207710),
+        "PEXT pair index <9>=1 should be Invalid"
+    );
     // `<4>` is a fixed 1 marker on both forms.
-    assert!(is_invalid(0x25207000), "PEXT single <4>=0 should be Invalid");
+    assert!(
+        is_invalid(0x25207000),
+        "PEXT single <4>=0 should be Invalid"
+    );
     assert!(is_invalid(0x25207400), "PEXT pair <4>=0 should be Invalid");
 }
 
@@ -134,7 +165,11 @@ fn ptrue_vector_bit21_reserved() {
         (0x2538E042u32, 0x2518E042u32, "ptrue p2.b, vl2"),
         (0x2539E0C4, 0x2519E0C4, "ptrues p4.b, vl6"),
     ] {
-        assert!(is_invalid(bad), "{:08X} PTRUE <21>=1 should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} PTRUE <21>=1 should be Invalid",
+            bad
+        );
         check(good, txt);
     }
 }
@@ -145,7 +180,10 @@ fn ptrue_vector_bit21_reserved() {
 
 #[test]
 fn cterm_bit23_reserved() {
-    assert!(is_invalid(0x25732010), "25732010 CTERM <23>=0 should be Invalid");
+    assert!(
+        is_invalid(0x25732010),
+        "25732010 CTERM <23>=0 should be Invalid"
+    );
     // Canonical X and W forms still decode + round-trip.
     check(0x25F32010, "ctermne x0, x19");
     check(0x25E12010, "ctermne x0, x1");
@@ -162,7 +200,11 @@ fn rdffr_pred_bit23_reserved() {
         (0x2598F02Fu32, 0x2518F02Fu32, "rdffr p15.b, p1/z"),
         (0x25D8F125, 0x2558F125, "rdffrs p5.b, p9/z"),
     ] {
-        assert!(is_invalid(bad), "{:08X} RDFFR-pred <23>=1 should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} RDFFR-pred <23>=1 should be Invalid",
+            bad
+        );
         check(good, txt);
     }
 }
@@ -173,7 +215,10 @@ fn rdffr_pred_bit23_reserved() {
 
 #[test]
 fn wrffr_bit10_reserved() {
-    assert!(is_invalid(0x252894A0), "252894A0 WRFFR <10>=1 should be Invalid");
+    assert!(
+        is_invalid(0x252894A0),
+        "252894A0 WRFFR <10>=1 should be Invalid"
+    );
     check(0x252890A0, "wrffr p5.b");
     // Neighbouring FFR ops unaffected.
     check(0x2519F00F, "rdffr p15.b");
@@ -188,8 +233,16 @@ fn wrffr_bit10_reserved() {
 fn gaps_feature_gated() {
     let no_p1 = without(FeatureSet::ALL, Feature::Sve2p1);
     for &w in &[0x25207010u32, 0x25207410, 0x25207810] {
-        assert!(decode(w, 0, no_p1).is_invalid(), "{:08X} should need FEAT_SVE2p1", w);
-        assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode with SVE2p1", w);
+        assert!(
+            decode(w, 0, no_p1).is_invalid(),
+            "{:08X} should need FEAT_SVE2p1",
+            w
+        );
+        assert!(
+            !decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} should decode with SVE2p1",
+            w
+        );
     }
 }
 

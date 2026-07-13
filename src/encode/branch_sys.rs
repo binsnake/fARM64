@@ -448,8 +448,7 @@ fn enc_branch_reg(insn: &Instruction) -> R {
         _ => return Err(EncodeError::Unsupported),
     };
 
-    let word =
-        (0b1101011u32 << 25) | (opc << 21) | (0b11111 << 16) | (op3 << 10) | (rn << 5) | op4;
+    let word = (0b1101011u32 << 25) | (opc << 21) | (0b11111 << 16) | (op3 << 10) | (rn << 5) | op4;
     Ok(word)
 }
 
@@ -592,7 +591,11 @@ fn enc_hint(insn: &Instruction) -> R {
 
 /// `WFET`/`WFIT <Xt>` — `CRn==1, CRm==0, op1==011`, `op2` selects, `Rt` is Xt.
 fn enc_wfxt(insn: &Instruction) -> R {
-    let op2 = if insn.code() == Code::Wfit { 0b001 } else { 0b000 };
+    let op2 = if insn.code() == Code::Wfit {
+        0b001
+    } else {
+        0b000
+    };
     let rt = reg_num(insn, 0)?;
     Ok(system_word(0, 0b00, 0b011, 0b0001, 0b0000, op2, rt))
 }
@@ -622,7 +625,15 @@ fn enc_barrier(insn: &Instruction) -> R {
             if let Operand::SysOp(tok) = insn.op(0) {
                 if let Some(imm2) = dsb_nxs_imm2(tok.name()) {
                     // CRm = imm2:10.
-                    return Ok(system_word(0, 0b00, 0b011, 0b0011, (imm2 << 2) | 0b10, 0b001, 0b11111));
+                    return Ok(system_word(
+                        0,
+                        0b00,
+                        0b011,
+                        0b0011,
+                        (imm2 << 2) | 0b10,
+                        0b001,
+                        0b11111,
+                    ));
                 }
             }
             let crm = match insn.mnemonic() {
@@ -866,7 +877,11 @@ fn enc_sys(insn: &Instruction) -> R {
             // keyword-less forms (`apas`/`trcit`) put it at slot 0. Whole-structure
             // forms (no Xt) default to canonical XZR.
             let rt = if t.needs_rt {
-                let rt_slot = if t.kw_first && !t.name.is_empty() { 1 } else { 0 };
+                let rt_slot = if t.kw_first && !t.name.is_empty() {
+                    1
+                } else {
+                    0
+                };
                 reg_num(insn, rt_slot)?
             } else {
                 0b11111
@@ -918,7 +933,9 @@ fn cr_num(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
     let name = sysop_name(insn, n)?;
     // `cN` tokens are "c0".."c15".
     let digits = name.strip_prefix('c').ok_or(EncodeError::InvalidOperand)?;
-    digits.parse::<u32>().map_err(|_| EncodeError::InvalidOperand)
+    digits
+        .parse::<u32>()
+        .map_err(|_| EncodeError::InvalidOperand)
 }
 
 // ---------------------------------------------------------------------------
@@ -983,7 +1000,15 @@ fn enc_sysp(insn: &Instruction) -> R {
             let t = crate::tables::sysins::lookup_by_name(Mnemonic::Tlbi, name)
                 .ok_or(EncodeError::InvalidOperand)?;
             let rt = reg_pair_base(insn, 1)?;
-            Ok(system_pair_word(0, 0b01, t.op1 as u32, t.crn as u32, t.crm as u32, t.op2 as u32, rt))
+            Ok(system_pair_word(
+                0,
+                0b01,
+                t.op1 as u32,
+                t.crn as u32,
+                t.crm as u32,
+                t.op2 as u32,
+                rt,
+            ))
         }
         // Canonical SYSP #op1, Cn, Cm, #op2{, <Xt>, <Xt+1>}.
         _ => {
@@ -1076,7 +1101,8 @@ mod tests {
             .encode()
             .unwrap_or_else(|e| panic!("encode of {word:#010x} ({:?}) failed: {e:?}", insn.code()));
         assert_eq!(
-            got, word,
+            got,
+            word,
             "round-trip mismatch for {word:#010x}: re-encoded {got:#010x} (code={:?}, mnem={:?})",
             insn.code(),
             insn.mnemonic()
@@ -1095,15 +1121,15 @@ mod tests {
         rt(0x54156891); // bc.<cond>, forward offset
         rt(0x54FEE2B8); // bc.<cond>, backward offset
         rt(0x543779B1); // bc.ne (oracle example)
-        // FEAT_PAuth_LR RETAASPPC/RETABSPPC (PC-relative return, backward imm16).
+                        // FEAT_PAuth_LR RETAASPPC/RETABSPPC (PC-relative return, backward imm16).
         rt(0x551E8D9F); // retaasppc
         rt(0x552F577F); // retabsppc
         rt(0x5500001F); // retaasppc, offset 0
-        // FEAT_PAuth_LR AUTIASPPC/AUTIBSPPC (decoded in dp_imm, encoded here).
+                        // FEAT_PAuth_LR AUTIASPPC/AUTIBSPPC (decoded in dp_imm, encoded here).
         rt(0xF3983E9F); // autiasppc
         rt(0xF3B9D25F); // autibsppc
         rt(0xF3A0001F); // autibsppc, offset 0
-        // CBZ/CBNZ, TBZ/TBNZ.
+                        // CBZ/CBNZ, TBZ/TBNZ.
         rt(0x342F64AB);
         rt(0x358FD614);
         rt(0x36EE4A53);
@@ -1117,28 +1143,28 @@ mod tests {
         rt(0x74E00459); // cbne w25, w0, <label>
         rt(0xF40005A7); // cbgt x7, x0, <label> (64-bit)
         rt(0xF4E939C5); // cbne x5, x9, <label> (64-bit, negative offset)
-        // FEAT_CMPBR byte register form (CBB<cc>).
+                        // FEAT_CMPBR byte register form (CBB<cc>).
         rt(0x74E0841D); // cbbne w29, w0, <label>
         rt(0x74409072); // cbbhi w18, w0, <label>
-        // FEAT_CMPBR halfword register form (CBH<cc>).
+                        // FEAT_CMPBR halfword register form (CBH<cc>).
         rt(0x74E0C6BA); // cbhne w26, w0, <label>
         rt(0x74C0C240); // cbheq w0, w0, <label>
         rt(0x7420E35D); // cbhge w29, w0, <label> (negative offset)
-        // FEAT_CMPBR immediate-compare form — gt/lt/hi/lo/eq/ne, W and X.
+                        // FEAT_CMPBR immediate-compare form — gt/lt/hi/lo/eq/ne, W and X.
         rt(0x752002C9); // cblt w9, #0, <label>
         rt(0x75600E4B); // cblo w11, #0, <label>
         rt(0x75050672); // cbgt w18, #10, <label>
         rt(0x75CA8BC0); // cbeq w0, #21, <label>  (imm6 != 0)
         rt(0xF53F8BFC); // cblt x28, #63, <label> (64-bit, imm6 == 63)
         rt(0xF5E387B7); // cbne x23, #7, <label>
-        // Branch register + RET elision.
+                        // Branch register + RET elision.
         rt(0xD61F00E0);
         rt(0xD63F0080);
         rt(0xD65F03C0); // ret (x30 elided)
         rt(0xD65F0220); // ret x17
         rt(0xD69F03E0); // eret
         rt(0xD6BF03E0); // drps
-        // PAuth branch register.
+                        // PAuth branch register.
         rt(0xD71F091C);
         rt(0xD73F0A0B);
         rt(0xD61F0BBF);
@@ -1151,7 +1177,7 @@ mod tests {
         rt(0xD4424C60);
         rt(0xD4A9E481); // dcps1 #imm
         rt(0xD478DA60); // tcancel
-        // Hints.
+                        // Hints.
         rt(0xD503201F); // nop
         rt(0xD503203F); // yield
         rt(0xD503221F); // esb
@@ -1160,7 +1186,7 @@ mod tests {
         rt(0xD503241F); // bti
         rt(0xD50320DF); // dgh (HINT #6)
         rt(0xD503225F); // tsb csync
-        // T: newer named hints.
+                        // T: newer named hints.
         rt(0xD503227F); // gcsb dsync
         rt(0xD50322DF); // clrbhb
         rt(0xD50324FF); // pacm
@@ -1170,7 +1196,7 @@ mod tests {
         rt(0xD503261F); // stshh keep
         rt(0xD503263F); // stshh strm
         rt(0xD503269F); // stcph
-        // Barriers.
+                        // Barriers.
         rt(0xD5033F9F); // dsb sy
         rt(0xD503369F); // dsb nshst
         rt(0xD50335BF); // dmb nshld
@@ -1179,30 +1205,30 @@ mod tests {
         rt(0xD5033E5F); // clrex #0xe
         rt(0xD503309F); // ssbb
         rt(0xD503307F); // tcommit
-        // DSB nXS (FEAT_XS).
+                        // DSB nXS (FEAT_XS).
         rt(0xD5033E3F); // dsb synxs
         rt(0xD503363F); // dsb nshnxs
         rt(0xD503323F); // dsb oshnxs
         rt(0xD5033A3F); // dsb ishnxs
-        // SB (canonical CRm==0).
+                        // SB (canonical CRm==0).
         rt(0xD50330FF); // sb
-        // MSR (immediate) PSTATE + bare ops.
+                        // MSR (immediate) PSTATE + bare ops.
         rt(0xD50049BF); // msr spsel, #9
         rt(0xD5034EDF); // msr daifset, #0xe
         rt(0xD503455F); // msr dit, #5
         rt(0xD500401F); // cfinv
         rt(0xD500459F); // msr s0_0_c4_c5_4, xzr (generic fallback)
-        // MSR/MRS register.
+                        // MSR/MRS register.
         rt(0xD51B192B);
         rt(0xD539533E);
         rt(0xD53B4200); // mrs x0, nzcv
-        // Generic MSR/MRS (register) for the op0==00 holes LLVM accepts.
+                        // Generic MSR/MRS (register) for the op0==00 holes LLVM accepts.
         rt(0xD5000064); // msr s0_0_c0_c0_3, x4
         rt(0xD52000C2); // mrs x2, s0_0_c0_c0_6
         rt(0xD5005007); // msr s0_0_c5_c0_0, x7
         rt(0xD50045A5); // msr s0_0_c4_c5_5, x5 (PSTATE CRn, Rt!=xzr)
         rt(0xD500301F); // msr s0_0_c3_c0_0, xzr (barrier op2==0 hole)
-        // FEAT_D128 MRRS/MSRR/SYSP/TLBIP.
+                        // FEAT_D128 MRRS/MSRR/SYSP/TLBIP.
         rt(0xD56001CC); // mrrs x12, x13, s0_0_c0_c1_6
         rt(0xD540005E); // msrr s0_0_c0_c0_2, x30, xzr
         rt(0xD578200C); // mrrs x12, x13, ttbr0_el1
@@ -1211,7 +1237,7 @@ mod tests {
         rt(0xD548003F); // sysp #0, c0, c0, #1 (no-transfer)
         rt(0xD54C8020); // tlbip ipas2e1is, x0, x1
         rt(0xD54C803F); // tlbip ipas2e1is, xzr, xzr
-        // SYS / SYSL / aliases.
+                        // SYS / SYSL / aliases.
         rt(0xD50D3428); // sys
         rt(0xD52F54FF); // sysl
         rt(0xD50B752A); // ic ivau, x10
@@ -1221,7 +1247,7 @@ mod tests {
         rt(0xD50B738C); // cfp rctx, x12
         rt(0xD50B73F0); // cpp rctx, x16
         rt(0xD50B73A6); // dvp rctx, x6
-        // WFET/WFIT.
+                        // WFET/WFIT.
         rt(0xD503100F);
         rt(0xD503103E);
         // TSTART/TTEST.

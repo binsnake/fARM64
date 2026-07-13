@@ -13,8 +13,7 @@
 //!
 //! The big test is `#[ignore]`d (run with `--ignored`) and currently
 //! NON-FAILING: it always passes and just prints a coverage/parity summary. Flip
-//! [`MATCH_THRESHOLD`] above 0.0 once real decoders land to turn it into a
-//! regression gate.
+//! [`MATCH_THRESHOLD`] above 0.0 to turn it into a regression gate.
 //!
 //! Env knobs:
 //! * `FARM64_CORPUS=<path>` — override the corpus location.
@@ -25,15 +24,13 @@
 
 mod common;
 
-use common::{
-    corpus_path, env_filter, env_limit, normalize, stream_corpus, Case,
-};
+use common::{corpus_path, env_filter, env_limit, normalize, stream_corpus, Case};
 use std::collections::BTreeMap;
 use std::io::Write as _;
 
 /// Fraction of *attempted* cases that must match for the gated `#[test]` to be
-/// considered a pass. While decoders are stubbed this is `0.0` (always passes).
-/// Raise it (e.g. to `0.95`) to turn the golden run into a regression gate.
+/// considered a pass. It remains `0.0`, making this a report-only sweep; raise it
+/// (e.g. to `0.95`) to turn the golden run into a regression gate.
 const MATCH_THRESHOLD: f64 = 0.0;
 
 /// Per-bucket tally: how many cases, how many were attempted (decoded to a
@@ -78,9 +75,8 @@ struct Mismatch {
 /// tallies, and the mismatch list. Shared by the gated test and an explicit
 /// runner.
 fn run_sweep() -> (Tally, BTreeMap<String, Tally>, Vec<Mismatch>) {
-    // The group decoders are still `todo!()` stubs that panic; silence the panic
-    // hook so the sweep does not print thousands of backtraces (each decode is
-    // wrapped in `catch_unwind` inside `disasm_farm64`).
+    // Keep a bulk sweep readable if an unexpected decoder or formatter panic is
+    // caught by `disasm_farm64`; one bad external case must not flood stderr.
     common::silence_panics();
 
     let path = corpus_path();
@@ -120,8 +116,8 @@ fn run_sweep() -> (Tally, BTreeMap<String, Tally>, Vec<Mismatch>) {
             .or_default()
             .record(attempted, matched);
 
-        // Record mismatches only among attempted cases (a stubbed decode is not
-        // a mismatch, it is simply "not yet implemented").
+        // Record text mismatches only for decoded cases. An Invalid result is a
+        // coverage gap and is tallied separately, not a rendering mismatch.
         if attempted && !matched {
             mismatches.push(Mismatch {
                 word: case.word,
@@ -161,7 +157,11 @@ fn dump_mismatches(mismatches: &[Mismatch]) {
                     m.word, m.group, m.expected, m.got
                 );
             }
-            eprintln!("[golden] wrote {} mismatches to {}", mismatches.len(), out_path.display());
+            eprintln!(
+                "[golden] wrote {} mismatches to {}",
+                mismatches.len(),
+                out_path.display()
+            );
         }
         Err(e) => eprintln!("[golden] could not write mismatch dump: {e}"),
     }
@@ -190,12 +190,9 @@ fn print_summary(overall: &Tally, by_group: &BTreeMap<String, Tally>) {
     eprintln!("groups: {}", by_group.len());
 
     // Worst groups: those with at least one attempted case but a low match
-    // rate, sorted by (match_rate asc, attempted desc). Only meaningful once
-    // decoders land; harmless (empty) while everything is stubbed.
-    let mut worst: Vec<(&String, &Tally)> = by_group
-        .iter()
-        .filter(|(_, t)| t.attempted > 0)
-        .collect();
+    // rate, sorted by (match_rate asc, attempted desc).
+    let mut worst: Vec<(&String, &Tally)> =
+        by_group.iter().filter(|(_, t)| t.attempted > 0).collect();
     worst.sort_by(|a, b| {
         a.1.match_rate()
             .partial_cmp(&b.1.match_rate())
@@ -206,9 +203,12 @@ fn print_summary(overall: &Tally, by_group: &BTreeMap<String, Tally>) {
     eprintln!();
     eprintln!("--- worst groups (attempted>0, lowest match rate) ---");
     if worst.is_empty() {
-        eprintln!("(none attempted yet — decoders are stubbed)");
+        eprintln!("(no cases decoded in this run)");
     } else {
-        eprintln!("{:<16} {:>7} {:>9} {:>7} {:>8}", "GROUP", "total", "attempt", "match", "rate%");
+        eprintln!(
+            "{:<16} {:>7} {:>9} {:>7} {:>8}",
+            "GROUP", "total", "attempt", "match", "rate%"
+        );
         for (g, t) in worst.iter().take(25) {
             eprintln!(
                 "{:<16} {:>7} {:>9} {:>7} {:>7.2}",
@@ -226,7 +226,10 @@ fn print_summary(overall: &Tally, by_group: &BTreeMap<String, Tally>) {
     all.sort_by(|a, b| b.1.total.cmp(&a.1.total).then(a.0.cmp(b.0)));
     eprintln!();
     eprintln!("--- per-base-group (top 40 by size) ---");
-    eprintln!("{:<16} {:>7} {:>9} {:>7} {:>8}", "GROUP", "total", "attempt", "match", "rate%");
+    eprintln!(
+        "{:<16} {:>7} {:>9} {:>7} {:>8}",
+        "GROUP", "total", "attempt", "match", "rate%"
+    );
     for (g, t) in all.iter().take(40) {
         eprintln!(
             "{:<16} {:>7} {:>9} {:>7} {:>7.2}",
@@ -247,7 +250,10 @@ fn print_summary(overall: &Tally, by_group: &BTreeMap<String, Tally>) {
     gaps.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
     eprintln!();
     eprintln!("--- biggest coverage gaps (total - attempted) ---");
-    eprintln!("{:<16} {:>7} {:>9} {:>7}", "GROUP", "total", "attempt", "gap");
+    eprintln!(
+        "{:<16} {:>7} {:>9} {:>7}",
+        "GROUP", "total", "attempt", "gap"
+    );
     for (g, gap, t) in gaps.iter().take(30) {
         eprintln!("{:<16} {:>7} {:>9} {:>7}", g, t.total, t.attempted, gap);
     }
@@ -269,7 +275,7 @@ fn golden_corpus_parity() {
     dump_mismatches(&mismatches);
 
     // Regression gate, currently disabled (threshold 0.0 => always passes).
-    // Once decoders land, raise MATCH_THRESHOLD to enforce parity.
+    // Raise MATCH_THRESHOLD when this report-only sweep should enforce parity.
     let rate = overall.match_rate();
     assert!(
         rate >= MATCH_THRESHOLD,
@@ -281,11 +287,20 @@ fn golden_corpus_parity() {
     );
 }
 
-/// Smoke test that the corpus file is present and parses to a non-trivial count.
-/// Does not touch the decoder, so it runs in normal CI.
+/// Smoke test that the optional corpus parses to a non-trivial count when it is
+/// available. The corpus is a development-only oracle and is not shipped in the
+/// crate package, so its absence is not a test failure.
 #[test]
 fn corpus_is_present_and_parses() {
     let path = corpus_path();
+    if !path.exists() {
+        eprintln!(
+            "skipping optional corpus smoke test; no corpus at {}",
+            path.display()
+        );
+        return;
+    }
+
     let mut first: Option<Case> = None;
     let mut count = 0usize;
     let total = stream_corpus(&path, |c| {
@@ -305,7 +320,7 @@ fn corpus_is_present_and_parses() {
 }
 
 /// Prove the harness comparison logic itself is correct, independent of the
-/// (currently stubbed) decoder. We hand-build the normalized comparison on a few
+/// decoder's coverage. We hand-build the normalized comparison on a few
 /// (got, expected) pairs and assert `normalize` collapses cosmetic differences
 /// while preserving semantic ones. This test is NOT ignored — it runs in CI.
 #[test]

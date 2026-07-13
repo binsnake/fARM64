@@ -73,9 +73,9 @@ impl SystemReg {
     /// The canonical lowercase name (`"nzcv"`, `"tpidr_el0"`, …) if this is a
     /// recognised register, else `None`.
     ///
-    /// Resolution order: first the (codegen) `SYSREG_NAMES` binary-search table
+    /// Resolution order: first the optional `SYSREG_NAMES` binary-search table
     /// in [`crate::tables::names`], then a self-contained `const` directory of
-    /// the common architectural registers. Zero allocation either way.
+    /// common architectural registers. Zero allocation either way.
     #[inline]
     pub fn name(self) -> Option<&'static str> {
         if let Some(n) = crate::tables::names::sysreg_name(self.0) {
@@ -185,9 +185,9 @@ impl core::fmt::Write for ByteSink<'_> {
 /// Keyed by the packed `(op0<<14|op1<<11|CRn<<7|CRm<<3|op2)` value (matching
 /// [`SystemReg::from_fields`]). Transcribed from the ARM ARM system-register
 /// `op0/op1/CRn/CRm/op2` directory; `None` for anything not listed (the renderer
-/// then emits the generic `S<…>` form). This complements the codegen table in
-/// [`crate::tables::names`] so the formatter renders the most common sysregs
-/// even before that table is populated.
+/// then emits the generic `S<…>` form). This is the primary committed name
+/// directory; [`crate::tables::names`] provides an optional sorted override
+/// table.
 #[inline]
 const fn canonical_name(packed: u16) -> Option<&'static str> {
     // Helper to keep the arms terse and self-documenting.
@@ -272,7 +272,7 @@ const fn canonical_name(packed: u16) -> Option<&'static str> {
         x if x == k!(2, 1, 0, 11, 0) => "trcstallctlr",
         // TRCRSCTLR<n>: CRn=1, n encoded across CRm/op2[0] (n = CRm | op2[0]<<4).
         x if x == k!(2, 1, 1, 15, 0) => "trcrsctlr15", // n=15
-        x if x == k!(2, 1, 1, 0, 1) => "trcrsctlr16", // n=16
+        x if x == k!(2, 1, 1, 0, 1) => "trcrsctlr16",  // n=16
         // TRCACVR<n>: CRn=2, CRm=2*n (low bank), op2 high bits.
         x if x == k!(2, 1, 2, 10, 0) => "trcacvr5", // n=5
         // TRCCIDCVR<n>: CRn=3, CRm=2*n, op2=0.
@@ -335,7 +335,10 @@ mod tests {
             SystemReg::from_fields(3, 0, 4, 2, 2).name(),
             Some("currentel")
         );
-        assert_eq!(SystemReg::from_fields(3, 0, 4, 0, 1).name(), Some("elr_el1"));
+        assert_eq!(
+            SystemReg::from_fields(3, 0, 4, 0, 1).name(),
+            Some("elr_el1")
+        );
         assert_eq!(
             SystemReg::from_fields(3, 0, 4, 0, 0).name(),
             Some("spsr_el1")
@@ -361,11 +364,15 @@ mod tests {
     fn render_into_sink() {
         // The `render` method (without the leading `s`) writes name or generic body.
         let mut s = ScratchString::new();
-        SystemReg::from_fields(3, 3, 4, 4, 0).render(&mut s).unwrap();
+        SystemReg::from_fields(3, 3, 4, 4, 0)
+            .render(&mut s)
+            .unwrap();
         assert_eq!(s.as_str(), "fpcr");
 
         let mut s = ScratchString::new();
-        SystemReg::from_fields(3, 7, 15, 15, 7).render(&mut s).unwrap();
+        SystemReg::from_fields(3, 7, 15, 15, 7)
+            .render(&mut s)
+            .unwrap();
         assert_eq!(s.as_str(), "3_7_c15_c15_7");
     }
 

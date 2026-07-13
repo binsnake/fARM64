@@ -85,7 +85,10 @@ fn za_tile_slice(arr: VA, sel: u32, tile: u32, off: u32, span: u8, vertical: boo
 pub fn decode(word: u32, out: &mut Instruction) {
     // Shell: word<23:22> = sz, word<21:19> == 000, word<18> == 1, word<16> == 0,
     // word<12:11> == 00. (word<31:24> == 0xC0 guaranteed by the caller.)
-    if bits(word, 19, 3) != 0b000 || bit(word, 18) != 1 || bit(word, 16) != 0 || bits(word, 11, 2) != 0
+    if bits(word, 19, 3) != 0b000
+        || bit(word, 18) != 1
+        || bit(word, 16) != 0
+        || bits(word, 11, 2) != 0
     {
         return;
     }
@@ -116,7 +119,11 @@ pub fn decode(word: u32, out: &mut Instruction) {
     let off_bits = (3 - size).saturating_sub(if span == 4 { 1 } else { 0 });
     let num_tiles = 1u32 << size;
     let split = |field: u32| -> Option<(u32, u32)> {
-        let off_mask = if off_bits == 0 { 0 } else { (1u32 << off_bits) - 1 };
+        let off_mask = if off_bits == 0 {
+            0
+        } else {
+            (1u32 << off_bits) - 1
+        };
         let off = field & off_mask;
         let tile = field >> off_bits;
         if tile >= num_tiles {

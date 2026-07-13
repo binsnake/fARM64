@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  quality:
+    name: Format, lint, test, and document
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run strict Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Run tests
+        run: cargo test --workspace --all-features
+      - name: Build strict documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --all-features --no-deps
+
+  feature-matrix:
+    name: Feature configuration (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - name: core
+            args: --no-default-features
+          - name: alloc
+            args: --no-default-features --features alloc
+          - name: std
+            args: --no-default-features --features std
+          - name: fmt-gnu
+            args: --no-default-features --features fmt-gnu
+          - name: crypto
+            args: --no-default-features --features crypto
+          - name: sve
+            args: --no-default-features --features sve
+          - name: sme
+            args: --no-default-features --features sme
+          - name: full
+            args: --no-default-features --features full
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check feature configuration
+        run: cargo check -p fARM64 ${{ matrix.args }}
+
+  portability:
+    name: Freestanding targets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, aarch64-unknown-none
+      - name: Check wasm without default features
+        run: cargo check -p fARM64 --target wasm32-unknown-unknown --no-default-features
+      - name: Check bare-metal AArch64 without default features
+        run: cargo check -p fARM64 --target aarch64-unknown-none --no-default-features
+
+  msrv:
+    name: Rust 1.74.1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.74.1
+      - name: Check all targets and features on the MSRV
+        run: cargo check --workspace --all-targets --all-features
+
+  package:
+    name: Package and verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Dry-run crates.io publication
+        run: cargo publish -p fARM64 --dry-run
+      - name: Build the crate archive
+        run: cargo package -p fARM64
+      - name: Test the extracted crate archive
+        shell: bash
+        run: |
+          mapfile -d '' -t archives < <(
+            find target/package -maxdepth 1 -type f -name '*.crate' -print0
+          )
+          if (( ${#archives[@]} != 1 )); then
+            echo "expected exactly one crate archive, found ${#archives[@]}" >&2
+            printf '  %q\n' "${archives[@]}" >&2
+            exit 1
+          fi
+
+          extract_dir="$(mktemp -d)"
+          tar -xzf "${archives[0]}" -C "$extract_dir"
+
+          mapfile -d '' -t manifests < <(
+            find "$extract_dir" -mindepth 2 -maxdepth 2 -type f -name Cargo.toml -print0
+          )
+          if (( ${#manifests[@]} != 1 )); then
+            echo "expected exactly one packaged Cargo.toml, found ${#manifests[@]}" >&2
+            printf '  %q\n' "${manifests[@]}" >&2
+            exit 1
+          fi
+
+          cargo test --manifest-path "${manifests[0]}" --all-features

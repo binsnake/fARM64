@@ -85,11 +85,11 @@ fn j1_movaz_reserved() {
     assert_invalid(0xC0020600); // pg == 001
     assert_invalid(0xC0020A00); // pg == 010
     assert_invalid(0xC0021200); // pg == 100
-    // `Q` (`word<16>`) RES0 for non-`.Q` sizes (`.b`/`.h`/`.s`/`.d`).
+                                // `Q` (`word<16>`) RES0 for non-`.Q` sizes (`.b`/`.h`/`.s`/`.d`).
     assert_invalid(0xC0010000); // size .b, Q set
     assert_invalid(0xC0410000); // size .h, Q set
     assert_invalid(0xC0810000); // size .s, Q set
-    // vector→tile `word<4>` RES0 (lies between the field and `Zn`).
+                                // vector→tile `word<4>` RES0 (lies between the field and `Zn`).
     assert_invalid(0xC00000FF); // valid sibling is C00000EF
 }
 
@@ -116,7 +116,7 @@ fn j2_gather64_signed_dword_reserved() {
     // /`LDNT1SD`): an 8-byte fetch already fills the 64-bit element.
     assert_invalid(0xC5AF14C1); // ld1d-shaped, but op==0 (signed), uxtw #3
     assert_invalid(0xC5D12DFD); // ldff1d-shaped, op==1 (signed+ff), sxtw
-    // Also the vector+immediate and packed-offset signed-dword slots.
+                                // Also the vector+immediate and packed-offset signed-dword slots.
     assert_invalid(0xC5A084C1); // vector+imm, op4 (signed)
     assert_invalid(0xC5E084C1); // packed lsl, op4 (signed)
     assert_invalid(0xC5A004C1); // LDNT1 (region 00), op4 -> would be ldnt1sd
@@ -149,7 +149,7 @@ fn j3_cpy_imm_byte_shift_reserved() {
     // `LSL #8` (`sh == 1`) cannot apply to a `.b` element → UNDEFINED.
     assert_invalid(0x05156075); // mov z21.b, p5/m, #imm, lsl #8 — reserved
     assert_invalid(0x05152075); // /z variant, .b + shift
-    // The non-shifted `.b` MOV-imm stays valid.
+                                // The non-shifted `.b` MOV-imm stays valid.
     assert_eq!(text(0x05154075), "mov     z21.b, p5/m, #0x3");
     assert_roundtrip(0x05154075);
 }
@@ -168,7 +168,7 @@ fn j3_zip_requires_bit21() {
     // The ZIP/UZP/TRN permute leaf fixes `word<21> == 1`; the `<21> == 0` slot
     // (a reserved CPY-imm) must not be mis-claimed as `ZIP1`.
     assert_invalid(0x05156075); // was mis-decoding to `zip1 z21.b, z3.b, z21.b`
-    // A genuine ZIP1 (`word<21> == 1`) still decodes.
+                                // A genuine ZIP1 (`word<21> == 1`) still decodes.
     assert_eq!(text(0x053E617B), "zip1    z27.b, z11.b, z30.b");
     assert_roundtrip(0x053E617B);
 }

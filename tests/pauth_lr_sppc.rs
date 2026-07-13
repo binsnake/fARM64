@@ -40,7 +40,12 @@ fn rt(word: u32) {
     assert!(!insn.is_invalid(), "{word:08X} decoded Invalid");
     let enc = encode(&insn)
         .unwrap_or_else(|e| panic!("{word:08X} ({}) encode {e:?}", insn.mnemonic().name()));
-    assert_eq!(enc, word, "{word:08X} ({}) re-encoded {enc:08X}", insn.mnemonic().name());
+    assert_eq!(
+        enc,
+        word,
+        "{word:08X} ({}) re-encoded {enc:08X}",
+        insn.mnemonic().name()
+    );
 }
 
 #[test]
@@ -57,15 +62,36 @@ fn rendering() {
 
 #[test]
 fn mnemonics() {
-    assert_eq!(decode(0xDAC1A3FE, ADDR, FeatureSet::ALL).mnemonic(), Mnemonic::Paciasppc);
-    assert_eq!(decode(0xDAC183FE, ADDR, FeatureSet::ALL).mnemonic(), Mnemonic::Pacnbiasppc);
-    assert_eq!(decode(0xDAC1905E, ADDR, FeatureSet::ALL).mnemonic(), Mnemonic::Autiasppcr);
-    assert_eq!(decode(0xD65F0BE2, ADDR, FeatureSet::ALL).mnemonic(), Mnemonic::Retaasppcr);
+    assert_eq!(
+        decode(0xDAC1A3FE, ADDR, FeatureSet::ALL).mnemonic(),
+        Mnemonic::Paciasppc
+    );
+    assert_eq!(
+        decode(0xDAC183FE, ADDR, FeatureSet::ALL).mnemonic(),
+        Mnemonic::Pacnbiasppc
+    );
+    assert_eq!(
+        decode(0xDAC1905E, ADDR, FeatureSet::ALL).mnemonic(),
+        Mnemonic::Autiasppcr
+    );
+    assert_eq!(
+        decode(0xD65F0BE2, ADDR, FeatureSet::ALL).mnemonic(),
+        Mnemonic::Retaasppcr
+    );
 }
 
 #[test]
 fn roundtrip() {
-    for w in [0xDAC1A3FEu32, 0xDAC1A7FE, 0xDAC183FE, 0xDAC187FE, 0xDAC1905E, 0xDAC1945E, 0xD65F0BE2, 0xD65F0FE2] {
+    for w in [
+        0xDAC1A3FEu32,
+        0xDAC1A7FE,
+        0xDAC183FE,
+        0xDAC187FE,
+        0xDAC1905E,
+        0xDAC1945E,
+        0xD65F0BE2,
+        0xD65F0FE2,
+    ] {
         rt(w);
     }
     // The register-modifier forms across the whole Xm range round-trip.
@@ -80,15 +106,30 @@ fn roundtrip() {
 #[test]
 fn gated_on_pauth_lr() {
     // The base ISA (no FEAT_PAuth_LR) leaves all eight invalid.
-    for w in [0xDAC1A3FEu32, 0xDAC183FE, 0xDAC1905E, 0xD65F0BE2, 0xD65F0FE2] {
-        assert!(decode(w, ADDR, FeatureSet::BASE).is_invalid(), "{w:08X} should need FEAT_PAuth_LR");
+    for w in [
+        0xDAC1A3FEu32,
+        0xDAC183FE,
+        0xDAC1905E,
+        0xD65F0BE2,
+        0xD65F0FE2,
+    ] {
+        assert!(
+            decode(w, ADDR, FeatureSet::BASE).is_invalid(),
+            "{w:08X} should need FEAT_PAuth_LR"
+        );
     }
     // FEAT_PAuth_LR alone (no FEAT_PAuth) is enough — the new forms live in the
     // same encoding slots but are gated independently.
     let lr = FeatureSet::BASE.with(Feature::PauthLr);
     assert_eq!(decode(0xDAC1A3FE, ADDR, lr).mnemonic(), Mnemonic::Paciasppc);
-    assert_eq!(decode(0xDAC1905E, ADDR, lr).mnemonic(), Mnemonic::Autiasppcr);
-    assert_eq!(decode(0xD65F0BE2, ADDR, lr).mnemonic(), Mnemonic::Retaasppcr);
+    assert_eq!(
+        decode(0xDAC1905E, ADDR, lr).mnemonic(),
+        Mnemonic::Autiasppcr
+    );
+    assert_eq!(
+        decode(0xD65F0BE2, ADDR, lr).mnemonic(),
+        Mnemonic::Retaasppcr
+    );
 }
 
 #[test]
@@ -96,11 +137,17 @@ fn reserved_neighbors_stay_invalid() {
     // PACI*SPPC require the implicit LR dest (Rd==30) and SP source (Rn==31).
     assert!(decode(0xDAC1A3FF, ADDR, FeatureSet::ALL).is_invalid()); // Rd==31, not 30
     assert!(decode(0xDAC1A35E, ADDR, FeatureSet::ALL).is_invalid()); // Rn==2, not 31 (paciasppc)
-    // AUTI*SPPCR require the implicit LR dest (Rd==30).
+                                                                     // AUTI*SPPCR require the implicit LR dest (Rd==30).
     assert!(decode(0xDAC1905F, ADDR, FeatureSet::ALL).is_invalid()); // Rd==31, not 30
-    // An unallocated opcode in the same opcode2==00001 slot stays invalid.
+                                                                     // An unallocated opcode in the same opcode2==00001 slot stays invalid.
     assert!(decode(0xDAC1885E, ADDR, FeatureSet::ALL).is_invalid()); // opcode 100010
-    // RETA*SPPCR require Rn==11111; the op4==11111 case is plain RETAA (not the R form).
-    assert_eq!(decode(0xD65F0BFF, ADDR, FeatureSet::ALL).mnemonic(), Mnemonic::Retaa);
-    assert_eq!(decode(0xD65F0FFF, ADDR, FeatureSet::ALL).mnemonic(), Mnemonic::Retab);
+                                                                     // RETA*SPPCR require Rn==11111; the op4==11111 case is plain RETAA (not the R form).
+    assert_eq!(
+        decode(0xD65F0BFF, ADDR, FeatureSet::ALL).mnemonic(),
+        Mnemonic::Retaa
+    );
+    assert_eq!(
+        decode(0xD65F0FFF, ADDR, FeatureSet::ALL).mnemonic(),
+        Mnemonic::Retab
+    );
 }

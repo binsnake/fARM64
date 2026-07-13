@@ -37,8 +37,14 @@ fn mk(sz: u32, o2: u32, l: u32, o1: u32, rs: u32, o0: u32, rt2: u32, rn: u32, rt
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     let insn2 = decode(enc, 0, FeatureSet::ALL);
     assert_eq!(
         insn.mnemonic(),
@@ -49,7 +55,12 @@ fn assert_roundtrip(word: u32) {
         insn2.mnemonic().name(),
         enc
     );
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
     for i in 0..insn.op_count() {
         assert_eq!(
             format!("{:?}", insn.op(i)),
@@ -67,19 +78,19 @@ fn examples_decode_as_expected() {
     // (word, mnemonic, operand_count) — canonical encodings (LLVM 21 oracle).
     let cases: &[(u32, &str, usize)] = &[
         // Unprivileged load/store-exclusive register (W and X).
-        (0x895F7C20, "ldtxr", 2),   // ldtxr  w0,  [x1]
-        (0xC95F7C20, "ldtxr", 2),   // ldtxr  x0,  [x1]
-        (0x895FFEB9, "ldatxr", 2),  // ldatxr w25, [x21]
-        (0xC95FFEB9, "ldatxr", 2),  // ldatxr x25, [x21]
-        (0x89007FE9, "sttxr", 3),   // sttxr  w0, w9, [sp]
-        (0xC9007FE9, "sttxr", 3),   // sttxr  w0, x9, [sp]
-        (0x8900FFE9, "stltxr", 3),  // stltxr w0, w9, [sp]
-        (0xC900FFE9, "stltxr", 3),  // stltxr w0, x9, [sp]
+        (0x895F7C20, "ldtxr", 2),  // ldtxr  w0,  [x1]
+        (0xC95F7C20, "ldtxr", 2),  // ldtxr  x0,  [x1]
+        (0x895FFEB9, "ldatxr", 2), // ldatxr w25, [x21]
+        (0xC95FFEB9, "ldatxr", 2), // ldatxr x25, [x21]
+        (0x89007FE9, "sttxr", 3),  // sttxr  w0, w9, [sp]
+        (0xC9007FE9, "sttxr", 3),  // sttxr  w0, x9, [sp]
+        (0x8900FFE9, "stltxr", 3), // stltxr w0, w9, [sp]
+        (0xC900FFE9, "stltxr", 3), // stltxr w0, x9, [sp]
         // Unprivileged compare-and-swap (64-bit only).
-        (0xC9807FC9, "cast", 3),    // cast   x0, x9, [x30]
-        (0xC9C07FC9, "casat", 3),   // casat  x0, x9, [x30]
-        (0xC980FFC9, "caslt", 3),   // caslt  x0, x9, [x30]
-        (0xC9C0FFC9, "casalt", 3),  // casalt x0, x9, [x30]
+        (0xC9807FC9, "cast", 3),   // cast   x0, x9, [x30]
+        (0xC9C07FC9, "casat", 3),  // casat  x0, x9, [x30]
+        (0xC980FFC9, "caslt", 3),  // caslt  x0, x9, [x30]
+        (0xC9C0FFC9, "casalt", 3), // casalt x0, x9, [x30]
         // Unprivileged compare-and-swap pair (64-bit only).
         (0x49807C82, "caspt", 5),   // caspt   x0, x1, x2, x3, [x4]
         (0x49C07C82, "caspat", 5),  // caspat  x0, x1, x2, x3, [x4]
@@ -88,12 +99,21 @@ fn examples_decode_as_expected() {
     ];
     for &(w, m, n) in cases {
         let insn = decode(w, 0, FeatureSet::ALL);
-        assert!(!insn.is_invalid(), "{:08X} decoded Invalid (expected {})", w, m);
+        assert!(
+            !insn.is_invalid(),
+            "{:08X} decoded Invalid (expected {})",
+            w,
+            m
+        );
         assert_eq!(insn.mnemonic().name(), m, "{:08X} mnemonic", w);
         assert_eq!(insn.op_count(), n, "{:08X} operand count", w);
         // Canonical words must re-encode to the identical bit pattern.
         let enc = encode(&insn).expect("encode canonical");
-        assert_eq!(enc, w, "{:08X} ({}) did not re-encode identically (got {:08X})", w, m, enc);
+        assert_eq!(
+            enc, w,
+            "{:08X} ({}) did not re-encode identically (got {:08X})",
+            w, m, enc
+        );
         assert_roundtrip(w);
     }
 }
@@ -128,7 +148,11 @@ fn exhaustive_roundtrip() {
             }
         }
     }
-    assert!(decoded >= 16, "expected the LSUI forms to decode, got {}", decoded);
+    assert!(
+        decoded >= 16,
+        "expected the LSUI forms to decode, got {}",
+        decoded
+    );
 }
 
 #[test]
@@ -138,7 +162,12 @@ fn reserved_forms_are_invalid() {
         for l in 0..2 {
             for o0 in 0..2 {
                 let w = mk(sz, 0, l, 0, 0b11111, o0, 0b11111, 1, 0);
-                assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} sz={} excl should be Invalid", w, sz);
+                assert!(
+                    decode(w, 0, FeatureSet::ALL).is_invalid(),
+                    "{:08X} sz={} excl should be Invalid",
+                    w,
+                    sz
+                );
             }
         }
     }
@@ -147,8 +176,16 @@ fn reserved_forms_are_invalid() {
         for o0 in 0..2 {
             let cas32 = mk(2, 1, l, 0, 0, o0, 0b11111, 5, 6);
             let casp32 = mk(0, 1, l, 0, 0, o0, 0b11111, 5, 6);
-            assert!(decode(cas32, 0, FeatureSet::ALL).is_invalid(), "{:08X} 32-bit CAS should be Invalid", cas32);
-            assert!(decode(casp32, 0, FeatureSet::ALL).is_invalid(), "{:08X} 32-bit CASP should be Invalid", casp32);
+            assert!(
+                decode(cas32, 0, FeatureSet::ALL).is_invalid(),
+                "{:08X} 32-bit CAS should be Invalid",
+                cas32
+            );
+            assert!(
+                decode(casp32, 0, FeatureSet::ALL).is_invalid(),
+                "{:08X} 32-bit CASP should be Invalid",
+                casp32
+            );
         }
     }
     // o1=1 has no LSUI form (no unprivileged exclusive pair). Sweep o2/sz.
@@ -157,7 +194,11 @@ fn reserved_forms_are_invalid() {
             for l in 0..2 {
                 for o0 in 0..2 {
                     let w = mk(sz, o2, l, 1, 0b11111, o0, 0b11111, 1, 0);
-                    assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} o1=1 should be Invalid", w);
+                    assert!(
+                        decode(w, 0, FeatureSet::ALL).is_invalid(),
+                        "{:08X} o1=1 should be Invalid",
+                        w
+                    );
                 }
             }
         }
@@ -168,8 +209,16 @@ fn reserved_forms_are_invalid() {
     // round-trip it (the encoder re-canonicalizes Rt2 to all-ones).
     let cas_badrt2 = mk(3, 1, 0, 0, 0, 0, 0b01110, 30, 9);
     let casp_badrt2 = mk(1, 1, 0, 0, 0, 0, 0b01110, 4, 2);
-    assert_eq!(decode(cas_badrt2, 0, FeatureSet::ALL).mnemonic().name(), "cast", "CAST Rt2 is SBO-ignored");
-    assert_eq!(decode(casp_badrt2, 0, FeatureSet::ALL).mnemonic().name(), "caspt", "CASPT Rt2 is SBO-ignored");
+    assert_eq!(
+        decode(cas_badrt2, 0, FeatureSet::ALL).mnemonic().name(),
+        "cast",
+        "CAST Rt2 is SBO-ignored"
+    );
+    assert_eq!(
+        decode(casp_badrt2, 0, FeatureSet::ALL).mnemonic().name(),
+        "caspt",
+        "CASPT Rt2 is SBO-ignored"
+    );
     assert_roundtrip(cas_badrt2);
     assert_roundtrip(casp_badrt2);
 }
@@ -180,9 +229,18 @@ fn casp_requires_even_registers() {
     let odd_rs = mk(1, 1, 0, 0, 5, 0, 0b11111, 7, 6);
     let odd_rt = mk(1, 1, 0, 0, 4, 0, 0b11111, 7, 7);
     let even = mk(1, 1, 0, 0, 4, 0, 0b11111, 7, 6);
-    assert!(decode(odd_rs, 0, FeatureSet::ALL).is_invalid(), "caspt odd Rs should be Invalid");
-    assert!(decode(odd_rt, 0, FeatureSet::ALL).is_invalid(), "caspt odd Rt should be Invalid");
-    assert!(!decode(even, 0, FeatureSet::ALL).is_invalid(), "caspt even pair should decode");
+    assert!(
+        decode(odd_rs, 0, FeatureSet::ALL).is_invalid(),
+        "caspt odd Rs should be Invalid"
+    );
+    assert!(
+        decode(odd_rt, 0, FeatureSet::ALL).is_invalid(),
+        "caspt odd Rt should be Invalid"
+    );
+    assert!(
+        !decode(even, 0, FeatureSet::ALL).is_invalid(),
+        "caspt even pair should decode"
+    );
 }
 
 #[test]
@@ -196,8 +254,16 @@ fn gated_by_feature() {
         0x49807C82,    // caspt
     ];
     for w in words {
-        assert!(decode(w, 0, no_lsui).is_invalid(), "{:08X} should require FEAT_LSUI", w);
-        assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode with FEAT_LSUI", w);
+        assert!(
+            decode(w, 0, no_lsui).is_invalid(),
+            "{:08X} should require FEAT_LSUI",
+            w
+        );
+        assert!(
+            !decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} should decode with FEAT_LSUI",
+            w
+        );
     }
 }
 

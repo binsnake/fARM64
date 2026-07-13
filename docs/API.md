@@ -1,6 +1,6 @@
 # fARM64 — Public API
 
-> Drafted public surface for the `fARM64` AArch64 disassembler.
+> Public surface for the `fARM64` AArch64 disassembler and semantic encoder.
 > iced-x86-inspired, `#![no_std]` by default, zero-heap on the core decode and
 > default-format paths.
 
@@ -49,7 +49,7 @@ Three rules constrain every signature below; read them before the types.
    returns exist only behind the `alloc` feature and are always additive
    conveniences — never the primary API.
 2. **`Instruction` is a `Copy` value type.** No internal pointers, no borrows,
-   target size `<= 40` bytes (goal 32). You can store it in arrays, send it
+   size bounded by the crate's `<= 112` byte static assertion. You can store it in arrays, send it
    across threads, and `memcpy` it freely. The decoder never hands out a
    reference into its own buffer.
 3. **Names are `&'static str`.** Registers, mnemonics, system registers, and
@@ -70,16 +70,20 @@ prefixes, segment overrides, 16/32/64-bit mode selection).
 |-|-|-|-|
 | *(none)* | yes | `no_std`, **no alloc**: `Decoder`, `Instruction`, all enums, `FmtFormatter`, `BufSink`, core `InstructionInfo` | A — always works |
 | `alloc` | no | `format_to_string`, `String`/token-collecting sinks, `InstructionInfoFactory` | B |
-| `std` | no | implies `alloc`; `std::error::Error for DecodeError`, std test/bench helpers | C |
-| `fmt-gnu` | no | `GnuFormatter` objdump-style dialect | — |
-| `fp16` `lse` `pauth` `sme` `mte` `bf16` `sve` `crypto` | no | compile-in the matching generated table slices and `Code`/`Register` variants | — |
-| `no-alloc-audit` | no (test) | installs an allocation-panicking global allocator for the zero-heap proof | — |
+| `std` | no | implies `alloc`; `std::error::Error` for decode/encode errors and std test helpers | C |
+| `fmt-gnu` | no | `GnuFormatter`, currently a UAL-equivalent compatibility adapter | — |
+| `sve` | no | compile the SVE/SVE2 decoder and encoder modules | A |
+| `sme` | no | compile the SME/SME2 decoder and encoder modules | A |
+| `crypto` | no | compile the Advanced SIMD crypto decoder; public enums and encoder support remain available | A |
+| `full` | no | enable `sve`, `sme`, and `crypto` | A |
+| `no-alloc-audit` | no (test) | enable allocation-counting tests for the zero-heap path | — |
 
-Supported targets (CI-enforced from day one): `x86_64-*` (dev/host),
+Supported targets include `x86_64-*`/`aarch64-*` (dev/host),
 `wasm32-unknown-unknown`, `aarch64-unknown-none` (bare-metal, no CRT), and
-generally any target providing `core`. Cargo features decide what is *compiled*;
-the runtime [`FeatureSet`](#feature--featureset) decides what is *accepted*.
-These two gates are independent.
+generally any target providing `core`. Cargo features compile optional modules;
+the runtime [`FeatureSet`](#feature--featureset) decides what is accepted. Not
+every runtime extension has a matching Cargo feature, and an omitted module
+cannot be restored by a runtime bit.
 
 ```rust
 #![no_std]
@@ -103,7 +107,8 @@ impl<'a> Decoder<'a> {
     /// (used to resolve PC-relative targets). Never panics.
     pub fn new(data: &'a [u8], ip: u64, options: DecoderOptions) -> Decoder<'a>;
 
-    /// Fallible constructor for symmetry; validates option/feature consistency.
+    /// Fallible-shaped compatibility constructor. Every current option value is
+    /// valid, so this is equivalent to `Ok(Decoder::new(...))`.
     pub fn try_new(
         data: &'a [u8],
         ip: u64,
@@ -131,8 +136,8 @@ impl<'a> Decoder<'a> {
     pub fn ip(&self) -> u64;
     pub fn set_ip(&mut self, ip: u64);
 
-    /// `DecodeError::None` after a success, otherwise the failure reason of the
-    /// most recent `decode`/`decode_into`.
+    /// Status of the most recent `decode`/`decode_into`. Currently emits only
+    /// `None`, `Unmatched`, or `EndOfInstruction`.
     pub fn last_error(&self) -> DecodeError;
 
     /// The options this decoder was created with (carries the active
@@ -179,8 +184,8 @@ impl<'a, 'd> Iterator for DecoderIter<'a, 'd> { type Item = Instruction; /* ... 
 pub struct DecoderOptions {
     /// Architecture extensions accepted at decode time. Default: `FeatureSet::ALL`
     /// (of the compiled-in extensions), so by default you decode everything that
-    /// was compiled. Narrow it to reject extension encodings as
-    /// `DecodeError::FeatureRequired`.
+    /// was compiled. Narrow it to leave gated-off extension encodings invalid;
+    /// `Decoder::last_error()` currently reports those as `Unmatched`.
     pub features: FeatureSet,
 }
 
@@ -561,9 +566,9 @@ impl VectorArrangement {
 
 ## `Feature` / `FeatureSet`
 
-`FeatureSet` carries two `u64` words: `features0` gates decode-time structural
-admission and `features1` gates pseudocode-time behaviour, kept separate because
-the ARM ARM treats those questions independently. Both fields are public.
+`FeatureSet` carries two public `u64` words. Decode-time admission currently
+checks `features0`. `features1` is mirrored by `with()` and reserved for the
+separate pseudocode-behaviour dimension; current decoders do not query it.
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -572,13 +577,13 @@ the ARM ARM treats those questions independently. Both fields are public.
 pub enum Feature {
     Base, Fp16, Bf16, Lse, PAuth, Mte, Sve, Sme, Crypto,
     Tme, Trf, Wfxt, Frintts,
-    // … completed by codegen
+    // … additional supported extensions
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FeatureSet {
     pub features0: u64, // decode-time admission
-    pub features1: u64, // pcode-time availability
+    pub features1: u64, // reserved pseudocode-behaviour bits
 }
 
 impl FeatureSet {
@@ -605,10 +610,10 @@ impl Default for FeatureSet {
 
 ## `DecodeError`
 
-Plain enum covering the ARM ARM decode outcomes (reserved / unallocated /
-UNDEFINED, `SEE`-elsewhere redirections, constraint violations), plus a Rust-side
-`FeatureRequired`. `Display` is provided in `core`; `std::error::Error` is
-`std`-gated.
+Plain enum providing status vocabulary for ARM ARM decode outcomes (reserved /
+unallocated / UNDEFINED, `SEE`-elsewhere redirections, constraint violations),
+plus a Rust-side `FeatureRequired`. `Display` is provided in `core`;
+`std::error::Error` is `std`-gated.
 
 ```rust
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -624,8 +629,8 @@ pub enum DecodeError {
     Unreachable,      // -7
     AssertFailed,     // -8
     ErrorOperands,    // -9
-    /// The encoding was structurally valid but its extension was not in the
-    /// active `FeatureSet`.
+    /// Reserved diagnostic for an extension absent from the active
+    /// `FeatureSet`.
     FeatureRequired(Feature),
 }
 
@@ -634,8 +639,11 @@ impl core::fmt::Display for DecodeError { /* ... */ }
 impl std::error::Error for DecodeError {}
 ```
 
-`EndOfInstruction` is accepted (treated as success) when the encoding is a
-`HINT`, per the ARM ARM's HINT special case.
+The current `Decoder` emits `None` after a valid instruction, `Unmatched` after
+any invalid full word (including reserved, unallocated, and runtime-gated-off
+words), and `EndOfInstruction` only when fewer than four input bytes remain.
+The remaining variants, including `FeatureRequired`, are reserved for
+finer-grained diagnostics and are not currently emitted by `Decoder`.
 
 ---
 
@@ -712,8 +720,7 @@ decoder (they carry no semantics), so the encoder emits the canonical value
 instead — value-identical and re-decoding identically, but not the same raw bits.
 These fields are: `SMULH`/`UMULH` `Ra`, load/store-exclusive `Rs`/`Rt2`, `IC`
 `Rt`, `DUP` (general) index bits, and `FCMP`/`FCMPE #0.0` `Rm`. See
-[VALIDATION.md](./VALIDATION.md#round-trip-encoder) for the measured numbers
-(100.00% semantic, 98.00% exact-word over the corpus).
+[VALIDATION.md](./VALIDATION.md) for the reproducible validation procedure.
 
 So: compare `encode(decode(w))` to the *re-decoded instruction*, not blindly to
 `w`, when an exact-bit match is not required. If a caller does need the original
@@ -811,7 +818,7 @@ impl FmtFormatter {
 impl Formatter for FmtFormatter { /* ... */ }
 impl Default for FmtFormatter { fn default() -> Self; }
 
-/// objdump/GNU dialect, same trait, alternate policy.
+/// GNU compatibility adapter; currently delegates to the UAL renderer.
 #[cfg(feature = "fmt-gnu")]
 pub struct GnuFormatter { /* ... */ }
 #[cfg(feature = "fmt-gnu")]
@@ -852,27 +859,25 @@ pub struct SymbolResult<'a> {
 
 ## `InstructionInfo` flow/access facility
 
-The core path fills fixed-capacity inline arrays — no allocation. An
-`alloc`-gated factory mirrors iced's allocate-once/refill pattern.
-
-> Status: the types below are defined and re-exported, but
-> `info::instruction_info` is currently a stub (`todo!()`) and will panic if
-> called. `Instruction::flow_control()` and `Instruction::set_flags()` (on the
-> `Instruction` itself) are the implemented flow/flag accessors today. The
-> `instruction_info` free function lives in the `fARM64::info` module (it is not
-> in the crate prelude).
+The core path is implemented and fills fixed-capacity inline arrays with no
+allocation. It classifies explicit operands, memory base/index use, writeback,
+common read-modify-write destinations, control flow, and implicit link/flag
+effects. The free function is re-exported from the crate root. An `alloc`-gated
+factory caches and reuses the most recent result.
 
 ```rust
 #[derive(Debug, Clone, Copy)]
 pub struct InstructionInfo { /* fixed inline arrays + counts */ }
 
-/// Zero-alloc: returns owned fixed-capacity info. (Not yet implemented.)
+/// Zero-alloc: returns owned fixed-capacity access information.
 pub fn instruction_info(insn: &Instruction) -> InstructionInfo;
 
 impl InstructionInfo {
     pub fn used_registers(&self) -> &[UsedRegister];
     pub fn used_memory(&self) -> &[UsedMemory];
     pub fn flow_control(&self) -> FlowControl;
+    pub fn flags_read(&self) -> bool;
+    pub fn flags_written(&self) -> bool;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -901,7 +906,7 @@ pub enum FlowControl {
 #[repr(u8)]
 pub enum FlagEffect { None, Sets, SetsNormal, SetsFloat }
 
-/// Allocate-once / refill, mirroring iced. `alloc` only.
+/// Reusable cached factory. `alloc` feature only.
 #[cfg(feature = "alloc")]
 pub struct InstructionInfoFactory { /* ... */ }
 #[cfg(feature = "alloc")]
@@ -1027,23 +1032,22 @@ fn scan_until_return(code: &[u8], base: u64) {
 }
 ```
 
-> The richer per-register access analysis (`info::instruction_info` →
-> `used_registers`/`used_memory`) is defined but not yet implemented — see the
-> [`InstructionInfo`](#instructioninfo-flowaccess-facility) status note.
+For richer analysis, call `fARM64::instruction_info(&insn)` and inspect
+`used_registers()`, `used_memory()`, `flags_read()`, and `flags_written()`.
 
 ### 6. Restricting accepted extensions at runtime
 
 ```rust
 use fARM64::{Decoder, DecoderOptions, FeatureSet, Feature, DecodeError};
 
-// Compile-in SVE (cargo feature), but reject SVE encodings at runtime here.
+// With SVE compiled in, reject SVE encodings at runtime here.
 fn base_plus_lse_only(word: u32) -> Result<(), DecodeError> {
     let features = FeatureSet::BASE.with(Feature::Lse);
     let opts = DecoderOptions { features };
     let mut dec = Decoder::new(&word.to_le_bytes(), 0, opts);
     let insn = dec.decode();
     if insn.is_invalid() {
-        return Err(dec.last_error()); // e.g. DecodeError::FeatureRequired(Feature::Sve)
+        return Err(dec.last_error()); // currently DecodeError::Unmatched
     }
     Ok(())
 }
@@ -1064,13 +1068,13 @@ not apply and adds AArch64-specific concepts.
 | `MemorySize`, scaled-index `* 1/2/4/8` | `Operand::MemImm`/`MemExt`/`SveMem` (`ExtendType` + `shift` + `MemIndexMode`) | A64 uses extend+shift register addressing and named index modes. |
 | `FlagsModified`/EFLAGS bitset | `FlagEffect` enum | A64 has a single 4-bit NZCV write classification. |
 | Separate `Mnemonic` only | `Code` **and** `Mnemonic` (kept), plus alias resolution in the formatter | Same split as iced; alias conditions applied per the ARM ARM. |
-| Many formatter dialects (Intel/AT&T/masm/nasm/gas) | `FmtFormatter` (UAL) default + optional `GnuFormatter` | A64 has fewer mainstream syntaxes; UAL is the spec's preferred disassembly. |
+| Many formatter dialects (Intel/AT&T/masm/nasm/gas) | `FmtFormatter` (UAL) default + optional UAL-equivalent `GnuFormatter` adapter | A distinct GNU policy is planned but not claimed today. |
 | `Register` as flat numeric, raw stack pointer | SP/ZR resolved at decode; never raw reg-31; SVE `Z`/predicate `P`, scalar `B/H/S/D/Q`, vector `V` views | A64 register model. |
 | Encoder/`BlockEncoder` shipped | semantic **encoder shipped** (`encode`/`Instruction::encode` → `Result<u32, EncodeError>`, validated by decode→encode→decode round-trip); no `BlockEncoder`/relocation layer | Round-trip proves the decode is invertible; block-level relocation is out of scope. |
 | `alloc`/`String` assumed available | **no_std + no-alloc is the default**; `String`/`Vec` are `alloc`-gated extras | Hard portability requirement (wasm32, bare-metal). |
 
-**Added vs iced:** `FeatureSet`/`Feature` runtime extension gating with
-`DecodeError::FeatureRequired`; `Operand` carries arrangement / lane / predicate
+**Added vs iced:** `FeatureSet`/`Feature` runtime extension gating (gated-off
+words remain invalid); `Operand` carries arrangement / lane / predicate
 qualifier / SME-tile shapes; `VectorArrangement`, `PredQual`, `SliceIndicator`,
 and `SmeTile` operands; `BufSink` fixed-buffer formatting as a first-class sink.
 
@@ -1078,13 +1082,11 @@ and `SmeTile` operands; `BufSink` fixed-buffer formatting as a first-class sink.
 
 ## Provenance and licensing
 
-The decode core behind this API is an **original, hand-written implementation**
-derived from the *Arm Architecture Reference Manual*. It is **not** a derivative of
-Binary Ninja's `arch-arm64` or any other disassembler, and carries no
-required-attribution obligation. `fARM64` is licensed `MIT`.
-
-Correctness is defined against the ARM ARM and cross-checked against multiple
-oracles (LLVM `llvm-mc`/`llvm-objdump`, GNU binutils `objdump`, and Binary Ninja's
-`test_cases.txt` corpus used only as a development guide). Where an oracle diverges
-from the spec, `fARM64` follows the spec; see `ENCODING.md` for the decode tree,
-the ARM pseudocode helpers, and the documented divergence allow-list.
+fARM64 is licensed under the MIT License. Arm architectural instruction handling
+is implemented from the *Arm Architecture Reference Manual* and cross-checked
+against independent tools and corpora. Apple AMX encodings reference
+[`corsix/amx`](https://github.com/corsix/amx); Apple GXF encodings reference
+Asahi Linux's [encoding documentation](https://asahilinux.org/docs/hw/cpu/apple-instructions/)
+and Sven Peter's [GXF research](https://blog.svenpeter.dev/posts/m1_sprr_gxf/). These Apple
+families are separately identified and runtime-gated. See `NOTICE` and
+`VALIDATION.md` for details.

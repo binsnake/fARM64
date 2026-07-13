@@ -31,10 +31,23 @@ fn assert_roundtrip(word: u32) {
     assert!(!insn.is_invalid(), "{word:08X} decoded Invalid");
     let enc = encode(&insn)
         .unwrap_or_else(|e| panic!("{word:08X} ({}) encode error {e:?}", insn.mnemonic().name()));
-    assert_eq!(enc, word, "{word:08X} ({}) re-encoded to {enc:08X}", insn.mnemonic().name());
+    assert_eq!(
+        enc,
+        word,
+        "{word:08X} ({}) re-encoded to {enc:08X}",
+        insn.mnemonic().name()
+    );
     let insn2 = decode(enc, 0x1000, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{word:08X} mnemonic drift");
-    assert_eq!(insn.op_count(), insn2.op_count(), "{word:08X} operand-count drift");
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{word:08X} mnemonic drift"
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{word:08X} operand-count drift"
+    );
 }
 
 /// `(word, expected disassembly)` pairs — the LLVM oracle renderings.
@@ -108,7 +121,10 @@ fn reserved_neighbours_invalid() {
         0x658D3913,
     ];
     for &w in &reserved {
-        assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{w:08X} must be Invalid");
+        assert!(
+            decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{w:08X} must be Invalid"
+        );
     }
 }
 
@@ -123,6 +139,9 @@ fn feature_gated_on_sve2p2() {
     let yes = no.with(Feature::Sve2p2);
     for &(w, _) in CASES {
         assert!(decode(w, 0, no).is_invalid(), "{w:08X} must need Sve2p2");
-        assert!(!decode(w, 0, yes).is_invalid(), "{w:08X} should decode with Sve2p2");
+        assert!(
+            !decode(w, 0, yes).is_invalid(),
+            "{w:08X} should decode with Sve2p2"
+        );
     }
 }

@@ -214,7 +214,12 @@ fn roundtrip_sweep() {
             let enc = encode(&insn).unwrap_or_else(|e| {
                 panic!("{word:#010x} ({}) encode err {e:?}", insn.mnemonic().name())
             });
-            assert_eq!(enc, word, "{word:#010x} ({}) re-encoded {enc:#010x}", insn.mnemonic().name());
+            assert_eq!(
+                enc,
+                word,
+                "{word:#010x} ({}) re-encoded {enc:#010x}",
+                insn.mnemonic().name()
+            );
         }
     }
 }

@@ -230,9 +230,8 @@ impl ExtendType {
 
 /// SIMD / SVE arrangement specifier, carried orthogonally on register operands.
 ///
-/// The variant spine below is representative; the full set (`.8B`/`.16B`/`.4H`/
-/// `.8H`/`.2S`/`.4S`/`.1D`/`.2D` plus SVE element widths) is completed by
-/// codegen.
+/// Covers the fixed-width Advanced SIMD arrangements and scalable SVE element
+/// widths represented by the decoder.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VectorArrangement {
@@ -278,7 +277,7 @@ pub enum VectorArrangement {
     Sd,
     /// SVE quadword elements (`.Q`).
     Sq,
-    // codegen/expand: any remaining arrangement variants.
+    // Append newly represented arrangement variants here.
 }
 
 impl VectorArrangement {
@@ -293,7 +292,10 @@ impl VectorArrangement {
             | VectorArrangement::V4B
             | VectorArrangement::V2B
             | VectorArrangement::Sb => 8,
-            VectorArrangement::V4H | VectorArrangement::V8H | VectorArrangement::V2H | VectorArrangement::Sh => 16,
+            VectorArrangement::V4H
+            | VectorArrangement::V8H
+            | VectorArrangement::V2H
+            | VectorArrangement::Sh => 16,
             VectorArrangement::V2S | VectorArrangement::V4S | VectorArrangement::Ss => 32,
             VectorArrangement::V1D | VectorArrangement::V2D | VectorArrangement::Sd => 64,
             VectorArrangement::V1Q | VectorArrangement::Sq => 128,

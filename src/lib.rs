@@ -1,15 +1,12 @@
-//! # fARM64 — a pure-Rust AArch64 (A64) disassembler
+//! # fARM64 — a pure-Rust AArch64 (A64) disassembler and semantic encoder
 //!
 //! `fARM64` decodes 64-bit ARM (AArch64 / A64) machine code into a rich,
-//! `Copy` value-type [`Instruction`] and renders it with a pluggable
-//! [`Formatter`]. It is an **original implementation hand-written from the ARM
-//! Architecture Reference Manual** (the "ARM ARM"): the decode path is a
-//! hand-written recursive decode tree (see [`decode`]), not a port or transpile
-//! of any other decoder. "Correct" is defined as *matching the ARM ARM*,
-//! cross-checked during development against multiple independent oracles (LLVM
-//! `llvm-mc` / `llvm-objdump`, GNU binutils `objdump`, and a third-party
-//! corpus used only as a development guide). Where another decoder deliberately
-//! diverges from the spec, fARM64 follows the spec and records the divergence.
+//! `Copy` value-type [`Instruction`], renders it with a pluggable [`Formatter`],
+//! and re-encodes instruction semantics with [`encode()`]. The Arm architectural
+//! decode tree is hand-written from the Arm Architecture Reference Manual (the
+//! "Arm ARM") and cross-checked during development against independent tools
+//! and corpora. Apple AMX and GXF are implementation-defined exceptions based
+//! on public reverse-engineering references and are separately runtime-gated.
 //!
 //! ## Portability is a hard, cross-cutting guarantee
 //!
@@ -35,14 +32,17 @@
 //! | Feature | Tier | Effect |
 //! |-|-|-|
 //! | *(none / default)* | A | `no_std`, **no `alloc`**, freestanding. Decoder + [`format::FmtFormatter`] + all enums. Always builds. |
-//! | `alloc` | B | Adds `String`/`Vec` conveniences ([`format_to_string`], the allocate-once [`info::InstructionInfoFactory`], a token-collecting `String` sink). |
+//! | `alloc` | B | Adds `String`/`Vec` conveniences ([`format_to_string`], a cached [`info::InstructionInfoFactory`], and a token-collecting `String` sink). |
 //! | `std` | C | Implies `alloc`; adds [`std::error::Error`] for [`DecodeError`] and std-only test/bench helpers. |
-//! | `fmt-gnu` | A | Optional GNU/objdump formatter dialect. Pure `no_std`. |
-//! | `fp16` `bf16` `lse` `pauth` `mte` `sme` `sve` `crypto` | A | Compile-in per-extension table slices and enum variants. |
-//! | `full` | A | All per-extension features. |
+//! | `fmt-gnu` | A | Adds a UAL-equivalent GNU compatibility adapter. Pure `no_std`. |
+//! | `sve` | A | Compiles the SVE/SVE2 decoder and encoder modules. |
+//! | `sme` | A | Compiles the SME/SME2 decoder and encoder modules. |
+//! | `crypto` | A | Compiles the Advanced SIMD crypto decoder; public enums and encoder support remain present. |
+//! | `full` | A | Enables `sve`, `sme`, and `crypto`. |
 //!
-//! Cargo features decide what is **compiled**; the runtime [`FeatureSet`]
-//! decides what is **accepted** at decode time. These are independent layers.
+//! Cargo features decide which optional implementation modules are **compiled**;
+//! the runtime [`FeatureSet`] decides what is **accepted** at decode time. Not
+//! every runtime extension has a corresponding Cargo feature.
 //!
 //! ## Supported targets
 //!
@@ -50,7 +50,7 @@
 //! |-|-|
 //! | `x86_64-*`, `aarch64-*` (hosted) | development / `std` testing |
 //! | `wasm32-unknown-unknown` | default features (`no_std`, no `alloc`) |
-//! | `aarch64-unknown-none` | bare-metal, no-CRT; build with `-Zbuild-std=core` |
+//! | `aarch64-unknown-none` | bare-metal, no-CRT; checked with `--no-default-features` |
 //! | any target providing `core` | the default tier is `core`-only |
 //!
 //! ## Quick start (zero-alloc, `no_std`-friendly)
@@ -72,18 +72,17 @@
 //!
 //! ## Licensing & provenance
 //!
-//! Original work, licensed `MIT` (the Rust-ecosystem default).
-//! The implementation is derived from the publicly documented ARM ARM
-//! instruction encodings; it is not a derivative of any other disassembler and
-//! carries no third-party attribution obligation. Third-party decoders are used
-//! only as differential test oracles during development (read locally, never
-//! shipped, not authoritative).
+//! Licensed under the MIT License. Arm architectural instruction handling is
+//! based on the publicly documented Arm ARM. The implementation also contains
+//! separately gated Apple implementation-defined AMX/GXF support based on
+//! public reverse-engineering references: <https://github.com/corsix/amx>,
+//! <https://asahilinux.org/docs/hw/cpu/apple-instructions/>, and
+//! <https://blog.svenpeter.dev/posts/m1_sprr_gxf/>.
 
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-// Aspirationally forbid `unsafe`. The only places that may need a narrow opt-out
-// are the `&mut [u8]` sink and static-assertion machinery; gate locally with
-// `#[allow(unsafe_code)]` if ever required rather than relaxing crate-wide.
+// Unsafe code is intentionally forbidden. Any future need for unsafe would
+// require an explicit review of this crate-wide policy.
 #![forbid(unsafe_code)]
 #![deny(missing_debug_implementations)]
 #![allow(clippy::result_unit_err)]
@@ -100,7 +99,7 @@ extern crate std;
 extern crate alloc;
 
 // ---------------------------------------------------------------------------
-// Module tree (mirrors the architecture brief's module_layout exactly).
+// Module tree.
 // ---------------------------------------------------------------------------
 
 pub mod decoder;
@@ -130,13 +129,14 @@ pub mod decode;
 /// [`Instruction`] (its [`Code`]/[`Mnemonic`]/operands/`ip`), never reading
 /// [`Instruction::word`]. Dispatches on [`Instruction::code`] to per-group
 /// encoders. `no_std`, zero-alloc, and total (returns [`encode::EncodeError`]
-/// rather than panicking). Currently the Data Processing -- Immediate group is
-/// implemented; other groups return [`encode::EncodeError::Unsupported`].
+/// rather than panicking); unsupported codes and semantic operand shapes return
+/// an error.
 pub mod encode;
 
 /// Mechanical name / enum lookup tables (the `&'static str` register, condition,
-/// and system-register name tables). Generated offline by `cargo xtask gen` from
-/// a curated ARM-spec dataset and committed; contains no decode logic.
+/// and system-register name tables). These are maintained as committed Rust
+/// source and contain no decode logic. The workspace's `xtask` is currently only
+/// a scaffold for a possible future generator.
 pub mod tables;
 
 // ---------------------------------------------------------------------------
@@ -145,10 +145,10 @@ pub mod tables;
 // ---------------------------------------------------------------------------
 
 pub use crate::decoder::{Decoder, DecoderIntoIter, DecoderIter, DecoderOptions};
+pub use crate::encode::{encode, EncodeError};
 pub use crate::enums::{
     Condition, ExtendType, FlagEffect, FlowControl, ShiftType, VectorArrangement,
 };
-pub use crate::encode::{encode, EncodeError};
 pub use crate::error::DecodeError;
 pub use crate::features::{Feature, FeatureSet};
 pub use crate::format::{
@@ -186,10 +186,8 @@ mod static_asserts {
 
     // The public `Instruction` is a `Copy` value type whose size is dominated by
     // its inline `[Operand; MAX_OPERANDS]` (5 * 16 = 80 bytes) plus the small
-    // header (word/ip/code/mnemonic/op_count/flags). The architecture brief's
-    // 32–40 byte aspiration is not physically reachable while `op(n)` returns a
-    // by-value rich `Operand`; we keep the rich, allocation-free value type and
-    // assert the realized ceiling instead. Still `Copy`, still zero-heap.
+    // header (word/ip/code/mnemonic/op_count/flags). Keep the rich,
+    // allocation-free value type and assert its realized ceiling.
     const_assert!(core::mem::size_of::<Instruction>() <= 112);
 
     /// `Copy` witness — fails to compile if either type loses `Copy`.

@@ -24,7 +24,7 @@
 //!
 //! Code identity follows the module convention: one [`Code`] per ARM ARM
 //! encoding class, the preferred-disassembly alias installed via
-//! [`Instruction::set_mnemonic`] where the corpus uses one (`FMOV` for `FCPY`/
+//! `Instruction::set_mnemonic` where the corpus uses one (`FMOV` for `FCPY`/
 //! `FDUP`), and arrangement / predicate / lane decoration carried in the
 //! operands. Every path is total and panic-free; unallocated encodings are left
 //! [`Code::Invalid`].
@@ -49,32 +49,158 @@ use crate::register::Register;
 // ---------------------------------------------------------------------------
 
 const Z: [Register; 32] = [
-    Register::Z0, Register::Z1, Register::Z2, Register::Z3, Register::Z4, Register::Z5, Register::Z6, Register::Z7,
-    Register::Z8, Register::Z9, Register::Z10, Register::Z11, Register::Z12, Register::Z13, Register::Z14, Register::Z15,
-    Register::Z16, Register::Z17, Register::Z18, Register::Z19, Register::Z20, Register::Z21, Register::Z22, Register::Z23,
-    Register::Z24, Register::Z25, Register::Z26, Register::Z27, Register::Z28, Register::Z29, Register::Z30, Register::Z31,
+    Register::Z0,
+    Register::Z1,
+    Register::Z2,
+    Register::Z3,
+    Register::Z4,
+    Register::Z5,
+    Register::Z6,
+    Register::Z7,
+    Register::Z8,
+    Register::Z9,
+    Register::Z10,
+    Register::Z11,
+    Register::Z12,
+    Register::Z13,
+    Register::Z14,
+    Register::Z15,
+    Register::Z16,
+    Register::Z17,
+    Register::Z18,
+    Register::Z19,
+    Register::Z20,
+    Register::Z21,
+    Register::Z22,
+    Register::Z23,
+    Register::Z24,
+    Register::Z25,
+    Register::Z26,
+    Register::Z27,
+    Register::Z28,
+    Register::Z29,
+    Register::Z30,
+    Register::Z31,
 ];
 const P: [Register; 16] = [
-    Register::P0, Register::P1, Register::P2, Register::P3, Register::P4, Register::P5, Register::P6, Register::P7,
-    Register::P8, Register::P9, Register::P10, Register::P11, Register::P12, Register::P13, Register::P14, Register::P15,
+    Register::P0,
+    Register::P1,
+    Register::P2,
+    Register::P3,
+    Register::P4,
+    Register::P5,
+    Register::P6,
+    Register::P7,
+    Register::P8,
+    Register::P9,
+    Register::P10,
+    Register::P11,
+    Register::P12,
+    Register::P13,
+    Register::P14,
+    Register::P15,
 ];
 const HR: [Register; 32] = [
-    Register::H0, Register::H1, Register::H2, Register::H3, Register::H4, Register::H5, Register::H6, Register::H7,
-    Register::H8, Register::H9, Register::H10, Register::H11, Register::H12, Register::H13, Register::H14, Register::H15,
-    Register::H16, Register::H17, Register::H18, Register::H19, Register::H20, Register::H21, Register::H22, Register::H23,
-    Register::H24, Register::H25, Register::H26, Register::H27, Register::H28, Register::H29, Register::H30, Register::H31,
+    Register::H0,
+    Register::H1,
+    Register::H2,
+    Register::H3,
+    Register::H4,
+    Register::H5,
+    Register::H6,
+    Register::H7,
+    Register::H8,
+    Register::H9,
+    Register::H10,
+    Register::H11,
+    Register::H12,
+    Register::H13,
+    Register::H14,
+    Register::H15,
+    Register::H16,
+    Register::H17,
+    Register::H18,
+    Register::H19,
+    Register::H20,
+    Register::H21,
+    Register::H22,
+    Register::H23,
+    Register::H24,
+    Register::H25,
+    Register::H26,
+    Register::H27,
+    Register::H28,
+    Register::H29,
+    Register::H30,
+    Register::H31,
 ];
 const SR: [Register; 32] = [
-    Register::S0, Register::S1, Register::S2, Register::S3, Register::S4, Register::S5, Register::S6, Register::S7,
-    Register::S8, Register::S9, Register::S10, Register::S11, Register::S12, Register::S13, Register::S14, Register::S15,
-    Register::S16, Register::S17, Register::S18, Register::S19, Register::S20, Register::S21, Register::S22, Register::S23,
-    Register::S24, Register::S25, Register::S26, Register::S27, Register::S28, Register::S29, Register::S30, Register::S31,
+    Register::S0,
+    Register::S1,
+    Register::S2,
+    Register::S3,
+    Register::S4,
+    Register::S5,
+    Register::S6,
+    Register::S7,
+    Register::S8,
+    Register::S9,
+    Register::S10,
+    Register::S11,
+    Register::S12,
+    Register::S13,
+    Register::S14,
+    Register::S15,
+    Register::S16,
+    Register::S17,
+    Register::S18,
+    Register::S19,
+    Register::S20,
+    Register::S21,
+    Register::S22,
+    Register::S23,
+    Register::S24,
+    Register::S25,
+    Register::S26,
+    Register::S27,
+    Register::S28,
+    Register::S29,
+    Register::S30,
+    Register::S31,
 ];
 const DR: [Register; 32] = [
-    Register::D0, Register::D1, Register::D2, Register::D3, Register::D4, Register::D5, Register::D6, Register::D7,
-    Register::D8, Register::D9, Register::D10, Register::D11, Register::D12, Register::D13, Register::D14, Register::D15,
-    Register::D16, Register::D17, Register::D18, Register::D19, Register::D20, Register::D21, Register::D22, Register::D23,
-    Register::D24, Register::D25, Register::D26, Register::D27, Register::D28, Register::D29, Register::D30, Register::D31,
+    Register::D0,
+    Register::D1,
+    Register::D2,
+    Register::D3,
+    Register::D4,
+    Register::D5,
+    Register::D6,
+    Register::D7,
+    Register::D8,
+    Register::D9,
+    Register::D10,
+    Register::D11,
+    Register::D12,
+    Register::D13,
+    Register::D14,
+    Register::D15,
+    Register::D16,
+    Register::D17,
+    Register::D18,
+    Register::D19,
+    Register::D20,
+    Register::D21,
+    Register::D22,
+    Register::D23,
+    Register::D24,
+    Register::D25,
+    Register::D26,
+    Register::D27,
+    Register::D28,
+    Register::D29,
+    Register::D30,
+    Register::D31,
 ];
 
 // ---------------------------------------------------------------------------
@@ -95,31 +221,66 @@ fn arr(size: u32) -> VA {
 /// A scalable `Z{n}` operand with arrangement `a`.
 #[inline]
 fn zreg(n: u32, a: VA) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: Some(a), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A scalable `Z{n}` operand with arrangement `a` and an element-index lane.
 #[inline]
 fn zreg_idx(n: u32, a: VA, lane: u8) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: Some(a), lane: Some(lane), shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: Some(a),
+        lane: Some(lane),
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A governing predicate `P{n}` with a `/z` or `/m` qualifier.
 #[inline]
 fn preg_q(n: u32, q: PredQual) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: Some(q) }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: Some(q),
+    }
 }
 
 /// A bare predicate `P{n}` (no qualifier, no size) — the `<Pg>` of reductions.
 #[inline]
 fn preg(n: u32) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A sized predicate `P{n}.<T>` destination (compare results).
 #[inline]
 fn preg_sz(n: u32, a: VA) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: Some(a), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A NEON `V{n}` operand with a full-128-bit arrangement (`v0.8h`/`.4s`/`.2d`),
@@ -158,7 +319,14 @@ fn scalar_fp(n: u32, size: u32) -> Operand {
         _ => DR[n],
     };
     let reg = if size & 3 == 0 { HR[n] } else { reg };
-    Operand::Reg { reg, arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg,
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// An FP immediate operand (rendered shortest-decimal by the formatter).
@@ -425,7 +593,11 @@ fn decode_65_unary_misc(word: u32, features: FeatureSet, out: &mut Instruction) 
         if zn & 1 != 0 {
             return; // source pair base must be even.
         }
-        out.set(if bit(word, 10) == 0 { Code::SveFcvtzsn } else { Code::SveFcvtzun });
+        out.set(if bit(word, 10) == 0 {
+            Code::SveFcvtzsn
+        } else {
+            Code::SveFcvtzun
+        });
         out.push_operand(zreg(zd, da));
         out.push_operand(zgroup(zn, 2, sa));
         return;
@@ -615,7 +787,11 @@ fn decode_65_pred_binary(word: u32, features: FeatureSet, out: &mut Instruction)
             if !features.has(Feature::Faminmax) {
                 return;
             }
-            out.set(if opc == 0b01110 { Code::SveFamax } else { Code::SveFamin });
+            out.set(if opc == 0b01110 {
+                Code::SveFamax
+            } else {
+                Code::SveFamin
+            });
             push_pred_binary(out, zdn, pg, zm, a);
             return;
         }
@@ -728,7 +904,7 @@ fn decode_65_convert(word: u32, pg: u32, zn: u32, zd: u32, out: &mut Instruction
     // The selector is bits<23:16> (8 bits): size(23:22) : opc ...
     // We match the literal encodings observed in the ARM ARM index.
     let sel = bits(word, 16, 8); // word<23:16>
-    // Helper to finish a convert with dst-arr / src-arr.
+                                 // Helper to finish a convert with dst-arr / src-arr.
     macro_rules! conv {
         ($code:expr, $da:expr, $sa:expr) => {{
             out.set($code);
@@ -1406,10 +1582,18 @@ fn decode_64_fmla_indexed(word: u32, is_fmls: bool, out: &mut Instruction) {
         }
         _ => {
             // .h : Zm<18:16>, index = i3h:i3l = <22>:<20:19>.
-            (VA::Sh, bits(word, 16, 3), (bit(word, 22) << 2) | bits(word, 19, 2))
+            (
+                VA::Sh,
+                bits(word, 16, 3),
+                (bit(word, 22) << 2) | bits(word, 19, 2),
+            )
         }
     };
-    out.set(if is_fmls { Code::SveFmlsIdx } else { Code::SveFmlaIdx });
+    out.set(if is_fmls {
+        Code::SveFmlsIdx
+    } else {
+        Code::SveFmlaIdx
+    });
     out.push_operand(zreg(zda, a));
     out.push_operand(zreg(zn, a));
     out.push_operand(zreg_idx(zm, a, idx as u8));
@@ -1424,7 +1608,11 @@ fn decode_64_fmul_indexed(word: u32, out: &mut Instruction) {
     let (a, zm, idx) = match sz {
         0b11 => (VA::Sd, bits(word, 16, 4), bit(word, 20)),
         0b10 => (VA::Ss, bits(word, 16, 3), bits(word, 19, 2)),
-        _ => (VA::Sh, bits(word, 16, 3), (bit(word, 22) << 2) | bits(word, 19, 2)),
+        _ => (
+            VA::Sh,
+            bits(word, 16, 3),
+            (bit(word, 22) << 2) | bits(word, 19, 2),
+        ),
     };
     out.set(Code::SveFmulIdx);
     out.push_operand(zreg(zd, a));
@@ -1509,7 +1697,11 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
         }
         let zm = bits(word, 16, 3);
         let idx = (bits(word, 19, 2) << 2) | bits(word, 10, 2);
-        let code = if bit(word, 23) == 0 { Code::SveFmlalbFp8Idx } else { Code::SveFmlaltFp8Idx };
+        let code = if bit(word, 23) == 0 {
+            Code::SveFmlalbFp8Idx
+        } else {
+            Code::SveFmlaltFp8Idx
+        };
         out.set(code);
         out.push_operand(zreg(zda, VA::Sh));
         out.push_operand(zreg(zn, VA::Sb));
@@ -1550,7 +1742,11 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
             if bits(word, 13, 3) != 0b100 {
                 return;
             }
-            let code = if bit(word, 12) == 0 { Code::SveFmlalbFp8 } else { Code::SveFmlaltFp8 };
+            let code = if bit(word, 12) == 0 {
+                Code::SveFmlalbFp8
+            } else {
+                Code::SveFmlaltFp8
+            };
             out.set(code);
             out.push_operand(zreg(zda, VA::Sh));
             out.push_operand(zreg(zn, VA::Sb));
@@ -1620,16 +1816,37 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
         // (so they require `<11>==0`). The `.h<-.b` form may set `<11>`.
         let (code, da, src, feat, hb) = match (b22, b10) {
             (0, 0) => (
-                if indexed { Code::SveFdotShIdx } else { Code::SveFdotShVec },
-                VA::Ss, VA::Sh, Feature::Sve2p1, false,
+                if indexed {
+                    Code::SveFdotShIdx
+                } else {
+                    Code::SveFdotShVec
+                },
+                VA::Ss,
+                VA::Sh,
+                Feature::Sve2p1,
+                false,
             ),
             (0, 1) => (
-                if indexed { Code::SveFdotHbIdx } else { Code::SveFdotHbVec },
-                VA::Sh, VA::Sb, Feature::Fp8, true,
+                if indexed {
+                    Code::SveFdotHbIdx
+                } else {
+                    Code::SveFdotHbVec
+                },
+                VA::Sh,
+                VA::Sb,
+                Feature::Fp8,
+                true,
             ),
             _ => (
-                if indexed { Code::SveFdotSbIdx } else { Code::SveFdotSbVec },
-                VA::Ss, VA::Sb, Feature::Fp8, false,
+                if indexed {
+                    Code::SveFdotSbIdx
+                } else {
+                    Code::SveFdotSbVec
+                },
+                VA::Ss,
+                VA::Sb,
+                Feature::Fp8,
+                false,
             ),
         };
         // Validate the `<11>` bit and resolve the index BEFORE emitting operands.
@@ -1677,7 +1894,9 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
         let i3l = bit(word, 11);
         let zm = bits(word, 16, 3);
         let idx = (bits(word, 19, 2) << 1) | i3l;
-        let Some(code) = mlal_code(bf16, op, t, true) else { return };
+        let Some(code) = mlal_code(bf16, op, t, true) else {
+            return;
+        };
         out.set(code);
         out.push_operand(zreg(zda, VA::Ss));
         out.push_operand(zreg(zn, VA::Sh));
@@ -1688,7 +1907,9 @@ fn decode_64_dot_and_mlal(word: u32, features: FeatureSet, out: &mut Instruction
             return;
         }
         let zm = bits(word, 16, 5);
-        let Some(code) = mlal_code(bf16, op, t, false) else { return };
+        let Some(code) = mlal_code(bf16, op, t, false) else {
+            return;
+        };
         out.set(code);
         out.push_operand(zreg(zda, VA::Ss));
         out.push_operand(zreg(zn, VA::Sh));
@@ -1758,7 +1979,14 @@ pub fn decode_fp_misc_04(word: u32, features: FeatureSet, out: &mut Instruction)
         };
         out.set(code);
         out.push_operand(zreg(zd, a));
-        out.push_operand(preg_q(pg, if merging { PredQual::Merging } else { PredQual::Zeroing }));
+        out.push_operand(preg_q(
+            pg,
+            if merging {
+                PredQual::Merging
+            } else {
+                PredQual::Zeroing
+            },
+        ));
         out.push_operand(zreg(zn, a));
         return;
     }
@@ -2051,7 +2279,9 @@ mod tests {
         check(0x6456A000, "fmaxqv  v0.8h, p0, z0.h");
         check(0x6490A000, "faddqv  v0.4s, p0, z0.s");
         check(0x64D0A000, "faddqv  v0.2d, p0, z0.d");
-        for w in [0x6450ADE5, 0x6457ABCA, 0x6454A000, 0x6455A000, 0x6456A000, 0x6490A000, 0x64D0A000] {
+        for w in [
+            0x6450ADE5, 0x6457ABCA, 0x6454A000, 0x6455A000, 0x6456A000, 0x6490A000, 0x64D0A000,
+        ] {
             rt(w);
         }
     }

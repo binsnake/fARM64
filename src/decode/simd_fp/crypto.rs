@@ -43,40 +43,145 @@ use crate::register::Register;
 // ---------------------------------------------------------------------------
 
 const V: [Register; 32] = [
-    Register::V0, Register::V1, Register::V2, Register::V3, Register::V4, Register::V5, Register::V6, Register::V7,
-    Register::V8, Register::V9, Register::V10, Register::V11, Register::V12, Register::V13, Register::V14, Register::V15,
-    Register::V16, Register::V17, Register::V18, Register::V19, Register::V20, Register::V21, Register::V22, Register::V23,
-    Register::V24, Register::V25, Register::V26, Register::V27, Register::V28, Register::V29, Register::V30, Register::V31,
+    Register::V0,
+    Register::V1,
+    Register::V2,
+    Register::V3,
+    Register::V4,
+    Register::V5,
+    Register::V6,
+    Register::V7,
+    Register::V8,
+    Register::V9,
+    Register::V10,
+    Register::V11,
+    Register::V12,
+    Register::V13,
+    Register::V14,
+    Register::V15,
+    Register::V16,
+    Register::V17,
+    Register::V18,
+    Register::V19,
+    Register::V20,
+    Register::V21,
+    Register::V22,
+    Register::V23,
+    Register::V24,
+    Register::V25,
+    Register::V26,
+    Register::V27,
+    Register::V28,
+    Register::V29,
+    Register::V30,
+    Register::V31,
 ];
 const SR: [Register; 32] = [
-    Register::S0, Register::S1, Register::S2, Register::S3, Register::S4, Register::S5, Register::S6, Register::S7,
-    Register::S8, Register::S9, Register::S10, Register::S11, Register::S12, Register::S13, Register::S14, Register::S15,
-    Register::S16, Register::S17, Register::S18, Register::S19, Register::S20, Register::S21, Register::S22, Register::S23,
-    Register::S24, Register::S25, Register::S26, Register::S27, Register::S28, Register::S29, Register::S30, Register::S31,
+    Register::S0,
+    Register::S1,
+    Register::S2,
+    Register::S3,
+    Register::S4,
+    Register::S5,
+    Register::S6,
+    Register::S7,
+    Register::S8,
+    Register::S9,
+    Register::S10,
+    Register::S11,
+    Register::S12,
+    Register::S13,
+    Register::S14,
+    Register::S15,
+    Register::S16,
+    Register::S17,
+    Register::S18,
+    Register::S19,
+    Register::S20,
+    Register::S21,
+    Register::S22,
+    Register::S23,
+    Register::S24,
+    Register::S25,
+    Register::S26,
+    Register::S27,
+    Register::S28,
+    Register::S29,
+    Register::S30,
+    Register::S31,
 ];
 const QR: [Register; 32] = [
-    Register::Q0, Register::Q1, Register::Q2, Register::Q3, Register::Q4, Register::Q5, Register::Q6, Register::Q7,
-    Register::Q8, Register::Q9, Register::Q10, Register::Q11, Register::Q12, Register::Q13, Register::Q14, Register::Q15,
-    Register::Q16, Register::Q17, Register::Q18, Register::Q19, Register::Q20, Register::Q21, Register::Q22, Register::Q23,
-    Register::Q24, Register::Q25, Register::Q26, Register::Q27, Register::Q28, Register::Q29, Register::Q30, Register::Q31,
+    Register::Q0,
+    Register::Q1,
+    Register::Q2,
+    Register::Q3,
+    Register::Q4,
+    Register::Q5,
+    Register::Q6,
+    Register::Q7,
+    Register::Q8,
+    Register::Q9,
+    Register::Q10,
+    Register::Q11,
+    Register::Q12,
+    Register::Q13,
+    Register::Q14,
+    Register::Q15,
+    Register::Q16,
+    Register::Q17,
+    Register::Q18,
+    Register::Q19,
+    Register::Q20,
+    Register::Q21,
+    Register::Q22,
+    Register::Q23,
+    Register::Q24,
+    Register::Q25,
+    Register::Q26,
+    Register::Q27,
+    Register::Q28,
+    Register::Q29,
+    Register::Q30,
+    Register::Q31,
 ];
 
 /// A bare register operand.
 #[inline]
 fn plain(reg: Register) -> Operand {
-    Operand::Reg { reg, arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg,
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A vector register operand `V{n}.<arr>`.
 #[inline]
 fn vreg(n: u32, arr: VA) -> Operand {
-    Operand::Reg { reg: V[(n & 0x1f) as usize], arr: Some(arr), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: V[(n & 0x1f) as usize],
+        arr: Some(arr),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// An indexed vector-element operand `V{n}.<Ts>[index]`.
 #[inline]
 fn vreg_idx(n: u32, arr: VA, index: u8) -> Operand {
-    Operand::Reg { reg: V[(n & 0x1f) as usize], arr: Some(arr), lane: Some(index), shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: V[(n & 0x1f) as usize],
+        arr: Some(arr),
+        lane: Some(index),
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A scalar `Q{n}` operand.
@@ -233,7 +338,11 @@ fn decode_sha3(word: u32, out: &mut Instruction) {
         }
         // SHA256H/H2: Qd, Qn, Vm.4S.
         4 | 5 => {
-            out.set(if opcode == 4 { Code::AdvSha256h } else { Code::AdvSha256h2 });
+            out.set(if opcode == 4 {
+                Code::AdvSha256h
+            } else {
+                Code::AdvSha256h2
+            });
             out.push_operand(qreg(rd));
             out.push_operand(qreg(rn));
             out.push_operand(vreg(rm, VA::V4S));
@@ -306,7 +415,11 @@ fn decode_sha512_3(word: u32, out: &mut Instruction) {
         match opcode {
             // SHA512H/H2: Qd, Qn, Vm.2D.
             0 | 1 => {
-                out.set(if opcode == 0 { Code::AdvSha512h } else { Code::AdvSha512h2 });
+                out.set(if opcode == 0 {
+                    Code::AdvSha512h
+                } else {
+                    Code::AdvSha512h2
+                });
                 out.push_operand(qreg(rd));
                 out.push_operand(qreg(rn));
                 out.push_operand(vreg(rm, VA::V2D));
@@ -330,7 +443,11 @@ fn decode_sha512_3(word: u32, out: &mut Instruction) {
         match opcode {
             // SM3PARTW1/2: Vd.4S, Vn.4S, Vm.4S.
             0 | 1 => {
-                out.set(if opcode == 0 { Code::AdvSm3partw1 } else { Code::AdvSm3partw2 });
+                out.set(if opcode == 0 {
+                    Code::AdvSm3partw1
+                } else {
+                    Code::AdvSm3partw2
+                });
                 out.push_operand(vreg(rd, VA::V4S));
                 out.push_operand(vreg(rn, VA::V4S));
                 out.push_operand(vreg(rm, VA::V4S));
@@ -519,7 +636,9 @@ mod tests {
     #[test]
     fn feature_gate_off_leaves_invalid() {
         use crate::features::FeatureSet;
-        let opts = DecoderOptions { features: FeatureSet::BASE };
+        let opts = DecoderOptions {
+            features: FeatureSet::BASE,
+        };
         let bytes = 0x4E284BE7u32.to_le_bytes(); // aese
         let mut dec = Decoder::new(&bytes, 0x1000, opts);
         assert!(dec.decode().is_invalid());

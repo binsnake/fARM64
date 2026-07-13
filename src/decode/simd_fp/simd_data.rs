@@ -16,47 +16,215 @@ use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::{Code, Mnemonic};
 use crate::operand::Operand;
-use crate::register::{gp_register, Register, RegWidth};
+use crate::register::{gp_register, RegWidth, Register};
 
 // ---------------------------------------------------------------------------
 // Register-bank tables (contiguous discriminants, mirror `crate::register`).
 // ---------------------------------------------------------------------------
 
 const V_BANK: [Register; 32] = [
-    Register::V0, Register::V1, Register::V2, Register::V3, Register::V4, Register::V5, Register::V6, Register::V7,
-    Register::V8, Register::V9, Register::V10, Register::V11, Register::V12, Register::V13, Register::V14, Register::V15,
-    Register::V16, Register::V17, Register::V18, Register::V19, Register::V20, Register::V21, Register::V22, Register::V23,
-    Register::V24, Register::V25, Register::V26, Register::V27, Register::V28, Register::V29, Register::V30, Register::V31,
+    Register::V0,
+    Register::V1,
+    Register::V2,
+    Register::V3,
+    Register::V4,
+    Register::V5,
+    Register::V6,
+    Register::V7,
+    Register::V8,
+    Register::V9,
+    Register::V10,
+    Register::V11,
+    Register::V12,
+    Register::V13,
+    Register::V14,
+    Register::V15,
+    Register::V16,
+    Register::V17,
+    Register::V18,
+    Register::V19,
+    Register::V20,
+    Register::V21,
+    Register::V22,
+    Register::V23,
+    Register::V24,
+    Register::V25,
+    Register::V26,
+    Register::V27,
+    Register::V28,
+    Register::V29,
+    Register::V30,
+    Register::V31,
 ];
 const B_BANK: [Register; 32] = [
-    Register::B0, Register::B1, Register::B2, Register::B3, Register::B4, Register::B5, Register::B6, Register::B7,
-    Register::B8, Register::B9, Register::B10, Register::B11, Register::B12, Register::B13, Register::B14, Register::B15,
-    Register::B16, Register::B17, Register::B18, Register::B19, Register::B20, Register::B21, Register::B22, Register::B23,
-    Register::B24, Register::B25, Register::B26, Register::B27, Register::B28, Register::B29, Register::B30, Register::B31,
+    Register::B0,
+    Register::B1,
+    Register::B2,
+    Register::B3,
+    Register::B4,
+    Register::B5,
+    Register::B6,
+    Register::B7,
+    Register::B8,
+    Register::B9,
+    Register::B10,
+    Register::B11,
+    Register::B12,
+    Register::B13,
+    Register::B14,
+    Register::B15,
+    Register::B16,
+    Register::B17,
+    Register::B18,
+    Register::B19,
+    Register::B20,
+    Register::B21,
+    Register::B22,
+    Register::B23,
+    Register::B24,
+    Register::B25,
+    Register::B26,
+    Register::B27,
+    Register::B28,
+    Register::B29,
+    Register::B30,
+    Register::B31,
 ];
 const H_BANK: [Register; 32] = [
-    Register::H0, Register::H1, Register::H2, Register::H3, Register::H4, Register::H5, Register::H6, Register::H7,
-    Register::H8, Register::H9, Register::H10, Register::H11, Register::H12, Register::H13, Register::H14, Register::H15,
-    Register::H16, Register::H17, Register::H18, Register::H19, Register::H20, Register::H21, Register::H22, Register::H23,
-    Register::H24, Register::H25, Register::H26, Register::H27, Register::H28, Register::H29, Register::H30, Register::H31,
+    Register::H0,
+    Register::H1,
+    Register::H2,
+    Register::H3,
+    Register::H4,
+    Register::H5,
+    Register::H6,
+    Register::H7,
+    Register::H8,
+    Register::H9,
+    Register::H10,
+    Register::H11,
+    Register::H12,
+    Register::H13,
+    Register::H14,
+    Register::H15,
+    Register::H16,
+    Register::H17,
+    Register::H18,
+    Register::H19,
+    Register::H20,
+    Register::H21,
+    Register::H22,
+    Register::H23,
+    Register::H24,
+    Register::H25,
+    Register::H26,
+    Register::H27,
+    Register::H28,
+    Register::H29,
+    Register::H30,
+    Register::H31,
 ];
 const S_BANK: [Register; 32] = [
-    Register::S0, Register::S1, Register::S2, Register::S3, Register::S4, Register::S5, Register::S6, Register::S7,
-    Register::S8, Register::S9, Register::S10, Register::S11, Register::S12, Register::S13, Register::S14, Register::S15,
-    Register::S16, Register::S17, Register::S18, Register::S19, Register::S20, Register::S21, Register::S22, Register::S23,
-    Register::S24, Register::S25, Register::S26, Register::S27, Register::S28, Register::S29, Register::S30, Register::S31,
+    Register::S0,
+    Register::S1,
+    Register::S2,
+    Register::S3,
+    Register::S4,
+    Register::S5,
+    Register::S6,
+    Register::S7,
+    Register::S8,
+    Register::S9,
+    Register::S10,
+    Register::S11,
+    Register::S12,
+    Register::S13,
+    Register::S14,
+    Register::S15,
+    Register::S16,
+    Register::S17,
+    Register::S18,
+    Register::S19,
+    Register::S20,
+    Register::S21,
+    Register::S22,
+    Register::S23,
+    Register::S24,
+    Register::S25,
+    Register::S26,
+    Register::S27,
+    Register::S28,
+    Register::S29,
+    Register::S30,
+    Register::S31,
 ];
 const D_BANK: [Register; 32] = [
-    Register::D0, Register::D1, Register::D2, Register::D3, Register::D4, Register::D5, Register::D6, Register::D7,
-    Register::D8, Register::D9, Register::D10, Register::D11, Register::D12, Register::D13, Register::D14, Register::D15,
-    Register::D16, Register::D17, Register::D18, Register::D19, Register::D20, Register::D21, Register::D22, Register::D23,
-    Register::D24, Register::D25, Register::D26, Register::D27, Register::D28, Register::D29, Register::D30, Register::D31,
+    Register::D0,
+    Register::D1,
+    Register::D2,
+    Register::D3,
+    Register::D4,
+    Register::D5,
+    Register::D6,
+    Register::D7,
+    Register::D8,
+    Register::D9,
+    Register::D10,
+    Register::D11,
+    Register::D12,
+    Register::D13,
+    Register::D14,
+    Register::D15,
+    Register::D16,
+    Register::D17,
+    Register::D18,
+    Register::D19,
+    Register::D20,
+    Register::D21,
+    Register::D22,
+    Register::D23,
+    Register::D24,
+    Register::D25,
+    Register::D26,
+    Register::D27,
+    Register::D28,
+    Register::D29,
+    Register::D30,
+    Register::D31,
 ];
 const Q_BANK: [Register; 32] = [
-    Register::Q0, Register::Q1, Register::Q2, Register::Q3, Register::Q4, Register::Q5, Register::Q6, Register::Q7,
-    Register::Q8, Register::Q9, Register::Q10, Register::Q11, Register::Q12, Register::Q13, Register::Q14, Register::Q15,
-    Register::Q16, Register::Q17, Register::Q18, Register::Q19, Register::Q20, Register::Q21, Register::Q22, Register::Q23,
-    Register::Q24, Register::Q25, Register::Q26, Register::Q27, Register::Q28, Register::Q29, Register::Q30, Register::Q31,
+    Register::Q0,
+    Register::Q1,
+    Register::Q2,
+    Register::Q3,
+    Register::Q4,
+    Register::Q5,
+    Register::Q6,
+    Register::Q7,
+    Register::Q8,
+    Register::Q9,
+    Register::Q10,
+    Register::Q11,
+    Register::Q12,
+    Register::Q13,
+    Register::Q14,
+    Register::Q15,
+    Register::Q16,
+    Register::Q17,
+    Register::Q18,
+    Register::Q19,
+    Register::Q20,
+    Register::Q21,
+    Register::Q22,
+    Register::Q23,
+    Register::Q24,
+    Register::Q25,
+    Register::Q26,
+    Register::Q27,
+    Register::Q28,
+    Register::Q29,
+    Register::Q30,
+    Register::Q31,
 ];
 
 // ---------------------------------------------------------------------------
@@ -477,7 +645,11 @@ fn decode_dup_general(q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instruction
         None => return,
     };
     // The source GP width is X for the 64-bit element, W otherwise.
-    let w = if esize == 64 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if esize == 64 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
     out.set(Code::DupGeneral);
     out.push_operand(vreg(rd, arr));
     out.push_operand(gpr(w, rn));
@@ -497,7 +669,11 @@ fn decode_ins_general(q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instruction
         Some(v) => v,
         None => return,
     };
-    let w = if esize == 64 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if esize == 64 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
     out.set(Code::InsGeneral);
     out.set_mnemonic(Mnemonic::Mov);
     out.push_operand(vreg_lane(rd, elem_arr(esize), index));
@@ -563,7 +739,11 @@ fn decode_umov(q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instruction) {
         None => return,
     };
     // Valid: B/H/S for the W (Q==0) form; only D (with Q==1) for the X form.
-    let w = if esize == 64 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if esize == 64 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
     match (esize, q) {
         (8, 0) | (16, 0) | (32, 0) => {}
         (64, 1) => {}
@@ -767,7 +947,8 @@ fn decode_modified_immediate(word: u32, features: FeatureSet, out: &mut Instruct
             } else {
                 VectorArrangement::V4H
             };
-            let f = crate::decode::simd_fp::scalar_fp::f16_bits_to_f32(vfp_expand_imm(imm8, 16) as u16);
+            let f =
+                crate::decode::simd_fp::scalar_fp::f16_bits_to_f32(vfp_expand_imm(imm8, 16) as u16);
             out.set(Code::FmovVecImmH);
             out.push_operand(vreg(rd, arr));
             out.push_operand(Operand::FpImm(f));
@@ -801,7 +982,11 @@ fn decode_modified_immediate(word: u32, features: FeatureSet, out: &mut Instruct
         } else {
             VectorArrangement::V2S
         };
-        let code = if op == 1 { Code::MvniVector } else { Code::MoviVector };
+        let code = if op == 1 {
+            Code::MvniVector
+        } else {
+            Code::MoviVector
+        };
         out.set(code);
         out.push_operand(vreg(rd, arr));
         out.push_operand(Operand::ImmShiftedMsl {
@@ -854,7 +1039,11 @@ fn emit_movi_or_logical(
     out: &mut Instruction,
 ) {
     let code = if cmode0 == 0 {
-        if op == 1 { Code::MvniVector } else { Code::MoviVector }
+        if op == 1 {
+            Code::MvniVector
+        } else {
+            Code::MoviVector
+        }
     } else if op == 1 {
         Code::BicVecImm
     } else {
@@ -955,22 +1144,106 @@ fn decode_shift_vector(word: u32, out: &mut Instruction) {
 
     match opcode {
         // --- Right-shift, same size in/out. ---
-        0b00000 => right_shift(if u == 0 { Code::SshrVec } else { Code::UshrVec }, q, immh, immb, rn, rd, out),
-        0b00010 => right_shift(if u == 0 { Code::SsraVec } else { Code::UsraVec }, q, immh, immb, rn, rd, out),
-        0b00100 => right_shift(if u == 0 { Code::SrshrVec } else { Code::UrshrVec }, q, immh, immb, rn, rd, out),
-        0b00110 => right_shift(if u == 0 { Code::SrsraVec } else { Code::UrsraVec }, q, immh, immb, rn, rd, out),
+        0b00000 => right_shift(
+            if u == 0 { Code::SshrVec } else { Code::UshrVec },
+            q,
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
+        0b00010 => right_shift(
+            if u == 0 { Code::SsraVec } else { Code::UsraVec },
+            q,
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
+        0b00100 => right_shift(
+            if u == 0 {
+                Code::SrshrVec
+            } else {
+                Code::UrshrVec
+            },
+            q,
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
+        0b00110 => right_shift(
+            if u == 0 {
+                Code::SrsraVec
+            } else {
+                Code::UrsraVec
+            },
+            q,
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
         0b01000 if u == 1 => right_shift(Code::SriVec, q, immh, immb, rn, rd, out),
         // --- Left-shift, same size in/out. ---
-        0b01010 => left_shift(if u == 0 { Code::ShlVec } else { Code::SliVec }, q, immh, immb, rn, rd, out),
+        0b01010 => left_shift(
+            if u == 0 { Code::ShlVec } else { Code::SliVec },
+            q,
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
         0b01100 if u == 1 => left_shift(Code::SqshluImmVec, q, immh, immb, rn, rd, out),
-        0b01110 => left_shift(if u == 0 { Code::SqshlImmVec } else { Code::UqshlImmVec }, q, immh, immb, rn, rd, out),
+        0b01110 => left_shift(
+            if u == 0 {
+                Code::SqshlImmVec
+            } else {
+                Code::UqshlImmVec
+            },
+            q,
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
         // --- Narrowing shift-right. ---
         0b10000..=0b10011 => decode_narrow(q, u, opcode, immh, immb, rn, rd, out),
         // --- Shift-left long (+ SXTL/UXTL aliases when shift==0). ---
         0b10100 => decode_shll(q, u, immh, immb, rn, rd, out),
         // --- Fixed-point convert. ---
-        0b11100 => fixed_cvt(if u == 0 { Code::ScvtfFixedVec } else { Code::UcvtfFixedVec }, q, immh, immb, rn, rd, out),
-        0b11111 => fixed_cvt(if u == 0 { Code::FcvtzsFixedVec } else { Code::FcvtzuFixedVec }, q, immh, immb, rn, rd, out),
+        0b11100 => fixed_cvt(
+            if u == 0 {
+                Code::ScvtfFixedVec
+            } else {
+                Code::UcvtfFixedVec
+            },
+            q,
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
+        0b11111 => fixed_cvt(
+            if u == 0 {
+                Code::FcvtzsFixedVec
+            } else {
+                Code::FcvtzuFixedVec
+            },
+            q,
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
         _ => {}
     }
 }
@@ -1035,7 +1308,16 @@ fn push_shift3(out: &mut Instruction, rd: u32, rn: u32, arr: VectorArrangement, 
 /// `Q==1`); the source is `Ta` (full-width double element).
 #[inline]
 #[allow(clippy::too_many_arguments)]
-fn decode_narrow(q: u32, u: u32, opcode: u32, immh: u32, immb: u32, rn: u32, rd: u32, out: &mut Instruction) {
+fn decode_narrow(
+    q: u32,
+    u: u32,
+    opcode: u32,
+    immh: u32,
+    immb: u32,
+    rn: u32,
+    rd: u32,
+    out: &mut Instruction,
+) {
     let (dst_esize, shift) = match narrow_shift_size(immh, immb) {
         Some(v) => v,
         None => return,
@@ -1078,15 +1360,27 @@ fn decode_narrow(q: u32, u: u32, opcode: u32, immh: u32, immb: u32, rn: u32, rd:
 fn narrow_arrs(dst_esize: u32, q: u32) -> Option<(VectorArrangement, VectorArrangement)> {
     Some(match dst_esize {
         8 => (
-            if q == 1 { VectorArrangement::V16B } else { VectorArrangement::V8B },
+            if q == 1 {
+                VectorArrangement::V16B
+            } else {
+                VectorArrangement::V8B
+            },
             VectorArrangement::V8H,
         ),
         16 => (
-            if q == 1 { VectorArrangement::V8H } else { VectorArrangement::V4H },
+            if q == 1 {
+                VectorArrangement::V8H
+            } else {
+                VectorArrangement::V4H
+            },
             VectorArrangement::V4S,
         ),
         32 => (
-            if q == 1 { VectorArrangement::V4S } else { VectorArrangement::V2S },
+            if q == 1 {
+                VectorArrangement::V4S
+            } else {
+                VectorArrangement::V2S
+            },
             VectorArrangement::V2D,
         ),
         _ => return None,
@@ -1144,15 +1438,27 @@ fn long_arrs(src_esize: u32, q: u32) -> Option<(VectorArrangement, VectorArrange
     Some(match src_esize {
         8 => (
             VectorArrangement::V8H,
-            if q == 1 { VectorArrangement::V16B } else { VectorArrangement::V8B },
+            if q == 1 {
+                VectorArrangement::V16B
+            } else {
+                VectorArrangement::V8B
+            },
         ),
         16 => (
             VectorArrangement::V4S,
-            if q == 1 { VectorArrangement::V8H } else { VectorArrangement::V4H },
+            if q == 1 {
+                VectorArrangement::V8H
+            } else {
+                VectorArrangement::V4H
+            },
         ),
         32 => (
             VectorArrangement::V2D,
-            if q == 1 { VectorArrangement::V4S } else { VectorArrangement::V2S },
+            if q == 1 {
+                VectorArrangement::V4S
+            } else {
+                VectorArrangement::V2S
+            },
         ),
         _ => return None,
     })
@@ -1228,22 +1534,45 @@ fn decode_shift_scalar(word: u32, out: &mut Instruction) {
             out.push_operand(Operand::ImmUnsigned(shift as u64));
         }
         // SHL (U==0) / SLI (U==1): left, same-size, 64-bit `D` only.
-        0b01010 => scalar_left(if u == 0 { Code::ShlScalar } else { Code::SliScalar }, immh, immb, rn, rd, out),
+        0b01010 => scalar_left(
+            if u == 0 {
+                Code::ShlScalar
+            } else {
+                Code::SliScalar
+            },
+            immh,
+            immb,
+            rn,
+            rd,
+            out,
+        ),
         // Saturating left shift (any size): SQSHL/UQSHL/SQSHLU.
         0b01100 if u == 1 => scalar_left_any(Code::SqshluImmScalar, immh, immb, rn, rd, out),
         0b01110 => {
-            let code = if u == 0 { Code::SqshlImmScalar } else { Code::UqshlImmScalar };
+            let code = if u == 0 {
+                Code::SqshlImmScalar
+            } else {
+                Code::UqshlImmScalar
+            };
             scalar_left_any(code, immh, immb, rn, rd, out);
         }
         // Narrowing saturating shift-right (B/H/S destination).
         0b10000..=0b10011 => scalar_narrow(u, opcode, immh, immb, rn, rd, out),
         // Fixed-point convert (any size).
         0b11100 => {
-            let code = if u == 0 { Code::ScvtfFixedScalar } else { Code::UcvtfFixedScalar };
+            let code = if u == 0 {
+                Code::ScvtfFixedScalar
+            } else {
+                Code::UcvtfFixedScalar
+            };
             scalar_fixed_cvt(code, immh, immb, rn, rd, out);
         }
         0b11111 => {
-            let code = if u == 0 { Code::FcvtzsFixedScalar } else { Code::FcvtzuFixedScalar };
+            let code = if u == 0 {
+                Code::FcvtzsFixedScalar
+            } else {
+                Code::FcvtzuFixedScalar
+            };
             scalar_fixed_cvt(code, immh, immb, rn, rd, out);
         }
         _ => {}
@@ -1284,7 +1613,15 @@ fn scalar_left_any(code: Code, immh: u32, immb: u32, rn: u32, rd: u32, out: &mut
 /// the full-width view.
 #[inline]
 #[allow(clippy::too_many_arguments)]
-fn scalar_narrow(u: u32, opcode: u32, immh: u32, immb: u32, rn: u32, rd: u32, out: &mut Instruction) {
+fn scalar_narrow(
+    u: u32,
+    opcode: u32,
+    immh: u32,
+    immb: u32,
+    rn: u32,
+    rd: u32,
+    out: &mut Instruction,
+) {
     let (dst_esize, shift) = match narrow_shift_size(immh, immb) {
         Some(v) => v,
         None => return,
@@ -1346,7 +1683,10 @@ mod tests {
         crate::decode::decode_into(word, 0x1000, FeatureSet::ALL, &mut insn);
         assert!(!insn.is_invalid(), "word {word:#010x} failed to decode");
         let got = insn.encode().expect("encode");
-        assert_eq!(got, word, "round-trip mismatch for {word:#010x}: got {got:#010x}");
+        assert_eq!(
+            got, word,
+            "round-trip mismatch for {word:#010x}: got {got:#010x}"
+        );
     }
 
     #[test]

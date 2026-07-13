@@ -25,7 +25,7 @@
 //!
 //! Code identity follows the established convention: one [`Code`] per ARM ARM
 //! encoding class (`Sve*`), the preferred-disassembly alias installed via
-//! [`Instruction::set_mnemonic`] where the corpus uses one (`MOV`, `MUL`, ...),
+//! `Instruction::set_mnemonic` where the corpus uses one (`MOV`, `MUL`, ...),
 //! and all arrangement / predicate / lane decoration carried in the operands.
 //! Every path is total and panic-free; unallocated encodings are left
 //! [`Code::Invalid`].
@@ -36,45 +36,199 @@ use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::{Code, Mnemonic};
 use crate::operand::{Operand, PredQual, SveMemMode};
-use crate::register::{gp_register, Register, RegWidth};
+use crate::register::{gp_register, RegWidth, Register};
 
 // ---------------------------------------------------------------------------
 // Register-bank tables.
 // ---------------------------------------------------------------------------
 
 const Z: [Register; 32] = [
-    Register::Z0, Register::Z1, Register::Z2, Register::Z3, Register::Z4, Register::Z5, Register::Z6, Register::Z7,
-    Register::Z8, Register::Z9, Register::Z10, Register::Z11, Register::Z12, Register::Z13, Register::Z14, Register::Z15,
-    Register::Z16, Register::Z17, Register::Z18, Register::Z19, Register::Z20, Register::Z21, Register::Z22, Register::Z23,
-    Register::Z24, Register::Z25, Register::Z26, Register::Z27, Register::Z28, Register::Z29, Register::Z30, Register::Z31,
+    Register::Z0,
+    Register::Z1,
+    Register::Z2,
+    Register::Z3,
+    Register::Z4,
+    Register::Z5,
+    Register::Z6,
+    Register::Z7,
+    Register::Z8,
+    Register::Z9,
+    Register::Z10,
+    Register::Z11,
+    Register::Z12,
+    Register::Z13,
+    Register::Z14,
+    Register::Z15,
+    Register::Z16,
+    Register::Z17,
+    Register::Z18,
+    Register::Z19,
+    Register::Z20,
+    Register::Z21,
+    Register::Z22,
+    Register::Z23,
+    Register::Z24,
+    Register::Z25,
+    Register::Z26,
+    Register::Z27,
+    Register::Z28,
+    Register::Z29,
+    Register::Z30,
+    Register::Z31,
 ];
 const P: [Register; 16] = [
-    Register::P0, Register::P1, Register::P2, Register::P3, Register::P4, Register::P5, Register::P6, Register::P7,
-    Register::P8, Register::P9, Register::P10, Register::P11, Register::P12, Register::P13, Register::P14, Register::P15,
+    Register::P0,
+    Register::P1,
+    Register::P2,
+    Register::P3,
+    Register::P4,
+    Register::P5,
+    Register::P6,
+    Register::P7,
+    Register::P8,
+    Register::P9,
+    Register::P10,
+    Register::P11,
+    Register::P12,
+    Register::P13,
+    Register::P14,
+    Register::P15,
 ];
 const BR: [Register; 32] = [
-    Register::B0, Register::B1, Register::B2, Register::B3, Register::B4, Register::B5, Register::B6, Register::B7,
-    Register::B8, Register::B9, Register::B10, Register::B11, Register::B12, Register::B13, Register::B14, Register::B15,
-    Register::B16, Register::B17, Register::B18, Register::B19, Register::B20, Register::B21, Register::B22, Register::B23,
-    Register::B24, Register::B25, Register::B26, Register::B27, Register::B28, Register::B29, Register::B30, Register::B31,
+    Register::B0,
+    Register::B1,
+    Register::B2,
+    Register::B3,
+    Register::B4,
+    Register::B5,
+    Register::B6,
+    Register::B7,
+    Register::B8,
+    Register::B9,
+    Register::B10,
+    Register::B11,
+    Register::B12,
+    Register::B13,
+    Register::B14,
+    Register::B15,
+    Register::B16,
+    Register::B17,
+    Register::B18,
+    Register::B19,
+    Register::B20,
+    Register::B21,
+    Register::B22,
+    Register::B23,
+    Register::B24,
+    Register::B25,
+    Register::B26,
+    Register::B27,
+    Register::B28,
+    Register::B29,
+    Register::B30,
+    Register::B31,
 ];
 const HR: [Register; 32] = [
-    Register::H0, Register::H1, Register::H2, Register::H3, Register::H4, Register::H5, Register::H6, Register::H7,
-    Register::H8, Register::H9, Register::H10, Register::H11, Register::H12, Register::H13, Register::H14, Register::H15,
-    Register::H16, Register::H17, Register::H18, Register::H19, Register::H20, Register::H21, Register::H22, Register::H23,
-    Register::H24, Register::H25, Register::H26, Register::H27, Register::H28, Register::H29, Register::H30, Register::H31,
+    Register::H0,
+    Register::H1,
+    Register::H2,
+    Register::H3,
+    Register::H4,
+    Register::H5,
+    Register::H6,
+    Register::H7,
+    Register::H8,
+    Register::H9,
+    Register::H10,
+    Register::H11,
+    Register::H12,
+    Register::H13,
+    Register::H14,
+    Register::H15,
+    Register::H16,
+    Register::H17,
+    Register::H18,
+    Register::H19,
+    Register::H20,
+    Register::H21,
+    Register::H22,
+    Register::H23,
+    Register::H24,
+    Register::H25,
+    Register::H26,
+    Register::H27,
+    Register::H28,
+    Register::H29,
+    Register::H30,
+    Register::H31,
 ];
 const SR: [Register; 32] = [
-    Register::S0, Register::S1, Register::S2, Register::S3, Register::S4, Register::S5, Register::S6, Register::S7,
-    Register::S8, Register::S9, Register::S10, Register::S11, Register::S12, Register::S13, Register::S14, Register::S15,
-    Register::S16, Register::S17, Register::S18, Register::S19, Register::S20, Register::S21, Register::S22, Register::S23,
-    Register::S24, Register::S25, Register::S26, Register::S27, Register::S28, Register::S29, Register::S30, Register::S31,
+    Register::S0,
+    Register::S1,
+    Register::S2,
+    Register::S3,
+    Register::S4,
+    Register::S5,
+    Register::S6,
+    Register::S7,
+    Register::S8,
+    Register::S9,
+    Register::S10,
+    Register::S11,
+    Register::S12,
+    Register::S13,
+    Register::S14,
+    Register::S15,
+    Register::S16,
+    Register::S17,
+    Register::S18,
+    Register::S19,
+    Register::S20,
+    Register::S21,
+    Register::S22,
+    Register::S23,
+    Register::S24,
+    Register::S25,
+    Register::S26,
+    Register::S27,
+    Register::S28,
+    Register::S29,
+    Register::S30,
+    Register::S31,
 ];
 const DR: [Register; 32] = [
-    Register::D0, Register::D1, Register::D2, Register::D3, Register::D4, Register::D5, Register::D6, Register::D7,
-    Register::D8, Register::D9, Register::D10, Register::D11, Register::D12, Register::D13, Register::D14, Register::D15,
-    Register::D16, Register::D17, Register::D18, Register::D19, Register::D20, Register::D21, Register::D22, Register::D23,
-    Register::D24, Register::D25, Register::D26, Register::D27, Register::D28, Register::D29, Register::D30, Register::D31,
+    Register::D0,
+    Register::D1,
+    Register::D2,
+    Register::D3,
+    Register::D4,
+    Register::D5,
+    Register::D6,
+    Register::D7,
+    Register::D8,
+    Register::D9,
+    Register::D10,
+    Register::D11,
+    Register::D12,
+    Register::D13,
+    Register::D14,
+    Register::D15,
+    Register::D16,
+    Register::D17,
+    Register::D18,
+    Register::D19,
+    Register::D20,
+    Register::D21,
+    Register::D22,
+    Register::D23,
+    Register::D24,
+    Register::D25,
+    Register::D26,
+    Register::D27,
+    Register::D28,
+    Register::D29,
+    Register::D30,
+    Register::D31,
 ];
 
 // ---------------------------------------------------------------------------
@@ -95,43 +249,92 @@ fn arr(size: u32) -> VA {
 /// A scalable `Z{n}` operand with arrangement `a`.
 #[inline]
 fn zreg(n: u32, a: VA) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: Some(a), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A scalable `Z{n}` operand with arrangement `a` and a lane index.
 #[inline]
 fn zreg_idx(n: u32, a: VA, lane: u8) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: Some(a), lane: Some(lane), shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: Some(a),
+        lane: Some(lane),
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A governing predicate `P{n}` with a `/z` or `/m` qualifier.
 #[inline]
 fn preg_q(n: u32, q: PredQual) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: Some(q) }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: Some(q),
+    }
 }
 
 /// A bare predicate `P{n}` (no qualifier).
 #[inline]
 fn preg(n: u32) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A sized predicate `P{n}.<T>` (no qualifier).
 #[inline]
 fn preg_sz(n: u32, a: VA) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: Some(a), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A bare general-purpose register operand (`X`/`W`), reg-31 as ZR.
 #[inline]
 fn gpr(n: u32, w: RegWidth) -> Operand {
-    Operand::Reg { reg: gp_register(false, w, n as u8), arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: gp_register(false, w, n as u8),
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A general-purpose register operand with reg-31 resolved to SP.
 #[inline]
 fn gpr_sp(n: u32, w: RegWidth) -> Operand {
-    Operand::Reg { reg: gp_register(true, w, n as u8), arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: gp_register(true, w, n as u8),
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A scalar SIMD `B/H/S/D` operand of the element width for `size`.
@@ -144,7 +347,14 @@ fn scalar_fp(n: u32, size: u32) -> Operand {
         2 => SR[n],
         _ => DR[n],
     };
-    Operand::Reg { reg, arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg,
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// Push the standard `Zdn.T, Pg/M, Zdn.T, Zm.T` operand quad for a predicated
@@ -233,8 +443,7 @@ fn sve_move_mask_preferred(imm: u64) -> bool {
         if f(63, 32) == f(31, 0) && (is_zero(31, 8) || is_ones(31, 8)) {
             return false;
         }
-        if f(63, 48) == f(31, 16) && f(63, 48) == f(47, 32) && (is_zero(15, 8) || is_ones(15, 8))
-        {
+        if f(63, 48) == f(31, 16) && f(63, 48) == f(47, 32) && (is_zero(15, 8) || is_ones(15, 8)) {
             return false;
         }
     } else {
@@ -318,14 +527,22 @@ fn decode_05(word: u32, out: &mut Instruction) {
             // We distinguish by the fixed low bits via the field layouts.
             if opc2016 == 0b00000 && bits(word, 10, 6) == 0b001110 {
                 // DUP <Zd>.<T>, <R><n|SP>.
-                let w = if size == 3 { RegWidth::X64 } else { RegWidth::W32 };
+                let w = if size == 3 {
+                    RegWidth::X64
+                } else {
+                    RegWidth::W32
+                };
                 out.set(Code::SveDupScalar);
                 out.set_mnemonic(Mnemonic::Mov);
                 out.push_operand(zreg(zd, arr(size)));
                 out.push_operand(gpr_sp(bits(word, 5, 5), w));
             } else if opc2016 == 0b00100 && bits(word, 10, 6) == 0b001110 {
                 // INSR <Zdn>.<T>, <R><m>.
-                let w = if size == 3 { RegWidth::X64 } else { RegWidth::W32 };
+                let w = if size == 3 {
+                    RegWidth::X64
+                } else {
+                    RegWidth::W32
+                };
                 out.set(Code::SveInsrScalar);
                 out.push_operand(zreg(zd, arr(size)));
                 out.push_operand(gpr(bits(word, 5, 5), w));
@@ -368,7 +585,11 @@ fn decode_05(word: u32, out: &mut Instruction) {
         // in the CPY-from-GP form; `<21>==0` is reserved → UNDEFINED (verified by
         // an LLVM bit-21 sweep across all four element sizes).
         0b101 if opc2016 == 0b01000 && bit(word, 21) == 1 => {
-            let w = if size == 3 { RegWidth::X64 } else { RegWidth::W32 };
+            let w = if size == 3 {
+                RegWidth::X64
+            } else {
+                RegWidth::W32
+            };
             out.set(Code::SveCpyScalar);
             out.set_mnemonic(Mnemonic::Mov);
             out.push_operand(zreg(zd, arr(size)));
@@ -502,7 +723,9 @@ fn decode_logical_imm(word: u32, out: &mut Instruction) {
     let opc = bits(word, 22, 2);
     let imm13 = bits(word, 5, 13);
     let zdn = bits(word, 0, 5);
-    let Some(val) = sve_bitmask(imm13) else { return };
+    let Some(val) = sve_bitmask(imm13) else {
+        return;
+    };
     // The element arrangement for the immediate display: SVE logical-immediate
     // ops are notionally `.d`-wide but the corpus prints the element size implied
     // by the replication period of the decoded mask. Binary Ninja prints `.b`/
@@ -711,12 +934,47 @@ fn scalar_fp_q(n: u32, esize: u32) -> Operand {
     if esize >= 4 {
         // Q register.
         const QR: [Register; 32] = [
-            Register::Q0, Register::Q1, Register::Q2, Register::Q3, Register::Q4, Register::Q5, Register::Q6, Register::Q7,
-            Register::Q8, Register::Q9, Register::Q10, Register::Q11, Register::Q12, Register::Q13, Register::Q14, Register::Q15,
-            Register::Q16, Register::Q17, Register::Q18, Register::Q19, Register::Q20, Register::Q21, Register::Q22, Register::Q23,
-            Register::Q24, Register::Q25, Register::Q26, Register::Q27, Register::Q28, Register::Q29, Register::Q30, Register::Q31,
+            Register::Q0,
+            Register::Q1,
+            Register::Q2,
+            Register::Q3,
+            Register::Q4,
+            Register::Q5,
+            Register::Q6,
+            Register::Q7,
+            Register::Q8,
+            Register::Q9,
+            Register::Q10,
+            Register::Q11,
+            Register::Q12,
+            Register::Q13,
+            Register::Q14,
+            Register::Q15,
+            Register::Q16,
+            Register::Q17,
+            Register::Q18,
+            Register::Q19,
+            Register::Q20,
+            Register::Q21,
+            Register::Q22,
+            Register::Q23,
+            Register::Q24,
+            Register::Q25,
+            Register::Q26,
+            Register::Q27,
+            Register::Q28,
+            Register::Q29,
+            Register::Q30,
+            Register::Q31,
         ];
-        Operand::Reg { reg: QR[(n & 0x1f) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+        Operand::Reg {
+            reg: QR[(n & 0x1f) as usize],
+            arr: None,
+            lane: None,
+            shift: None,
+            extend: None,
+            pred: None,
+        }
     } else {
         scalar_fp(n, esize)
     }
@@ -741,7 +999,11 @@ fn decode_arith_zzz(word: u32, out: &mut Instruction) {
         if size != 0b11 {
             return;
         }
-        out.set(if bit(word, 10) == 0 { Code::SveAddptUnpred } else { Code::SveSubptUnpred });
+        out.set(if bit(word, 10) == 0 {
+            Code::SveAddptUnpred
+        } else {
+            Code::SveSubptUnpred
+        });
         out.push_operand(zreg(zd, a));
         out.push_operand(zreg(zn, a));
         out.push_operand(zreg(zm, a));
@@ -857,7 +1119,9 @@ fn decode_sve2_bitwise_ternary(word: u32, out: &mut Instruction) {
 fn decode_sve2_xar(word: u32, out: &mut Instruction) {
     let tsz = (bits(word, 22, 2) << 2) | bits(word, 19, 2);
     let imm3 = bits(word, 16, 3);
-    let Some((a, amount)) = right_shift_amount(tsz, imm3) else { return };
+    let Some((a, amount)) = right_shift_amount(tsz, imm3) else {
+        return;
+    };
     let zm = bits(word, 5, 5);
     let zdn = bits(word, 0, 5);
     out.set(Code::SveXar);
@@ -891,7 +1155,11 @@ fn decode_mul_zzz(word: u32, features: FeatureSet, out: &mut Instruction) {
             if !features.has(Feature::Sve2p3) {
                 return;
             }
-            out.set(if bit(word, 10) == 0 { Code::SveAddqp } else { Code::SveAddsubp });
+            out.set(if bit(word, 10) == 0 {
+                Code::SveAddqp
+            } else {
+                Code::SveAddsubp
+            });
             out.push_operand(zreg(zd, a));
             out.push_operand(zreg(zn, a));
             out.push_operand(zreg(zm, a));
@@ -918,27 +1186,43 @@ fn decode_mul_zzz(word: u32, features: FeatureSet, out: &mut Instruction) {
 fn decode_index_addvl(word: u32, features: FeatureSet, out: &mut Instruction) {
     let size = bits(word, 22, 2);
     let a = arr(size);
-    let w = if size == 3 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if size == 3 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
     match bits(word, 10, 3) {
         // INDEX (immediate, immediate): `INDEX <Zd>.<T>, #imm5, #imm5b`.
         0b000 => {
             out.set(Code::SveIndexImmImm);
             out.push_operand(zreg(bits(word, 0, 5), a));
-            out.push_operand(Operand::ImmSignedDec(sign_extend(bits(word, 5, 5) as u64, 5)));
-            out.push_operand(Operand::ImmSignedDec(sign_extend(bits(word, 16, 5) as u64, 5)));
+            out.push_operand(Operand::ImmSignedDec(sign_extend(
+                bits(word, 5, 5) as u64,
+                5,
+            )));
+            out.push_operand(Operand::ImmSignedDec(sign_extend(
+                bits(word, 16, 5) as u64,
+                5,
+            )));
         }
         // INDEX (scalar, immediate): `INDEX <Zd>.<T>, <R><n>, #imm5`.
         0b001 => {
             out.set(Code::SveIndexRi);
             out.push_operand(zreg(bits(word, 0, 5), a));
             out.push_operand(gpr(bits(word, 5, 5), w));
-            out.push_operand(Operand::ImmSignedDec(sign_extend(bits(word, 16, 5) as u64, 5)));
+            out.push_operand(Operand::ImmSignedDec(sign_extend(
+                bits(word, 16, 5) as u64,
+                5,
+            )));
         }
         // INDEX (immediate, scalar): `INDEX <Zd>.<T>, #imm5, <R><m>`.
         0b010 => {
             out.set(Code::SveIndexIr);
             out.push_operand(zreg(bits(word, 0, 5), a));
-            out.push_operand(Operand::ImmSignedDec(sign_extend(bits(word, 5, 5) as u64, 5)));
+            out.push_operand(Operand::ImmSignedDec(sign_extend(
+                bits(word, 5, 5) as u64,
+                5,
+            )));
             out.push_operand(gpr(bits(word, 16, 5), w));
         }
         // INDEX (scalar, scalar): `INDEX <Zd>.<T>, <R><n>, <R><m>`.
@@ -1128,14 +1412,28 @@ fn decode_adr_vec(word: u32, out: &mut Instruction) {
 /// A bare `Z{n}` with no arrangement (used by unpredicated MOVPRFX).
 #[inline]
 fn plain_z(n: u32) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A bare `Z{n}` carrying a lane index but no arrangement (`z4[2]`), used by
 /// PMOV's vector operand for the `.h`/`.s`/`.d` element sizes.
 #[inline]
 fn plain_z_idx(n: u32, lane: u8) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: None, lane: Some(lane), shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: None,
+        lane: Some(lane),
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A NEON `V{n}` operand with a full-128-bit arrangement (`v0.16b`/`.8h`/`.4s`/
@@ -1296,11 +1594,16 @@ fn decode_cnt_incdec_scalar(word: u32, out: &mut Instruction) {
             let unsigned = bit(word, 10) == 1; // U
             let dec = bit(word, 11) == 1; // D
             let mnem = sat_scalar_mnemonic(unsigned, dec, size);
-            out.set(if matches!(mnem, Mnemonic::Sqincb | Mnemonic::Sqinch | Mnemonic::Sqincw | Mnemonic::Sqincd) {
-                Code::SveSqIncDecScalarSx
-            } else {
-                Code::SveIncDecScalar
-            });
+            out.set(
+                if matches!(
+                    mnem,
+                    Mnemonic::Sqincb | Mnemonic::Sqinch | Mnemonic::Sqincw | Mnemonic::Sqincd
+                ) {
+                    Code::SveSqIncDecScalarSx
+                } else {
+                    Code::SveIncDecScalar
+                },
+            );
             out.set_mnemonic(mnem);
             if !unsigned {
                 // Signed saturating: `_x` (b20=1) = Xdn only; `_sx` (b20=0) =
@@ -1446,7 +1749,11 @@ fn decode_25(word: u32, features: FeatureSet, out: &mut Instruction) {
         let pn = bits(word, 5, 4);
         let rd = bits(word, 0, 5);
         let is_lastp = bits(word, 16, 5) == 0b00010;
-        out.set(if is_lastp { Code::SveLastp } else { Code::SveFirstp });
+        out.set(if is_lastp {
+            Code::SveLastp
+        } else {
+            Code::SveFirstp
+        });
         out.push_operand(gpr(rd, RegWidth::X64));
         out.push_operand(preg(pg));
         out.push_operand(preg_sz(pn, a));
@@ -1597,8 +1904,16 @@ fn decode_int_imm(word: u32, out: &mut Instruction) {
             }
             let u = bit(word, 16);
             match bits(word, 17, 2) {
-                0b00 => out.set(if u == 0 { Code::SveSmaxZi } else { Code::SveUmaxZi }),
-                0b01 => out.set(if u == 0 { Code::SveSminZi } else { Code::SveUminZi }),
+                0b00 => out.set(if u == 0 {
+                    Code::SveSmaxZi
+                } else {
+                    Code::SveUmaxZi
+                }),
+                0b01 => out.set(if u == 0 {
+                    Code::SveSminZi
+                } else {
+                    Code::SveUminZi
+                }),
                 _ => return,
             }
             out.push_operand(zreg(zdn, a));
@@ -1719,7 +2034,12 @@ fn decode_cntp_count(word: u32, out: &mut Instruction) {
     let rd = bits(word, 0, 5);
     out.set(Code::SveCntpCount);
     out.push_operand(gpr(rd, RegWidth::X64));
-    out.push_operand(Operand::PredCounter { reg: P[(pn & 0xf) as usize], zeroing: false, arr: Some(a), index: None });
+    out.push_operand(Operand::PredCounter {
+        reg: P[(pn & 0xf) as usize],
+        zeroing: false,
+        arr: Some(a),
+        index: None,
+    });
     out.push_operand(Operand::VlMul(if bit(word, 10) == 1 { 4 } else { 2 }));
 }
 
@@ -1758,7 +2078,11 @@ fn decode_incdec_pred(word: u32, out: &mut Instruction) {
 
     // Plain INCP / DECP.
     if opc == 0b100 || opc == 0b101 {
-        let mnem = if opc == 0b101 { Mnemonic::Decp } else { Mnemonic::Incp };
+        let mnem = if opc == 0b101 {
+            Mnemonic::Decp
+        } else {
+            Mnemonic::Incp
+        };
         if is_vector {
             out.set(Code::SveIncDecPVector);
             out.set_mnemonic(mnem);
@@ -1801,7 +2125,14 @@ fn decode_incdec_pred(word: u32, out: &mut Instruction) {
             }
         } else {
             // Unsigned: `_x` (sf=1) = Xdn, Pg.T; `_uw` (sf=0) = Wdn, Pg.T.
-            out.push_operand(gpr(rdn, if sf == 1 { RegWidth::X64 } else { RegWidth::W32 }));
+            out.push_operand(gpr(
+                rdn,
+                if sf == 1 {
+                    RegWidth::X64
+                } else {
+                    RegWidth::W32
+                },
+            ));
             out.push_operand(preg_sz(pm, a));
         }
     }
@@ -1871,8 +2202,16 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
                 if !features.has(Feature::Sve2p3) {
                     return;
                 }
-                out.set(if u == 0 { Code::SveSdotHb } else { Code::SveUdotHb });
-                out.set_mnemonic(if u == 0 { Mnemonic::Sdot } else { Mnemonic::Udot });
+                out.set(if u == 0 {
+                    Code::SveSdotHb
+                } else {
+                    Code::SveUdotHb
+                });
+                out.set_mnemonic(if u == 0 {
+                    Mnemonic::Sdot
+                } else {
+                    Mnemonic::Udot
+                });
                 out.push_operand(zreg(zda, VA::Sh));
                 out.push_operand(zreg(zn, VA::Sb));
                 out.push_operand(zreg(zm, VA::Sb));
@@ -1881,9 +2220,17 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
             if size < 2 {
                 return;
             }
-            let (da, sb) = if size == 2 { (VA::Ss, VA::Sb) } else { (VA::Sd, VA::Sh) };
+            let (da, sb) = if size == 2 {
+                (VA::Ss, VA::Sb)
+            } else {
+                (VA::Sd, VA::Sh)
+            };
             out.set(if u == 0 { Code::SveSdot } else { Code::SveUdot });
-            out.set_mnemonic(if u == 0 { Mnemonic::Sdot } else { Mnemonic::Udot });
+            out.set_mnemonic(if u == 0 {
+                Mnemonic::Sdot
+            } else {
+                Mnemonic::Udot
+            });
             out.push_operand(zreg(zda, da));
             out.push_operand(zreg(zn, sb));
             out.push_operand(zreg(zm, sb));
@@ -1894,7 +2241,11 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
             let Some((da, sa)) = widen2(size) else { return };
             let s = bit(word, 10);
             out.set(Code::SveSqdmlalLongBt);
-            out.set_mnemonic(if s == 0 { Mnemonic::Sqdmlalbt } else { Mnemonic::Sqdmlslbt });
+            out.set_mnemonic(if s == 0 {
+                Mnemonic::Sqdmlalbt
+            } else {
+                Mnemonic::Sqdmlslbt
+            });
             out.push_operand(zreg(zda, da));
             out.push_operand(zreg(zn, sa));
             out.push_operand(zreg(zm, sa));
@@ -1905,7 +2256,11 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
             if bits(word, 12, 1) != 1 || size < 2 {
                 return;
             }
-            let (da, sb) = if size == 2 { (VA::Ss, VA::Sb) } else { (VA::Sd, VA::Sh) };
+            let (da, sb) = if size == 2 {
+                (VA::Ss, VA::Sb)
+            } else {
+                (VA::Sd, VA::Sh)
+            };
             out.set(Code::SveCdot);
             out.set_mnemonic(Mnemonic::Cdot);
             out.push_operand(zreg(zda, da));
@@ -1917,8 +2272,16 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b001 => {
             let a = arr(size);
             let op = bit(word, 12);
-            out.set(if op == 0 { Code::SveCmla } else { Code::SveSqrdcmlah });
-            out.set_mnemonic(if op == 0 { Mnemonic::Cmla } else { Mnemonic::Sqrdcmlah });
+            out.set(if op == 0 {
+                Code::SveCmla
+            } else {
+                Code::SveSqrdcmlah
+            });
+            out.set_mnemonic(if op == 0 {
+                Mnemonic::Cmla
+            } else {
+                Mnemonic::Sqrdcmlah
+            });
             out.push_operand(zreg(zda, a));
             out.push_operand(zreg(zn, a));
             out.push_operand(zreg(zm, a));
@@ -1989,7 +2352,11 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b110 if bits(word, 11, 2) == 0 => {
             let a = arr(size);
             let u = bit(word, 10);
-            out.set(if u == 0 { Code::SveSclamp } else { Code::SveUclamp });
+            out.set(if u == 0 {
+                Code::SveSclamp
+            } else {
+                Code::SveUclamp
+            });
             out.push_operand(zreg(zda, a));
             out.push_operand(zreg(zn, a));
             out.push_operand(zreg(zm, a));
@@ -2005,8 +2372,16 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
                 if size != 0 {
                     return;
                 }
-                out.set(if u == 0 { Code::SveSdotH } else { Code::SveUdotH });
-                out.set_mnemonic(if u == 0 { Mnemonic::Sdot } else { Mnemonic::Udot });
+                out.set(if u == 0 {
+                    Code::SveSdotH
+                } else {
+                    Code::SveUdotH
+                });
+                out.set_mnemonic(if u == 0 {
+                    Mnemonic::Sdot
+                } else {
+                    Mnemonic::Udot
+                });
                 out.push_operand(zreg(zda, VA::Ss));
                 out.push_operand(zreg(zn, VA::Sh));
                 out.push_operand(zreg(zm, VA::Sh));
@@ -2018,8 +2393,16 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
                 if bit(word, 22) != 0 {
                     return;
                 }
-                out.set(if u == 0 { Code::SveSdotHIdx } else { Code::SveUdotHIdx });
-                out.set_mnemonic(if u == 0 { Mnemonic::Sdot } else { Mnemonic::Udot });
+                out.set(if u == 0 {
+                    Code::SveSdotHIdx
+                } else {
+                    Code::SveUdotHIdx
+                });
+                out.set_mnemonic(if u == 0 {
+                    Mnemonic::Sdot
+                } else {
+                    Mnemonic::Udot
+                });
                 let idx = bits(word, 19, 2);
                 let zm = bits(word, 16, 3);
                 out.push_operand(zreg(zda, VA::Ss));
@@ -2033,7 +2416,11 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b110 if bit(word, 21) == 0 && bit(word, 10) == 1 && bit(word, 12) == 1 => {
             let Some((da, sa)) = widen2(size) else { return };
             let u = bit(word, 11);
-            out.set(if u == 0 { Code::SveSabal } else { Code::SveUabal });
+            out.set(if u == 0 {
+                Code::SveSabal
+            } else {
+                Code::SveUabal
+            });
             out.push_operand(zreg(zda, da));
             out.push_operand(zreg(zn, sa));
             out.push_operand(zreg(zm, sa));
@@ -2093,7 +2480,12 @@ fn decode_44_vector(word: u32, features: FeatureSet, out: &mut Instruction) {
 #[inline]
 fn zlist1(n: u32, a: VA) -> Operand {
     Operand::MultiReg {
-        regs: [Z[(n & 0x1f) as usize], Register::None, Register::None, Register::None],
+        regs: [
+            Z[(n & 0x1f) as usize],
+            Register::None,
+            Register::None,
+            Register::None,
+        ],
         count: 1,
         arr: Some(a),
         lane: None,
@@ -2225,14 +2617,22 @@ fn decode_44_pred(word: u32, features: FeatureSet, out: &mut Instruction) {
                 // SADALP/UADALP: source elements half-width (2x widening accum).
                 let Some((da, sa)) = widen2(size) else { return };
                 out.set(Code::SveAdalp);
-                out.set_mnemonic(if u == 0 { Mnemonic::Sadalp } else { Mnemonic::Uadalp });
+                out.set_mnemonic(if u == 0 {
+                    Mnemonic::Sadalp
+                } else {
+                    Mnemonic::Uadalp
+                });
                 out.push_operand(zreg(zdn, da));
                 out.push_operand(preg_q(pg, PredQual::Merging));
                 out.push_operand(zreg(zn, sa));
             } else if bit(word, 19) == 1 && bits(word, 17, 2) == 0b00 {
                 // SQABS (`<16>=0`) / SQNEG (`<16>=1`): same-size unary, merging.
                 out.set(Code::SveSatUnaryZpz);
-                out.set_mnemonic(if bit(word, 16) == 0 { Mnemonic::Sqabs } else { Mnemonic::Sqneg });
+                out.set_mnemonic(if bit(word, 16) == 0 {
+                    Mnemonic::Sqabs
+                } else {
+                    Mnemonic::Sqneg
+                });
                 out.push_operand(zreg(zdn, a));
                 out.push_operand(preg_q(pg, PredQual::Merging));
                 out.push_operand(zreg(zn, a));
@@ -2241,7 +2641,11 @@ fn decode_44_pred(word: u32, features: FeatureSet, out: &mut Instruction) {
                 if !features.has(Feature::Sve2p2) {
                     return;
                 }
-                out.set(if bit(word, 16) == 0 { Code::SveSqabsZ } else { Code::SveSqnegZ });
+                out.set(if bit(word, 16) == 0 {
+                    Code::SveSqabsZ
+                } else {
+                    Code::SveSqnegZ
+                });
                 out.push_operand(zreg(zdn, a));
                 out.push_operand(preg_q(pg, PredQual::Zeroing));
                 out.push_operand(zreg(zn, a));
@@ -2251,7 +2655,11 @@ fn decode_44_pred(word: u32, features: FeatureSet, out: &mut Instruction) {
                     return;
                 }
                 out.set(Code::SveRecipEst);
-                out.set_mnemonic(if bit(word, 16) == 0 { Mnemonic::Urecpe } else { Mnemonic::Ursqrte });
+                out.set_mnemonic(if bit(word, 16) == 0 {
+                    Mnemonic::Urecpe
+                } else {
+                    Mnemonic::Ursqrte
+                });
                 out.push_operand(zreg(zdn, a));
                 out.push_operand(preg_q(pg, PredQual::Merging));
                 out.push_operand(zreg(zn, a));
@@ -2265,7 +2673,11 @@ fn decode_44_pred(word: u32, features: FeatureSet, out: &mut Instruction) {
                 if !features.has(Feature::Sve2p2) {
                     return;
                 }
-                out.set(if bit(word, 16) == 0 { Code::SveUrecpeZ } else { Code::SveUrsqrteZ });
+                out.set(if bit(word, 16) == 0 {
+                    Code::SveUrecpeZ
+                } else {
+                    Code::SveUrsqrteZ
+                });
                 out.push_operand(zreg(zdn, a));
                 out.push_operand(preg_q(pg, PredQual::Zeroing));
                 out.push_operand(zreg(zn, a));
@@ -2291,8 +2703,16 @@ fn decode_44_indexed(word: u32, out: &mut Instruction) {
             if s1211 == 0b00 {
                 // SDOT/UDOT idx: U=<10>. size==2 -> .s/.b, size==3 -> .d/.h.
                 let u = bit(word, 10);
-                out.set(if u == 0 { Code::SveSdotIdx } else { Code::SveUdotIdx });
-                out.set_mnemonic(if u == 0 { Mnemonic::Sdot } else { Mnemonic::Udot });
+                out.set(if u == 0 {
+                    Code::SveSdotIdx
+                } else {
+                    Code::SveUdotIdx
+                });
+                out.set_mnemonic(if u == 0 {
+                    Mnemonic::Sdot
+                } else {
+                    Mnemonic::Udot
+                });
                 if bit(word, 22) == 0 {
                     let idx = bits(word, 19, 2);
                     let zm = bits(word, 16, 3);
@@ -2309,7 +2729,11 @@ fn decode_44_indexed(word: u32, out: &mut Instruction) {
             } else if s1211 == 0b01 {
                 // MLA (S=0) / MLS (S=1) idx (`<15:11>=00001`): same-size by element.
                 let s = bit(word, 10);
-                out.set(if s == 0 { Code::SveMlaIdx } else { Code::SveMlsIdx });
+                out.set(if s == 0 {
+                    Code::SveMlaIdx
+                } else {
+                    Code::SveMlsIdx
+                });
                 out.set_mnemonic(if s == 0 { Mnemonic::Mla } else { Mnemonic::Mls });
                 push_sve2_idx_same(word, out, zda, zn);
             } else if s1211 == 0b10 {
@@ -2323,7 +2747,11 @@ fn decode_44_indexed(word: u32, out: &mut Instruction) {
                 }
                 let u = bit(word, 10);
                 out.set(Code::SveDotMixed);
-                out.set_mnemonic(if u == 0 { Mnemonic::Usdot } else { Mnemonic::Sudot });
+                out.set_mnemonic(if u == 0 {
+                    Mnemonic::Usdot
+                } else {
+                    Mnemonic::Sudot
+                });
                 let idx = bits(word, 19, 2);
                 let zm = bits(word, 16, 3);
                 out.push_operand(zreg(zda, VA::Ss));
@@ -2368,7 +2796,10 @@ fn decode_44_idx_mull(word: u32, out: &mut Instruction) {
         _ => Mnemonic::Umullt,
     };
     let (idx, zm) = if size == 2 {
-        (((bits(word, 19, 2) << 1) | bit(word, 11)), bits(word, 16, 3))
+        (
+            ((bits(word, 19, 2) << 1) | bit(word, 11)),
+            bits(word, 16, 3),
+        )
     } else {
         (((bit(word, 20) << 1) | bit(word, 11)), bits(word, 16, 4))
     };
@@ -2430,7 +2861,10 @@ fn decode_44_idx_sqdmlal(word: u32, out: &mut Instruction) {
         _ => Mnemonic::Sqdmlslt,
     };
     let (idx, zm) = if size == 2 {
-        (((bits(word, 19, 2) << 1) | bit(word, 11)), bits(word, 16, 3))
+        (
+            ((bits(word, 19, 2) << 1) | bit(word, 11)),
+            bits(word, 16, 3),
+        )
     } else {
         (((bit(word, 20) << 1) | bit(word, 11)), bits(word, 16, 4))
     };
@@ -2453,8 +2887,16 @@ fn decode_44_idx_cmla(word: u32, out: &mut Instruction) {
     let zn = bits(word, 5, 5);
     let zda = bits(word, 0, 5);
     let op = bit(word, 12); // 0 -> CMLA (`0110`), 1 -> SQRDCMLAH (`0111`).
-    out.set(if op == 0 { Code::SveCmlaIdx } else { Code::SveSqrdcmlahIdx });
-    out.set_mnemonic(if op == 0 { Mnemonic::Cmla } else { Mnemonic::Sqrdcmlah });
+    out.set(if op == 0 {
+        Code::SveCmlaIdx
+    } else {
+        Code::SveSqrdcmlahIdx
+    });
+    out.set_mnemonic(if op == 0 {
+        Mnemonic::Cmla
+    } else {
+        Mnemonic::Sqrdcmlah
+    });
     let a = if size == 2 { VA::Sh } else { VA::Ss };
     let (idx, zm) = if size == 2 {
         (bits(word, 19, 2), bits(word, 16, 3))
@@ -2494,7 +2936,10 @@ fn decode_44_idx_mlal(word: u32, out: &mut Instruction) {
         _ => Mnemonic::Umlslt,
     };
     let (idx, zm) = if size == 2 {
-        (((bits(word, 19, 2) << 1) | bit(word, 11)), bits(word, 16, 3))
+        (
+            ((bits(word, 19, 2) << 1) | bit(word, 11)),
+            bits(word, 16, 3),
+        )
     } else {
         (((bit(word, 20) << 1) | bit(word, 11)), bits(word, 16, 4))
     };
@@ -2522,8 +2967,16 @@ fn decode_44_idx_mul(word: u32, out: &mut Instruction) {
     if s1511 == 0b11110 {
         // SQDMULH (R=0) / SQRDMULH (R=1): same-size by element.
         let r = bit(word, 10);
-        out.set(if r == 0 { Code::SveSqdmulhIdx } else { Code::SveSqrdmulhIdx });
-        out.set_mnemonic(if r == 0 { Mnemonic::Sqdmulh } else { Mnemonic::Sqrdmulh });
+        out.set(if r == 0 {
+            Code::SveSqdmulhIdx
+        } else {
+            Code::SveSqrdmulhIdx
+        });
+        out.set_mnemonic(if r == 0 {
+            Mnemonic::Sqdmulh
+        } else {
+            Mnemonic::Sqrdmulh
+        });
         push_sve2_idx_same(word, out, zd, zn);
         return;
     }
@@ -2544,12 +2997,19 @@ fn decode_44_idx_mul(word: u32, out: &mut Instruction) {
         }
         let t = bit(word, 10);
         let (idx, zm) = if size == 2 {
-            (((bits(word, 19, 2) << 1) | bit(word, 11)), bits(word, 16, 3))
+            (
+                ((bits(word, 19, 2) << 1) | bit(word, 11)),
+                bits(word, 16, 3),
+            )
         } else {
             (((bit(word, 20) << 1) | bit(word, 11)), bits(word, 16, 4))
         };
         out.set(Code::SveSqdmulLongIdx);
-        out.set_mnemonic(if t == 0 { Mnemonic::Sqdmullb } else { Mnemonic::Sqdmullt });
+        out.set_mnemonic(if t == 0 {
+            Mnemonic::Sqdmullb
+        } else {
+            Mnemonic::Sqdmullt
+        });
         out.push_operand(zreg(zd, da));
         out.push_operand(zreg(zn, sa));
         out.push_operand(zreg_idx(zm, sa, idx as u8));
@@ -2779,7 +3239,11 @@ fn decode_45_aes2(word: u32, features: FeatureSet, out: &mut Instruction) {
                 if zd & 1 != 0 {
                     return; // pair base must be even.
                 }
-                out.set(if bit(word, 10) == 0 { Code::SvePmull2 } else { Code::SvePmlal2 });
+                out.set(if bit(word, 10) == 0 {
+                    Code::SvePmull2
+                } else {
+                    Code::SvePmlal2
+                });
                 out.push_operand(zgroup(zd, 2, VA::Sq));
                 out.push_operand(zreg(zn, VA::Sd));
                 out.push_operand(zreg(zm, VA::Sd));
@@ -2856,7 +3320,11 @@ fn decode_45_misc(word: u32, out: &mut Instruction) {
         // EORBT/EORTB (`<15:11>=10010`, `<10>=tb`): same-size interleaving XOR.
         if bits(word, 11, 5) == 0b10010 {
             out.set(Code::SveEorInterleave);
-            out.set_mnemonic(if bit(word, 10) == 0 { Mnemonic::Eorbt } else { Mnemonic::Eortb });
+            out.set_mnemonic(if bit(word, 10) == 0 {
+                Mnemonic::Eorbt
+            } else {
+                Mnemonic::Eortb
+            });
             out.push_operand(zreg(zd, a));
             out.push_operand(zreg(zn, a));
             out.push_operand(zreg(zm, a));
@@ -2896,7 +3364,11 @@ fn decode_45_misc(word: u32, out: &mut Instruction) {
         // {S,U}ABA (`<15:11>=11111`, `<10>=U`): same-size abs-diff accumulate.
         if bits(word, 11, 5) == 0b11111 {
             out.set(Code::SveAbaSame);
-            out.set_mnemonic(if bit(word, 10) == 0 { Mnemonic::Saba } else { Mnemonic::Uaba });
+            out.set_mnemonic(if bit(word, 10) == 0 {
+                Mnemonic::Saba
+            } else {
+                Mnemonic::Uaba
+            });
             out.push_operand(zreg(zd, a));
             out.push_operand(zreg(zn, a));
             out.push_operand(zreg(zm, a));
@@ -2913,7 +3385,11 @@ fn decode_45_misc(word: u32, out: &mut Instruction) {
         }
         let pg = bits(word, 10, 3);
         out.set(Code::SveMatch);
-        out.set_mnemonic(if bit(word, 4) == 0 { Mnemonic::Match } else { Mnemonic::Nmatch });
+        out.set_mnemonic(if bit(word, 4) == 0 {
+            Mnemonic::Match
+        } else {
+            Mnemonic::Nmatch
+        });
         out.push_operand(preg_sz(bits(word, 0, 4), a));
         out.push_operand(preg_q(pg, PredQual::Zeroing));
         out.push_operand(zreg(zn, a));
@@ -2928,7 +3404,11 @@ fn decode_45_misc(word: u32, out: &mut Instruction) {
         && size == 0
     {
         out.set(Code::SveAesMc);
-        out.set_mnemonic(if bit(word, 10) == 0 { Mnemonic::Aesmc } else { Mnemonic::Aesimc });
+        out.set_mnemonic(if bit(word, 10) == 0 {
+            Mnemonic::Aesmc
+        } else {
+            Mnemonic::Aesimc
+        });
         out.push_operand(zreg(zd, VA::Sb));
         out.push_operand(zreg(zd, VA::Sb));
         return;
@@ -2937,7 +3417,11 @@ fn decode_45_misc(word: u32, out: &mut Instruction) {
     // `<Zdn>.B, <Zdn>.B, <Zm>.B` (destructive: Zm=<9:5>).
     if bits(word, 16, 6) == 0b100010 && bits(word, 11, 5) == 0b11100 && size == 0 {
         out.set(Code::SveAesZz);
-        out.set_mnemonic(if bit(word, 10) == 0 { Mnemonic::Aese } else { Mnemonic::Aesd });
+        out.set_mnemonic(if bit(word, 10) == 0 {
+            Mnemonic::Aese
+        } else {
+            Mnemonic::Aesd
+        });
         out.push_operand(zreg(zd, VA::Sb));
         out.push_operand(zreg(zd, VA::Sb));
         out.push_operand(zreg(zn, VA::Sb));
@@ -3007,7 +3491,9 @@ fn decode_45_shift(word: u32, features: FeatureSet, out: &mut Instruction) {
             // {S,U}{,R}SRA (`<15:12>=1110`): right-shift accumulate, `<11>=R`,
             // `<10>=U`. Same-size `Zda.<T>, Zn.<T>, #shift`.
             0b1110 => {
-                let Some((a, amt)) = right_shift_amount(tsz, imm3) else { return };
+                let Some((a, amt)) = right_shift_amount(tsz, imm3) else {
+                    return;
+                };
                 let r = bit(word, 11);
                 let u = bit(word, 10);
                 let mnem = match (r, u) {
@@ -3026,7 +3512,9 @@ fn decode_45_shift(word: u32, features: FeatureSet, out: &mut Instruction) {
             // `Zd.<wide>, Zn.<narrow>, #shift`; the shift amount is computed from
             // the narrow element size.
             0b1010 => {
-                let Some((sa, amt)) = left_shift_amount(tsz, imm3) else { return };
+                let Some((sa, amt)) = left_shift_amount(tsz, imm3) else {
+                    return;
+                };
                 let da = match sa {
                     VA::Sb => VA::Sh,
                     VA::Sh => VA::Ss,
@@ -3059,7 +3547,11 @@ fn decode_45_shift(word: u32, features: FeatureSet, out: &mut Instruction) {
                     };
                     let Some((a, amt)) = res else { return };
                     out.set(Code::SveShiftInsert);
-                    out.set_mnemonic(if op == 1 { Mnemonic::Sli } else { Mnemonic::Sri });
+                    out.set_mnemonic(if op == 1 {
+                        Mnemonic::Sli
+                    } else {
+                        Mnemonic::Sri
+                    });
                     out.push_operand(zreg(zd, a));
                     out.push_operand(zreg(zn, a));
                     out.push_operand(Operand::ImmUnsigned(amt as u64));
@@ -3118,7 +3610,9 @@ fn decode_45_shift(word: u32, features: FeatureSet, out: &mut Instruction) {
         // Narrowing shift right (`<13>=op`,`<12>=U`,`<11>=R`,`<10>=T`):
         // `Zd.<narrow>, Zn.<wide>, #shift`. The shift is computed from the narrow
         // element size; the source is one size wider.
-        let Some((da, amt)) = right_shift_amount(tszn, imm3) else { return };
+        let Some((da, amt)) = right_shift_amount(tszn, imm3) else {
+            return;
+        };
         let sa = match da {
             VA::Sb => VA::Sh,
             VA::Sh => VA::Ss,
@@ -3177,7 +3671,9 @@ fn decode_45_shift_narrow_multi(word: u32, features: FeatureSet, out: &mut Instr
     }
     let imm3 = bits(word, 16, 3);
     let tszn = (bit(word, 22) << 2) | bits(word, 19, 2);
-    let Some((da, amt)) = right_shift_amount(tszn, imm3) else { return };
+    let Some((da, amt)) = right_shift_amount(tszn, imm3) else {
+        return;
+    };
     // Only the `.b<-.h` and `.h<-.s` destinations exist for the multi-vector form.
     let sa = match da {
         VA::Sb => VA::Sh,
@@ -3228,10 +3724,10 @@ fn decode_45_addsub(word: u32, out: &mut Instruction) {
         0b000 | 0b001 if bit(word, 21) == 0 => {
             let Some((da, sa)) = widen2(size) else { return };
             let abd = bit(word, 13) == 1; // <15:13>=001 -> ABDL.
-            // {S,U}ABDL{B,T} fix `<12>=1` (the bit is the add/sub `S` selector only
-            // for the `000` add/sub-long forms). `<15:13>=001` with `<12>=0` is
-            // reserved → UNDEFINED (verified vs LLVM: `45CE27DC` over-decoded as
-            // `sabdlt z28.d,z30.s,z14.s`, `<unknown>`, vs valid `45CE37DC`).
+                                          // {S,U}ABDL{B,T} fix `<12>=1` (the bit is the add/sub `S` selector only
+                                          // for the `000` add/sub-long forms). `<15:13>=001` with `<12>=0` is
+                                          // reserved → UNDEFINED (verified vs LLVM: `45CE27DC` over-decoded as
+                                          // `sabdlt z28.d,z30.s,z14.s`, `<unknown>`, vs valid `45CE37DC`).
             if abd && bit(word, 12) == 0 {
                 return;
             }
@@ -3256,7 +3752,11 @@ fn decode_45_addsub(word: u32, out: &mut Instruction) {
                     _ => Mnemonic::Usublt,
                 }
             };
-            out.set(if abd { Code::SveAbdLong } else { Code::SveAddLong });
+            out.set(if abd {
+                Code::SveAbdLong
+            } else {
+                Code::SveAddLong
+            });
             out.set_mnemonic(mnem);
             out.push_operand(zreg(zd, da));
             out.push_operand(zreg(zn, sa));
@@ -3374,7 +3874,11 @@ fn decode_45_addsub(word: u32, out: &mut Instruction) {
                     // CADD/SQCADD are destructive: Zm=<9:5>, Zdn=<4:0>.
                     let zmc = bits(word, 5, 5);
                     out.set(if sqr { Code::SveSqcadd } else { Code::SveCadd });
-                    out.set_mnemonic(if sqr { Mnemonic::Sqcadd } else { Mnemonic::Cadd });
+                    out.set_mnemonic(if sqr {
+                        Mnemonic::Sqcadd
+                    } else {
+                        Mnemonic::Cadd
+                    });
                     out.push_operand(zreg(zd, arr(size)));
                     out.push_operand(zreg(zd, arr(size)));
                     out.push_operand(zreg(zmc, arr(size)));
@@ -3505,7 +4009,11 @@ fn decode_pred_binary(word: u32, out: &mut Instruction) {
         if size != 0b11 {
             return;
         }
-        out.set(if opc == 0b00100 { Code::SveAddptPred } else { Code::SveSubptPred });
+        out.set(if opc == 0b00100 {
+            Code::SveAddptPred
+        } else {
+            Code::SveSubptPred
+        });
         pred_binary(out, zdn, pg, zm, a);
         return;
     }
@@ -3598,7 +4106,14 @@ fn decode_reduction(word: u32, out: &mut Instruction) {
             let merging = bit(word, 16) == 1;
             out.set(Code::SveMovprfxZpz);
             out.push_operand(zreg(rd, a));
-            out.push_operand(preg_q(pg, if merging { PredQual::Merging } else { PredQual::Zeroing }));
+            out.push_operand(preg_q(
+                pg,
+                if merging {
+                    PredQual::Merging
+                } else {
+                    PredQual::Zeroing
+                },
+            ));
             out.push_operand(zreg(zn, a));
         }
         _ => {}
@@ -3607,7 +4122,15 @@ fn decode_reduction(word: u32, out: &mut Instruction) {
 
 /// SMAXV/SMINV/.. reduce into a scalar of the element width; SADDV/UADDV use D.
 #[inline]
-fn reduction_scalar(out: &mut Instruction, code: Code, rd: u32, pg: u32, zn: u32, size: u32, a: VA) {
+fn reduction_scalar(
+    out: &mut Instruction,
+    code: Code,
+    rd: u32,
+    pg: u32,
+    zn: u32,
+    size: u32,
+    a: VA,
+) {
     out.set(code);
     out.push_operand(scalar_fp(rd, size));
     out.push_operand(preg(pg));
@@ -3634,7 +4157,11 @@ fn decode_mla_mls(word: u32, out: &mut Instruction, is_mls: bool) {
     let zda = bits(word, 0, 5);
     let zm = bits(word, 16, 5);
     let a = arr(size);
-    out.set(if is_mls { Code::SveMlsZpzzz } else { Code::SveMlaZpzzz });
+    out.set(if is_mls {
+        Code::SveMlsZpzzz
+    } else {
+        Code::SveMlaZpzzz
+    });
     out.push_operand(zreg(zda, a));
     out.push_operand(preg_q(pg, PredQual::Merging));
     out.push_operand(zreg(zn, a));
@@ -3652,7 +4179,11 @@ fn decode_mad_msb(word: u32, out: &mut Instruction, is_msb: bool) {
     let za = bits(word, 5, 5);
     let zdn = bits(word, 0, 5);
     let a = arr(size);
-    out.set(if is_msb { Code::SveMsbZpzzz } else { Code::SveMadZpzzz });
+    out.set(if is_msb {
+        Code::SveMsbZpzzz
+    } else {
+        Code::SveMadZpzzz
+    });
     out.push_operand(zreg(zdn, a));
     out.push_operand(preg_q(pg, PredQual::Merging));
     out.push_operand(zreg(zm, a));
@@ -3670,22 +4201,57 @@ fn decode_shift_pred(word: u32, out: &mut Instruction) {
 
     match opc {
         // Shift by immediate (predicated): tszh=<23:22>, tszl=<9:8>, imm3=<7:5>.
-        0b00000 | 0b00001 | 0b00011 | 0b00100 | 0b00110 | 0b00111 | 0b01100 | 0b01101
-        | 0b01111 => {
+        0b00000 | 0b00001 | 0b00011 | 0b00100 | 0b00110 | 0b00111 | 0b01100 | 0b01101 | 0b01111 => {
             let tsz = (bits(word, 22, 2) << 2) | bits(word, 8, 2);
             let imm3 = bits(word, 5, 3);
             let (code, mnem, sh) = match opc {
-                0b00000 => (Code::SveAsrZpzi, Mnemonic::Asr, right_shift_amount(tsz, imm3)),
-                0b00001 => (Code::SveLsrZpzi, Mnemonic::Lsr, right_shift_amount(tsz, imm3)),
-                0b00011 => (Code::SveLslZpzi, Mnemonic::Lsl, left_shift_amount(tsz, imm3)),
-                0b00100 => (Code::SveAsrdZpzi, Mnemonic::Asrd, right_shift_amount(tsz, imm3)),
+                0b00000 => (
+                    Code::SveAsrZpzi,
+                    Mnemonic::Asr,
+                    right_shift_amount(tsz, imm3),
+                ),
+                0b00001 => (
+                    Code::SveLsrZpzi,
+                    Mnemonic::Lsr,
+                    right_shift_amount(tsz, imm3),
+                ),
+                0b00011 => (
+                    Code::SveLslZpzi,
+                    Mnemonic::Lsl,
+                    left_shift_amount(tsz, imm3),
+                ),
+                0b00100 => (
+                    Code::SveAsrdZpzi,
+                    Mnemonic::Asrd,
+                    right_shift_amount(tsz, imm3),
+                ),
                 // SVE2 saturating shift-left immediates and rounding shifts: reuse
                 // the LSL/ASR codes for identity but install the right mnemonic.
-                0b00110 => (Code::SveLslZpzi, Mnemonic::Sqshl, left_shift_amount(tsz, imm3)),
-                0b00111 => (Code::SveLslZpzi, Mnemonic::Uqshl, left_shift_amount(tsz, imm3)),
-                0b01100 => (Code::SveAsrZpzi, Mnemonic::Srshr, right_shift_amount(tsz, imm3)),
-                0b01101 => (Code::SveLsrZpzi, Mnemonic::Urshr, right_shift_amount(tsz, imm3)),
-                _ => (Code::SveLslZpzi, Mnemonic::Sqshlu, left_shift_amount(tsz, imm3)),
+                0b00110 => (
+                    Code::SveLslZpzi,
+                    Mnemonic::Sqshl,
+                    left_shift_amount(tsz, imm3),
+                ),
+                0b00111 => (
+                    Code::SveLslZpzi,
+                    Mnemonic::Uqshl,
+                    left_shift_amount(tsz, imm3),
+                ),
+                0b01100 => (
+                    Code::SveAsrZpzi,
+                    Mnemonic::Srshr,
+                    right_shift_amount(tsz, imm3),
+                ),
+                0b01101 => (
+                    Code::SveLsrZpzi,
+                    Mnemonic::Urshr,
+                    right_shift_amount(tsz, imm3),
+                ),
+                _ => (
+                    Code::SveLslZpzi,
+                    Mnemonic::Sqshlu,
+                    left_shift_amount(tsz, imm3),
+                ),
             };
             let Some((a, amt)) = sh else { return };
             out.set(code);
@@ -3769,7 +4335,14 @@ fn decode_unary_pred(word: u32, out: &mut Instruction) {
     };
     out.set(code);
     out.push_operand(zreg(zd, a));
-    out.push_operand(preg_q(pg, if merging { PredQual::Merging } else { PredQual::Zeroing }));
+    out.push_operand(preg_q(
+        pg,
+        if merging {
+            PredQual::Merging
+        } else {
+            PredQual::Zeroing
+        },
+    ));
     out.push_operand(zreg(zn, a));
 }
 
@@ -3808,7 +4381,12 @@ mod tests {
         let got = insn
             .encode()
             .unwrap_or_else(|e| panic!("encode of {word:#010x} ({:?}) failed: {e:?}", insn.code()));
-        assert_eq!(got, word, "round-trip mismatch for {word:#010x} (code={:?})", insn.code());
+        assert_eq!(
+            got,
+            word,
+            "round-trip mismatch for {word:#010x} (code={:?})",
+            insn.code()
+        );
     }
 
     #[test]
@@ -3865,7 +4443,14 @@ mod tests {
             rt(w);
         }
         // Illegal extend element sizes are unallocated (LLVM-Invalid), not decoded.
-        let inv = [0x0410A09F_u32, 0x0411A0E9, 0x0412A03E, 0x0413A01A, 0x0414A1D7, 0x0415A044];
+        let inv = [
+            0x0410A09F_u32,
+            0x0411A0E9,
+            0x0412A03E,
+            0x0413A01A,
+            0x0414A1D7,
+            0x0415A044,
+        ];
         for w in inv {
             let b = w.to_le_bytes();
             let mut d = Decoder::new(&b, 0x1000, DecoderOptions::default());

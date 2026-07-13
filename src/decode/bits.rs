@@ -130,7 +130,13 @@ pub struct BitMasks {
 /// separately from `wmask`; fARM64 honours that. Do not collapse to
 /// `tmask == wmask`.
 #[inline]
-pub fn decode_bit_masks(imm_n: u32, imms: u32, immr: u32, immediate: bool, m: u32) -> Option<BitMasks> {
+pub fn decode_bit_masks(
+    imm_n: u32,
+    imms: u32,
+    immr: u32,
+    immediate: bool,
+    m: u32,
+) -> Option<BitMasks> {
     // Only the low 6 bits of imms/immr and the single bit immN are meaningful.
     let imms = imms & 0x3f;
     let immr = immr & 0x3f;
@@ -159,7 +165,7 @@ pub fn decode_bit_masks(imm_n: u32, imms: u32, immr: u32, immediate: bool, m: u3
     let diff = s.wrapping_sub(r); // len-bit subtraction (we mask below)
 
     let esize = 1u32 << len; // 1 << len, in range 2..=64.
-    // d = UInt(diff<len-1:0>).
+                             // d = UInt(diff<len-1:0>).
     let d = bits64(diff, 0, len);
 
     // welem = ZeroExtend(Ones(S+1), esize); telem = ZeroExtend(Ones(d+1), esize).
@@ -357,7 +363,7 @@ const fn fp_imm16(imm8: u64) -> u64 {
     let not_b6 = b6 ^ 1;
     let exp = (not_b6 << 2) | (replicate(b6, 1, 2) & 0x3); // 3-bit exponent (NOT(b6):b6:b6)
     let frac = imm8 & 0x3f; // imm8<5:0>
-    // sign@15, exp(3 bits)@[14:12], imm8<5:0>@[11:6], Zeros(6)@[5:0].
+                            // sign@15, exp(3 bits)@[14:12], imm8<5:0>@[11:6], Zeros(6)@[5:0].
     (sign << 15) | (exp << 12) | (frac << 6)
 }
 

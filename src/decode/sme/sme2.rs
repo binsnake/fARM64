@@ -36,7 +36,7 @@ use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::Code;
 use crate::operand::{Operand, SliceIndicator, SveMemMode};
-use crate::register::{gp_register, sve_register, Register, RegWidth};
+use crate::register::{gp_register, sve_register, RegWidth, Register};
 
 /// Operand-shape of an SME2 multiply / outer-product form: how the source
 /// operands after the `za` destination are laid out.
@@ -393,7 +393,14 @@ fn decode_mvs_alu(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
         if sub != 0 || b0 != 0 {
             return false;
         }
-        (if vg == 2 { Code::SmeSqdmulhMVS2 } else { Code::SmeSqdmulhMVS4 }, Pol::Int)
+        (
+            if vg == 2 {
+                Code::SmeSqdmulhMVS2
+            } else {
+                Code::SmeSqdmulhMVS4
+            },
+            Pol::Int,
+        )
     } else {
         match sub {
             0 => (
@@ -437,7 +444,14 @@ fn decode_mvs_alu(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
                 if b0 != 0 {
                     return false;
                 }
-                (if vg == 2 { Code::SmeFscaleMVS2 } else { Code::SmeFscaleMVS4 }, Pol::Fp)
+                (
+                    if vg == 2 {
+                        Code::SmeFscaleMVS2
+                    } else {
+                        Code::SmeFscaleMVS4
+                    },
+                    Pol::Fp,
+                )
             }
             17 => (
                 match (b0, vg) {
@@ -453,7 +467,14 @@ fn decode_mvs_alu(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
                 if b0 != 0 {
                     return false;
                 }
-                (if vg == 2 { Code::SmeAddMVS2 } else { Code::SmeAddMVS4 }, Pol::Int)
+                (
+                    if vg == 2 {
+                        Code::SmeAddMVS2
+                    } else {
+                        Code::SmeAddMVS4
+                    },
+                    Pol::Int,
+                )
             }
             _ => return false,
         }
@@ -545,7 +566,11 @@ fn decode_mvm_alu(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
     } else {
         // vgx4: Zdn = word<4:2>*4 (word<1> RES0), Zm = word<20:18>*4
         // (word<17:16> RES0).
-        (bits(word, 2, 3) * 4, bits(word, 18, 3) * 4, bit(word, 1) | bits(word, 16, 2))
+        (
+            bits(word, 2, 3) * 4,
+            bits(word, 18, 3) * 4,
+            bit(word, 1) | bits(word, 16, 2),
+        )
     };
     let table = bit(word, 10);
     let sub = bits(word, 5, 5);
@@ -568,7 +593,14 @@ fn decode_mvm_alu(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
         if sub != 0 || b0 != 0 {
             return false;
         }
-        (if vg == 2 { Code::SmeSqdmulhMV2 } else { Code::SmeSqdmulhMV4 }, Pol::Int)
+        (
+            if vg == 2 {
+                Code::SmeSqdmulhMV2
+            } else {
+                Code::SmeSqdmulhMV4
+            },
+            Pol::Int,
+        )
     } else {
         match sub {
             0 => (
@@ -622,7 +654,14 @@ fn decode_mvm_alu(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
                 if b0 != 0 {
                     return false;
                 }
-                (if vg == 2 { Code::SmeFscaleMVMV2 } else { Code::SmeFscaleMVMV4 }, Pol::Fp)
+                (
+                    if vg == 2 {
+                        Code::SmeFscaleMVMV2
+                    } else {
+                        Code::SmeFscaleMVMV4
+                    },
+                    Pol::Fp,
+                )
             }
             17 => (
                 match (b0, vg) {
@@ -711,7 +750,11 @@ fn decode_unpk(word: u32, out: &mut Instruction) -> bool {
         _ => return false,
     };
     let unsigned = bit(word, 0) == 1;
-    let code = if unsigned { Code::SmeUunpk } else { Code::SmeSunpk };
+    let code = if unsigned {
+        Code::SmeUunpk
+    } else {
+        Code::SmeSunpk
+    };
     if bit(word, 20) == 0 {
         // vgx2: 2-register destination group, single source.
         let zd = bits(word, 1, 4) * 2;
@@ -789,7 +832,11 @@ fn decode_fp_cvt(word: u32, features: FeatureSet, out: &mut Instruction) -> bool
             }
             let zd = bits(word, 1, 4) * 2;
             let zn = bits(word, 5, 5);
-            let code = if bit(word, 0) == 0 { Code::SmeFcvtWiden } else { Code::SmeFcvtlWiden };
+            let code = if bit(word, 0) == 0 {
+                Code::SmeFcvtWiden
+            } else {
+                Code::SmeFcvtlWiden
+            };
             out.set(code);
             out.push_operand(zgroup(zd, 2, VA::Ss));
             out.push_operand(zsrc(zn, VA::Sh));
@@ -837,7 +884,11 @@ fn decode_fp_cvt2(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
                 return true;
             }
             let zn = bits(word, 6, 4) * 2;
-            out.set(if op == 0x24 { Code::SmeFcvtNarrowFp8 } else { Code::SmeBfcvtNarrowFp8 });
+            out.set(if op == 0x24 {
+                Code::SmeFcvtNarrowFp8
+            } else {
+                Code::SmeBfcvtNarrowFp8
+            });
             out.push_operand(zsrc(zd, VA::Sb));
             out.push_operand(zgroup(zn, 2, VA::Sh));
             return true;
@@ -852,7 +903,11 @@ fn decode_fp_cvt2(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
                 return true;
             }
             let zn = bits(word, 7, 3) * 4;
-            out.set(if bit(word, 5) == 0 { Code::SmeFcvtNarrowFp8 } else { Code::SmeFcvtnNarrowFp8 });
+            out.set(if bit(word, 5) == 0 {
+                Code::SmeFcvtNarrowFp8
+            } else {
+                Code::SmeFcvtnNarrowFp8
+            });
             out.push_operand(zsrc(zd, VA::Sb));
             out.push_operand(zgroup(zn, 4, VA::Ss));
             return true;
@@ -908,8 +963,10 @@ fn decode_fp_cvt2(word: u32, features: FeatureSet, out: &mut Instruction) -> boo
         _ => return false,
     };
     // For frint, word<5> is RES0; for scvtf/cvt-int it is the signed selector.
-    if matches!(code, Code::SmeFrintn | Code::SmeFrintp | Code::SmeFrintm | Code::SmeFrinta)
-        && usel != 0
+    if matches!(
+        code,
+        Code::SmeFrintn | Code::SmeFrintp | Code::SmeFrintm | Code::SmeFrinta
+    ) && usel != 0
     {
         return false;
     }
@@ -1066,7 +1123,11 @@ fn decode_luti6(word: u32, features: FeatureSet, out: &mut Instruction) -> bool 
     let index = bit(word, 22) as u8;
     let zn = bits(word, 5, 5);
     let table = bits(word, 16, 5);
-    out.set(if strided { Code::SmeLuti6 } else { Code::SmeLuti6Consec });
+    out.set(if strided {
+        Code::SmeLuti6
+    } else {
+        Code::SmeLuti6Consec
+    });
     out.push_operand(dest);
     // Source: 2-register consecutive group, `.h`.
     out.push_operand(zgroup(zn, 2, VA::Sh));
@@ -1285,7 +1346,11 @@ pub fn alu_arrangement(f: &AluForm, word: u32) -> Option<VA> {
         },
         AluArr::BfH => Some(VA::Sh),
         AluArr::Zip2 | AluArr::Zip4 => {
-            let qbit = if f.arr == AluArr::Zip2 { bit(word, 10) } else { bit(word, 16) };
+            let qbit = if f.arr == AluArr::Zip2 {
+                bit(word, 10)
+            } else {
+                bit(word, 16)
+            };
             if qbit == 1 {
                 if size == 0 {
                     Some(VA::Sq)
@@ -1508,7 +1573,11 @@ pub fn decode_mem(word: u32, out: &mut Instruction) {
         // vgx2 packs the base in bits<4:1> (stride 2), vgx4 in bits<4:2> (stride
         // 4); bit<0> is the nontemporal flag. vgx4 leaves bit<1> reserved (must be
         // zero); reject a stray set bit so the accepted set matches LLVM exactly.
-        let (zt_mask, lo_reserved) = if count == 4 { (0x1cu32, 0x2u32) } else { (0x1eu32, 0x0u32) };
+        let (zt_mask, lo_reserved) = if count == 4 {
+            (0x1cu32, 0x2u32)
+        } else {
+            (0x1eu32, 0x0u32)
+        };
         if word & lo_reserved != 0 {
             return;
         }
@@ -1965,7 +2034,12 @@ mod tests {
         let got = insn
             .encode()
             .unwrap_or_else(|e| panic!("encode of {word:#010x} ({:?}) failed: {e:?}", insn.code()));
-        assert_eq!(got, word, "round-trip mismatch for {word:#010x} (code={:?})", insn.code());
+        assert_eq!(
+            got,
+            word,
+            "round-trip mismatch for {word:#010x} (code={:?})",
+            insn.code()
+        );
     }
 
     #[test]
@@ -1973,8 +2047,14 @@ mod tests {
         // Single (indexed / non-indexed), vgx2, vgx4 — `.b` sources into za.s.
         check(0xC1000000, "smlall  za.s[w8, 0:3], z0.b, z0.b[0]");
         check(0xC1200400, "smlall  za.s[w8, 0:3], z0.b, z0.b");
-        check(0xC1100000, "smlall  za.s[w8, 0:3, vgx2], { z0.b, z1.b }, z0.b[0]");
-        check(0xC1108000, "smlall  za.s[w8, 0:3, vgx4], { z0.b - z3.b }, z0.b[0]");
+        check(
+            0xC1100000,
+            "smlall  za.s[w8, 0:3, vgx2], { z0.b, z1.b }, z0.b[0]",
+        );
+        check(
+            0xC1108000,
+            "smlall  za.s[w8, 0:3, vgx4], { z0.b - z3.b }, z0.b[0]",
+        );
         // The i16i64 `.h` → za.d long-long form.
         check(0xC1800000, "smlall  za.d[w8, 0:3], z0.h, z0.h[0]");
     }
@@ -1985,16 +2065,34 @@ mod tests {
         check(0xC1801000, "fmlal   za.s[w8, 0:1], z0.h, z0.h[0]");
         check(0xC1400000, "fmlall  za.s[w8, 0:3], z0.b, z0.b[0]");
         // FP8 `.b` → za.h widening FMLAL.
-        check(0xC1200804, "fmlal   za.h[w8, 0:1, vgx2], { z0.b, z1.b }, z0.b");
+        check(
+            0xC1200804,
+            "fmlal   za.h[w8, 0:1, vgx2], { z0.b, z1.b }, z0.b",
+        );
     }
 
     #[test]
     fn fmla_into_za() {
-        check(0xC1A01008, "fmla    za.h[w8, 0, vgx2], { z0.h, z1.h }, { z0.h, z1.h }");
-        check(0xC1A11800, "fmla    za.s[w8, 0, vgx4], { z0.s - z3.s }, { z0.s - z3.s }");
-        check(0xC1201C00, "fmla    za.h[w8, 0, vgx2], { z0.h, z1.h }, z0.h");
-        check(0xC1101000, "fmla    za.h[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]");
-        check(0xC1D00000, "fmla    za.d[w8, 0, vgx2], { z0.d, z1.d }, z0.d[0]");
+        check(
+            0xC1A01008,
+            "fmla    za.h[w8, 0, vgx2], { z0.h, z1.h }, { z0.h, z1.h }",
+        );
+        check(
+            0xC1A11800,
+            "fmla    za.s[w8, 0, vgx4], { z0.s - z3.s }, { z0.s - z3.s }",
+        );
+        check(
+            0xC1201C00,
+            "fmla    za.h[w8, 0, vgx2], { z0.h, z1.h }, z0.h",
+        );
+        check(
+            0xC1101000,
+            "fmla    za.h[w8, 0, vgx2], { z0.h, z1.h }, z0.h[0]",
+        );
+        check(
+            0xC1D00000,
+            "fmla    za.d[w8, 0, vgx2], { z0.d, z1.d }, z0.d[0]",
+        );
     }
 
     #[test]
@@ -2009,9 +2107,26 @@ mod tests {
     #[test]
     fn round_trip_representatives() {
         for &w in &[
-            0xC1000000u32, 0xC1200400, 0xC1100000, 0xC1108000, 0xC1800000, 0xC1C01000, 0xC1801000,
-            0xC1400000, 0xC1200804, 0xC1A01008, 0xC1A11800, 0xC1201C00, 0xC1101000, 0xC1D00000,
-            0x80400000, 0x80408000, 0x81400008, 0x81608000, 0x80608000, 0x81408008,
+            0xC1000000u32,
+            0xC1200400,
+            0xC1100000,
+            0xC1108000,
+            0xC1800000,
+            0xC1C01000,
+            0xC1801000,
+            0xC1400000,
+            0xC1200804,
+            0xC1A01008,
+            0xC1A11800,
+            0xC1201C00,
+            0xC1101000,
+            0xC1D00000,
+            0x80400000,
+            0x80408000,
+            0x81400008,
+            0x81608000,
+            0x80608000,
+            0x81408008,
         ] {
             rt(w);
         }
@@ -2020,45 +2135,96 @@ mod tests {
     #[test]
     fn za_dot_add_sub_render() {
         // GAP example words render exactly as LLVM 21 (mnemonic padded to 8).
-        check(0xc12015d2, "udot    za.s[w8, 2, vgx2], { z14.b, z15.b }, z0.b");
-        check(0xc1203560, "sdot    za.s[w9, 0, vgx2], { z11.b, z12.b }, z0.b");
-        check(0xc1201429, "usdot   za.s[w8, 1, vgx2], { z1.b, z2.b }, z0.b");
-        check(0xc120163d, "sudot   za.s[w8, 5, vgx2], { z17.b, z18.b }, z0.b");
-        check(0xc150020c, "fvdot   za.s[w8, 4, vgx2], { z16.h, z17.h }, z0.h[0]");
-        check(0xc1500976, "uvdot   za.s[w8, 6, vgx2], { z10.h, z11.h }, z0.h[2]");
-        check(0xc15006a7, "svdot   za.s[w8, 7, vgx2], { z20.h, z21.h }, z0.h[1]");
-        check(0xc150051c, "bfvdot  za.s[w8, 4, vgx2], { z8.h, z9.h }, z0.h[1]");
-        check(0xc1508839, "suvdot  za.s[w8, 1, vgx4], { z0.b - z3.b }, z0.b[2]");
-        check(0xc1508128, "usvdot  za.s[w8, 0, vgx4], { z8.b - z11.b }, z0.b[0]");
-        check(0xc1203976, "add     za.s[w9, 6, vgx2], { z11.s, z12.s }, z0.s");
-        check(0xc1201898, "sub     za.s[w8, 0, vgx2], { z4.s, z5.s }, z0.s");
-        check(0xc110bc46, "fdot    za.h[w9, 6, vgx4], { z0.b - z3.b }, z0.b[6]");
-        check(0xc1201094, "bfdot   za.s[w8, 4, vgx2], { z4.h, z5.h }, z0.h");
-        check(0xc1d00e86, "fvdotb  za.s[w8, 6, vgx4], { z20.b, z21.b }, z0.b[2]");
-        check(0xc1d00f5f, "fvdott  za.s[w8, 7, vgx4], { z26.b, z27.b }, z0.b[3]");
+        check(
+            0xc12015d2,
+            "udot    za.s[w8, 2, vgx2], { z14.b, z15.b }, z0.b",
+        );
+        check(
+            0xc1203560,
+            "sdot    za.s[w9, 0, vgx2], { z11.b, z12.b }, z0.b",
+        );
+        check(
+            0xc1201429,
+            "usdot   za.s[w8, 1, vgx2], { z1.b, z2.b }, z0.b",
+        );
+        check(
+            0xc120163d,
+            "sudot   za.s[w8, 5, vgx2], { z17.b, z18.b }, z0.b",
+        );
+        check(
+            0xc150020c,
+            "fvdot   za.s[w8, 4, vgx2], { z16.h, z17.h }, z0.h[0]",
+        );
+        check(
+            0xc1500976,
+            "uvdot   za.s[w8, 6, vgx2], { z10.h, z11.h }, z0.h[2]",
+        );
+        check(
+            0xc15006a7,
+            "svdot   za.s[w8, 7, vgx2], { z20.h, z21.h }, z0.h[1]",
+        );
+        check(
+            0xc150051c,
+            "bfvdot  za.s[w8, 4, vgx2], { z8.h, z9.h }, z0.h[1]",
+        );
+        check(
+            0xc1508839,
+            "suvdot  za.s[w8, 1, vgx4], { z0.b - z3.b }, z0.b[2]",
+        );
+        check(
+            0xc1508128,
+            "usvdot  za.s[w8, 0, vgx4], { z8.b - z11.b }, z0.b[0]",
+        );
+        check(
+            0xc1203976,
+            "add     za.s[w9, 6, vgx2], { z11.s, z12.s }, z0.s",
+        );
+        check(
+            0xc1201898,
+            "sub     za.s[w8, 0, vgx2], { z4.s, z5.s }, z0.s",
+        );
+        check(
+            0xc110bc46,
+            "fdot    za.h[w9, 6, vgx4], { z0.b - z3.b }, z0.b[6]",
+        );
+        check(
+            0xc1201094,
+            "bfdot   za.s[w8, 4, vgx2], { z4.h, z5.h }, z0.h",
+        );
+        check(
+            0xc1d00e86,
+            "fvdotb  za.s[w8, 6, vgx4], { z20.b, z21.b }, z0.b[2]",
+        );
+        check(
+            0xc1d00f5f,
+            "fvdott  za.s[w8, 7, vgx4], { z26.b, z27.b }, z0.b[3]",
+        );
     }
 
     #[test]
     fn za_dot_add_sub_round_trip() {
         // Every canonical form + every GAP example must round-trip exactly.
         for &w in &[
-            0xc1a01030, 0xc1500038, 0xc1201018, 0xc1a11030, 0xc1508008, 0xc1301018, 0xc1d01020, 0xc1508020, 0xc1508030,
-            0xc12015d2, 0xc1203560, 0xc1201429, 0xc120163d, 0xc150020c, 0xc1500976, 0xc15006a7, 0xc150051c,
-            0xc1508839, 0xc1508128, 0xc1203976, 0xc1201898, 0xc110bc46, 0xc1201094, 0xc1d00e86, 0xc1d00f5f,
-            0xc1e01810, 0xc1e01c10, 0xc1601810, 0xc1e11810, 0xc1e11c10, 0xc1701810, 0xc1a01810, 0xc1a01c10,
-            0xc1201810, 0xc1a11810, 0xc1a11c10, 0xc1301810, 0xc1a01010, 0xc1501018, 0xc1201010, 0xc1a11010,
-            0xc1509018, 0xc1301010, 0xc1500018, 0xc1e01c00, 0xc1e11c00, 0xc1a41c00, 0xc1a51c00, 0xc1a01c00,
-            0xc1a11c00, 0xc1a01020, 0xc1d00020, 0xc1201008, 0xc1a11020, 0xc1109040, 0xc1301008, 0xc1a01000,
-            0xc1501008, 0xc1201000, 0xc1a11000, 0xc1509008, 0xc1301000, 0xc1e01c08, 0xc1e11c08, 0xc1a41c08,
-            0xc1a51c08, 0xc1a01c08, 0xc1a11c08, 0xc1500008, 0xc1d00800, 0xc1d00810, 0xc1e01400, 0xc1d00008,
-            0xc1601400, 0xc1e11400, 0xc1d08008, 0xc1701400, 0xc1a01400, 0xc1501020, 0xc1201400, 0xc1a11400,
-            0xc1509020, 0xc1301400, 0xc1e01408, 0xc1501000, 0xc1601408, 0xc1e11408, 0xc1509000, 0xc1701408,
-            0xc1e01818, 0xc1e01c18, 0xc1601818, 0xc1e11818, 0xc1e11c18, 0xc1701818, 0xc1a01818, 0xc1a01c18,
-            0xc1201818, 0xc1a11818, 0xc1a11c18, 0xc1301818, 0xc1501038, 0xc1201418, 0xc1509038, 0xc1301418,
-            0xc1508038, 0xc1d08808, 0xc1500020, 0xc1e01410, 0xc1d00018, 0xc1601410, 0xc1e11410, 0xc1d08018,
-            0xc1701410, 0xc1a01410, 0xc1501030, 0xc1201410, 0xc1a11410, 0xc1509030, 0xc1301410, 0xc1e01418,
-            0xc1501010, 0xc1601418, 0xc1e11418, 0xc1509010, 0xc1701418, 0xc1a01408, 0xc1501028, 0xc1201408,
-            0xc1a11408, 0xc1509028, 0xc1301408, 0xc1508028, 0xc1d08818, 0xc1500030,
+            0xc1a01030, 0xc1500038, 0xc1201018, 0xc1a11030, 0xc1508008, 0xc1301018, 0xc1d01020,
+            0xc1508020, 0xc1508030, 0xc12015d2, 0xc1203560, 0xc1201429, 0xc120163d, 0xc150020c,
+            0xc1500976, 0xc15006a7, 0xc150051c, 0xc1508839, 0xc1508128, 0xc1203976, 0xc1201898,
+            0xc110bc46, 0xc1201094, 0xc1d00e86, 0xc1d00f5f, 0xc1e01810, 0xc1e01c10, 0xc1601810,
+            0xc1e11810, 0xc1e11c10, 0xc1701810, 0xc1a01810, 0xc1a01c10, 0xc1201810, 0xc1a11810,
+            0xc1a11c10, 0xc1301810, 0xc1a01010, 0xc1501018, 0xc1201010, 0xc1a11010, 0xc1509018,
+            0xc1301010, 0xc1500018, 0xc1e01c00, 0xc1e11c00, 0xc1a41c00, 0xc1a51c00, 0xc1a01c00,
+            0xc1a11c00, 0xc1a01020, 0xc1d00020, 0xc1201008, 0xc1a11020, 0xc1109040, 0xc1301008,
+            0xc1a01000, 0xc1501008, 0xc1201000, 0xc1a11000, 0xc1509008, 0xc1301000, 0xc1e01c08,
+            0xc1e11c08, 0xc1a41c08, 0xc1a51c08, 0xc1a01c08, 0xc1a11c08, 0xc1500008, 0xc1d00800,
+            0xc1d00810, 0xc1e01400, 0xc1d00008, 0xc1601400, 0xc1e11400, 0xc1d08008, 0xc1701400,
+            0xc1a01400, 0xc1501020, 0xc1201400, 0xc1a11400, 0xc1509020, 0xc1301400, 0xc1e01408,
+            0xc1501000, 0xc1601408, 0xc1e11408, 0xc1509000, 0xc1701408, 0xc1e01818, 0xc1e01c18,
+            0xc1601818, 0xc1e11818, 0xc1e11c18, 0xc1701818, 0xc1a01818, 0xc1a01c18, 0xc1201818,
+            0xc1a11818, 0xc1a11c18, 0xc1301818, 0xc1501038, 0xc1201418, 0xc1509038, 0xc1301418,
+            0xc1508038, 0xc1d08808, 0xc1500020, 0xc1e01410, 0xc1d00018, 0xc1601410, 0xc1e11410,
+            0xc1d08018, 0xc1701410, 0xc1a01410, 0xc1501030, 0xc1201410, 0xc1a11410, 0xc1509030,
+            0xc1301410, 0xc1e01418, 0xc1501010, 0xc1601418, 0xc1e11418, 0xc1509010, 0xc1701418,
+            0xc1a01408, 0xc1501028, 0xc1201408, 0xc1a11408, 0xc1509028, 0xc1301408, 0xc1508028,
+            0xc1d08818, 0xc1500030,
         ] {
             rt(w);
         }
@@ -2067,7 +2233,9 @@ mod tests {
     #[test]
     fn feature_gate_off_leaves_invalid() {
         // With FEAT_SME2 not accepted, the multi-vector forms must not decode.
-        let opts = DecoderOptions { features: FeatureSet::BASE };
+        let opts = DecoderOptions {
+            features: FeatureSet::BASE,
+        };
         let bytes = 0xC1000000u32.to_le_bytes();
         let mut dec = Decoder::new(&bytes, 0x1000, opts);
         assert!(dec.decode().is_invalid());

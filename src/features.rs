@@ -7,12 +7,10 @@
 //! the ARM ARM treats those two questions independently. This is a runtime
 //! accept/reject layer that is independent of the cargo compile-out features.
 
-/// A single architecture extension identity, for per-encoding gating and
-/// [`crate::DecodeError::FeatureRequired`].
+/// A single architecture extension identity for per-encoding runtime gating.
 ///
-/// One bit position per `FEAT_*` extension. Used by [`crate::Code::feature`]
-/// and [`FeatureSet`]. The spine below is representative; the full set is
-/// completed by codegen.
+/// One bit position per supported `FEAT_*` extension. Used by
+/// [`crate::Code::feature`] and [`FeatureSet`].
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -209,14 +207,17 @@ pub enum Feature {
     /// (`LDX`/`STX`/`LDZ`/`FMA64`/`MAC16`/`VECINT`/`MATFP`/`GENLUT`/...). This is
     /// **not** an Arm architectural extension and is not decoded by LLVM; the
     /// encodings are reverse-engineered (corsix/amx). M4 and later replaced it
-    /// with the Arm-standard SME, which is covered by [`Feature::Sme`].
+    /// with the Arm-standard SME, which is covered by [`Feature::Sme`]. See
+    /// <https://github.com/corsix/amx>.
     AppleAmx,
     /// Apple Guarded Execution Feature (GXF; IMPLEMENTATION DEFINED). The
     /// `GENTER`/`GEXIT` instructions that enter/exit Apple's lateral "guarded"
     /// exception levels (`0x00201400` cluster). Not an Arm extension and not
-    /// decoded by LLVM; reverse-engineered from Apple-silicon research.
+    /// decoded by LLVM; reverse-engineered from Apple-silicon research. See the
+    /// <https://asahilinux.org/docs/hw/cpu/apple-instructions/> encoding notes
+    /// and <https://blog.svenpeter.dev/posts/m1_sprr_gxf/> for GXF background.
     Gxf,
-    // codegen/expand: the remaining ARCH_FEATURE_* extensions.
+    // Append newly supported architecture-extension identities here.
 }
 
 /// The set of architecture extensions the decoder should *accept*.
@@ -285,8 +286,9 @@ impl FeatureSet {
 }
 
 impl Default for FeatureSet {
-    /// The default accepts everything ([`FeatureSet::ALL`]), so a decoder
-    /// constructed with [`Default`] decodes every encoding out of the box.
+    /// The default enables every runtime feature bit ([`FeatureSet::ALL`]).
+    /// Cargo features still determine which optional decoder modules are
+    /// compiled, and unimplemented or unallocated encodings remain invalid.
     #[inline]
     fn default() -> Self {
         FeatureSet::ALL

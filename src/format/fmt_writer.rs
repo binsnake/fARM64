@@ -156,7 +156,12 @@ impl Formatter for FmtFormatter {
         // the alias-resolved spelling when alias resolution was enabled at decode
         // time, so honouring `opts.aliases` here is a no-op beyond name selection.
         let name = insn.mnemonic().name();
-        self.emit_cased(name, self.opts.uppercase_mnemonics, TokenKind::Mnemonic, out);
+        self.emit_cased(
+            name,
+            self.opts.uppercase_mnemonics,
+            TokenKind::Mnemonic,
+            out,
+        );
 
         // `B.<cond>` renders the condition as a `.cond` suffix fused onto the `b`
         // mnemonic (`b.ne`), matching the corpus. The condition is carried as
@@ -207,7 +212,12 @@ impl Formatter for FmtFormatter {
                     let full = lane.is_none();
                     let suf = a.suffix(full);
                     if !suf.is_empty() {
-                        self.emit_cased(suf, self.opts.uppercase_registers, TokenKind::Register, out);
+                        self.emit_cased(
+                            suf,
+                            self.opts.uppercase_registers,
+                            TokenKind::Register,
+                            out,
+                        );
                     }
                 }
                 // Lane index (`[2]`).
@@ -271,7 +281,12 @@ impl Formatter for FmtFormatter {
             }
 
             Operand::Cond(c) => {
-                self.emit_cased(c.name(), self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+                self.emit_cased(
+                    c.name(),
+                    self.opts.uppercase_mnemonics,
+                    TokenKind::Decorator,
+                    out,
+                );
             }
 
             Operand::SysReg(sr) => {
@@ -281,7 +296,12 @@ impl Formatter for FmtFormatter {
             Operand::SysOp(tok) => {
                 // A fixed system keyword (barrier option, PSTATE field, `csync`,
                 // `cN`, BTI target, or an IC/DC/AT/TLBI/CFP/CPP/DVP op name).
-                self.emit_cased(tok.name(), self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+                self.emit_cased(
+                    tok.name(),
+                    self.opts.uppercase_mnemonics,
+                    TokenKind::Decorator,
+                    out,
+                );
             }
 
             Operand::MemImm { base, imm, mode } => {
@@ -318,7 +338,12 @@ impl Formatter for FmtFormatter {
                 if let Some(a) = arr {
                     let suf = a.suffix(true);
                     if !suf.is_empty() {
-                        self.emit_cased(suf, self.opts.uppercase_registers, TokenKind::Register, out);
+                        self.emit_cased(
+                            suf,
+                            self.opts.uppercase_registers,
+                            TokenKind::Register,
+                            out,
+                        );
                     }
                 }
                 out.write("[", TokenKind::BeginMemory);
@@ -369,7 +394,12 @@ impl Formatter for FmtFormatter {
 
             Operand::SveMul(imm) => {
                 // The trailing `MUL #<imm>` multiplier of INC/DEC/CNT forms.
-                self.emit_cased("mul", self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+                self.emit_cased(
+                    "mul",
+                    self.opts.uppercase_mnemonics,
+                    TokenKind::Decorator,
+                    out,
+                );
                 out.write(" ", TokenKind::Decorator);
                 out.write("#", TokenKind::Number);
                 self.emit_hex(imm as u64, out);
@@ -452,12 +482,22 @@ impl Formatter for FmtFormatter {
                 }
             }
 
-            Operand::PredCounter { reg, zeroing, arr, index } => {
+            Operand::PredCounter {
+                reg,
+                zeroing,
+                arr,
+                index,
+            } => {
                 self.emit_pred_counter(reg, zeroing, arr, index, out);
             }
 
             Operand::VlMul(n) => {
-                self.emit_cased("vlx", self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+                self.emit_cased(
+                    "vlx",
+                    self.opts.uppercase_mnemonics,
+                    TokenKind::Decorator,
+                    out,
+                );
                 self.emit_dec_kind(n as u64, TokenKind::Decorator, out);
             }
 
@@ -509,7 +549,12 @@ impl FmtFormatter {
     #[inline]
     fn emit_register(&self, reg: Register, out: &mut dyn FormatterOutput) {
         let reg = self.sp_zr_remap(reg);
-        self.emit_cased(reg.name(), self.opts.uppercase_registers, TokenKind::Register, out);
+        self.emit_cased(
+            reg.name(),
+            self.opts.uppercase_registers,
+            TokenKind::Register,
+            out,
+        );
     }
 
     /// Apply [`FormatterOptions::use_sp_not_xzr`]. The decoder already resolves
@@ -547,7 +592,12 @@ impl FmtFormatter {
             return;
         }
         self.write_raw_separator(out);
-        self.emit_cased(name, self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+        self.emit_cased(
+            name,
+            self.opts.uppercase_mnemonics,
+            TokenKind::Decorator,
+            out,
+        );
         out.write(" ", TokenKind::Decorator);
         out.write("#", TokenKind::Number);
         self.emit_hex(amt as u64, out);
@@ -555,9 +605,19 @@ impl FmtFormatter {
 
     /// Emit a register-extension modifier (`, uxtw`, `, sxtx #2`). The shift
     /// amount is shown only when present and non-zero (UAL elides `#0`).
-    fn emit_extend(&self, e: crate::enums::ExtendType, amt: Option<u8>, out: &mut dyn FormatterOutput) {
+    fn emit_extend(
+        &self,
+        e: crate::enums::ExtendType,
+        amt: Option<u8>,
+        out: &mut dyn FormatterOutput,
+    ) {
         self.write_raw_separator(out);
-        self.emit_cased(e.name(), self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+        self.emit_cased(
+            e.name(),
+            self.opts.uppercase_mnemonics,
+            TokenKind::Decorator,
+            out,
+        );
         match amt {
             Some(a) if a != 0 || self.opts.show_lsl_zero => {
                 out.write(" ", TokenKind::Decorator);
@@ -653,7 +713,12 @@ impl FmtFormatter {
             } else {
                 extend.name()
             };
-            self.emit_cased(name, self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+            self.emit_cased(
+                name,
+                self.opts.uppercase_mnemonics,
+                TokenKind::Decorator,
+                out,
+            );
             if show_amt || self.opts.show_lsl_zero {
                 out.write(" ", TokenKind::Decorator);
                 out.write("#", TokenKind::Number);
@@ -710,7 +775,12 @@ impl FmtFormatter {
                     self.write_raw_separator(out);
                     self.emit_sve_signed_dec(imm as i64, out);
                     self.write_raw_separator(out);
-                    self.emit_cased("mul vl", self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+                    self.emit_cased(
+                        "mul vl",
+                        self.opts.uppercase_mnemonics,
+                        TokenKind::Decorator,
+                        out,
+                    );
                 }
             }
             SveMemMode::ScalarImmDec => {
@@ -738,7 +808,12 @@ impl FmtFormatter {
                 if let Some(a) = arr {
                     let suf = a.suffix(true);
                     if !suf.is_empty() {
-                        self.emit_cased(suf, self.opts.uppercase_registers, TokenKind::Register, out);
+                        self.emit_cased(
+                            suf,
+                            self.opts.uppercase_registers,
+                            TokenKind::Register,
+                            out,
+                        );
                     }
                 }
                 // Modifier: `uxtx` renders as `lsl`. The `#amt` is shown unless
@@ -753,7 +828,12 @@ impl FmtFormatter {
                     } else {
                         extend.name()
                     };
-                    self.emit_cased(name, self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+                    self.emit_cased(
+                        name,
+                        self.opts.uppercase_mnemonics,
+                        TokenKind::Decorator,
+                        out,
+                    );
                     if show_amt {
                         out.write(" ", TokenKind::Decorator);
                         out.write("#", TokenKind::Number);
@@ -771,7 +851,12 @@ impl FmtFormatter {
                 if let Some(a) = arr {
                     let suf = a.suffix(true);
                     if !suf.is_empty() {
-                        self.emit_cased(suf, self.opts.uppercase_registers, TokenKind::Register, out);
+                        self.emit_cased(
+                            suf,
+                            self.opts.uppercase_registers,
+                            TokenKind::Register,
+                            out,
+                        );
                     }
                 }
                 if amount != 0 {
@@ -782,7 +867,12 @@ impl FmtFormatter {
                     } else {
                         extend.name()
                     };
-                    self.emit_cased(name, self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+                    self.emit_cased(
+                        name,
+                        self.opts.uppercase_mnemonics,
+                        TokenKind::Decorator,
+                        out,
+                    );
                     out.write(" ", TokenKind::Decorator);
                     out.write("#", TokenKind::Number);
                     self.emit_hex(amount as u64, out);
@@ -957,7 +1047,12 @@ impl FmtFormatter {
         // the tile-slice form never carries it).
         if !is_tile && (vg == 2 || vg == 4) {
             self.write_raw_separator(out);
-            self.emit_cased("vgx", self.opts.uppercase_registers, TokenKind::Decorator, out);
+            self.emit_cased(
+                "vgx",
+                self.opts.uppercase_registers,
+                TokenKind::Decorator,
+                out,
+            );
             self.emit_dec(vg as u64, out);
         }
         out.write("]", TokenKind::EndMemory);
@@ -1019,7 +1114,12 @@ impl FmtFormatter {
         index: Option<u8>,
         out: &mut dyn FormatterOutput,
     ) {
-        self.emit_cased("pn", self.opts.uppercase_registers, TokenKind::Register, out);
+        self.emit_cased(
+            "pn",
+            self.opts.uppercase_registers,
+            TokenKind::Register,
+            out,
+        );
         // The architectural number (8..=15); written as a register-kind token so
         // it groups with the `pn` prefix rather than reading as an immediate.
         self.emit_dec_kind(reg.number() as u64, TokenKind::Register, out);
@@ -1037,7 +1137,12 @@ impl FmtFormatter {
             out.write("]", TokenKind::Punctuation);
         }
         if zeroing {
-            self.emit_cased("/z", self.opts.uppercase_registers, TokenKind::Decorator, out);
+            self.emit_cased(
+                "/z",
+                self.opts.uppercase_registers,
+                TokenKind::Decorator,
+                out,
+            );
         }
     }
 
@@ -1117,7 +1222,12 @@ impl FmtFormatter {
             out.write("za", TokenKind::Register);
             self.emit_dec_kind(tile as u64, TokenKind::Register, out);
             out.write(".", TokenKind::Register);
-            self.emit_cased(suffix, self.opts.uppercase_registers, TokenKind::Register, out);
+            self.emit_cased(
+                suffix,
+                self.opts.uppercase_registers,
+                TokenKind::Register,
+                out,
+            );
         }
         out.write(" }", TokenKind::Punctuation);
     }
@@ -1138,7 +1248,12 @@ impl FmtFormatter {
         self.emit_dec_kind(index as u64, TokenKind::Number, out);
         if mul_vl {
             self.write_raw_separator(out);
-            self.emit_cased("mul vl", self.opts.uppercase_mnemonics, TokenKind::Decorator, out);
+            self.emit_cased(
+                "mul vl",
+                self.opts.uppercase_mnemonics,
+                TokenKind::Decorator,
+                out,
+            );
         }
         out.write("]", TokenKind::EndMemory);
     }
@@ -1289,8 +1404,8 @@ impl FmtFormatter {
         // `std`-only method): the cast to `u64` truncates toward zero, and `x`
         // is already non-negative here.
         const FRAC: f64 = 10_000_000.0; // 10^7 -> seven fractional digits.
-        // Guard the integer cast: magnitudes this large carry no meaningful
-        // fractional digits, so clamp and print `.0` after the point.
+                                        // Guard the integer cast: magnitudes this large carry no meaningful
+                                        // fractional digits, so clamp and print `.0` after the point.
         let (int_part, frac_part): (u64, u64) = if x >= 18_000_000_000_000_000_000.0 {
             (u64::MAX, 0)
         } else {
@@ -1471,7 +1586,10 @@ mod tests {
         let mut buf = [0u8; 256];
         let mut sink = BufSink::new(&mut buf);
         fmt.format(insn, &mut sink);
-        assert!(!sink.overflowed(), "BufSink overflowed rendering {expected:?}");
+        assert!(
+            !sink.overflowed(),
+            "BufSink overflowed rendering {expected:?}"
+        );
         assert_eq!(sink.as_str(), expected);
     }
 
@@ -1491,7 +1609,11 @@ mod tests {
         // ADD x0, x1, #1
         let insn = make(
             Mnemonic::Add,
-            &[reg(Register::X0), reg(Register::X1), Operand::ImmUnsigned(1)],
+            &[
+                reg(Register::X0),
+                reg(Register::X1),
+                Operand::ImmUnsigned(1),
+            ],
         );
         assert_render(&insn, "add     x0, x1, #0x1");
     }
@@ -1502,7 +1624,11 @@ mod tests {
         // matching the corpus (which has 458 `#0x0` and no bare `#0`).
         let insn = make(
             Mnemonic::Add,
-            &[reg(Register::X0), reg(Register::X1), Operand::ImmUnsigned(0)],
+            &[
+                reg(Register::X0),
+                reg(Register::X1),
+                Operand::ImmUnsigned(0),
+            ],
         );
         assert_render(&insn, "add     x0, x1, #0x0");
     }
@@ -1525,7 +1651,10 @@ mod tests {
     fn bcond_label() {
         // B.eq 0x1000 — condition is folded into the operand stream here; the
         // label renders as a bare absolute address.
-        let insn = make(Mnemonic::B, &[Operand::Cond(Condition::Eq), Operand::Label(0x1000)]);
+        let insn = make(
+            Mnemonic::B,
+            &[Operand::Cond(Condition::Eq), Operand::Label(0x1000)],
+        );
         assert_render(&insn, "b       eq, 0x1000");
     }
 
@@ -1735,7 +1864,10 @@ mod tests {
             Mnemonic::Movz,
             &[
                 reg(Register::X0),
-                Operand::ImmShiftedMove { imm: 0x1234, lsl: 0 },
+                Operand::ImmShiftedMove {
+                    imm: 0x1234,
+                    lsl: 0,
+                },
             ],
         );
         assert_render(&insn, "movz    x0, #0x1234");
@@ -1811,7 +1943,10 @@ mod tests {
         // The `#0.0` compare spelling and a multi-digit dyadic fraction.
         let z = make(Mnemonic::Fcmp, &[reg(Register::S0), Operand::FpImm(0.0)]);
         assert_render(&z, "fcmp    s0, #0.0");
-        let frac = make(Mnemonic::Fmov, &[reg(Register::D0), Operand::FpImm(-0.21875)]);
+        let frac = make(
+            Mnemonic::Fmov,
+            &[reg(Register::D0), Operand::FpImm(-0.21875)],
+        );
         assert_render(&frac, "fmov    d0, #-0.21875");
     }
 
@@ -1825,7 +1960,11 @@ mod tests {
     fn shift_amount_operand() {
         let insn = make(
             Mnemonic::Lsl,
-            &[reg(Register::X0), reg(Register::X1), Operand::ShiftAmount(7)],
+            &[
+                reg(Register::X0),
+                reg(Register::X1),
+                Operand::ShiftAmount(7),
+            ],
         );
         assert_render(&insn, "lsl     x0, x1, #7");
     }
@@ -1843,7 +1982,11 @@ mod tests {
         fmt.options_mut().uppercase_registers = true;
         let insn = make(
             Mnemonic::Add,
-            &[reg(Register::X0), reg(Register::X1), Operand::ImmUnsigned(1)],
+            &[
+                reg(Register::X0),
+                reg(Register::X1),
+                Operand::ImmUnsigned(1),
+            ],
         );
         assert_render_with(&fmt, &insn, "ADD     X0, X1, #0x1");
     }
@@ -1861,7 +2004,11 @@ mod tests {
     fn sp_kept_by_default() {
         let insn = make(
             Mnemonic::Add,
-            &[reg(Register::Sp), reg(Register::Sp), Operand::ImmUnsigned(16)],
+            &[
+                reg(Register::Sp),
+                reg(Register::Sp),
+                Operand::ImmUnsigned(16),
+            ],
         );
         assert_render(&insn, "add     sp, sp, #0x10");
     }
@@ -1872,7 +2019,11 @@ mod tests {
         fmt.options_mut().space_after_operand_separator = false;
         let insn = make(
             Mnemonic::Add,
-            &[reg(Register::X0), reg(Register::X1), Operand::ImmUnsigned(1)],
+            &[
+                reg(Register::X0),
+                reg(Register::X1),
+                Operand::ImmUnsigned(1),
+            ],
         );
         assert_render_with(&fmt, &insn, "add     x0,x1,#0x1");
     }
@@ -1912,7 +2063,11 @@ mod tests {
         // must mark overflow.
         let insn = make(
             Mnemonic::Add,
-            &[reg(Register::X0), reg(Register::X1), Operand::ImmUnsigned(1)],
+            &[
+                reg(Register::X0),
+                reg(Register::X1),
+                Operand::ImmUnsigned(1),
+            ],
         );
         let mut buf = [0u8; 4];
         let mut sink = BufSink::new(&mut buf);

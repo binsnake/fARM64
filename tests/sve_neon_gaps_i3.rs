@@ -41,30 +41,59 @@ fn norm(s: &str) -> String {
 #[track_caller]
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
 fn without(fs: FeatureSet, f: Feature) -> FeatureSet {
     let bit = f as u32;
-    FeatureSet { features0: fs.features0 & !(1u64 << bit), features1: fs.features1 & !(1u64 << bit) }
+    FeatureSet {
+        features0: fs.features0 & !(1u64 << bit),
+        features1: fs.features1 & !(1u64 << bit),
+    }
 }
 
 /// Assert `word` decodes to Invalid once `f` is cleared from the feature set.
 #[track_caller]
 fn gated_off(word: u32, f: Feature) {
     let insn = decode(word, 0, without(FeatureSet::ALL, f));
-    assert!(insn.is_invalid(), "{:08X} still decoded with {:?} cleared", word, f);
+    assert!(
+        insn.is_invalid(),
+        "{:08X} still decoded with {:?} cleared",
+        word,
+        f
+    );
 }
 
 /// Assert `word` is Invalid (reserved / unallocated) under the full feature set.
 #[track_caller]
 fn invalid(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(insn.is_invalid(), "{:08X} unexpectedly decoded as `{}`", word, text(word));
+    assert!(
+        insn.is_invalid(),
+        "{:08X} unexpectedly decoded as `{}`",
+        word,
+        text(word)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +125,14 @@ fn neon_fdot_f16_gating() {
 fn neon_fdot_f16_neighbours() {
     // size==00/01 are the FP8 FDOT (FEAT_FP8); size==11 is FMLALB/T — all still
     // decode (untouched). The (0,10) FP8 slot we added must not steal them.
-    assert_eq!(decode(0x0E05FF12, 0, FeatureSet::ALL).mnemonic().name(), "fdot");
-    assert_eq!(decode(0x0E45FF12, 0, FeatureSet::ALL).mnemonic().name(), "fdot");
+    assert_eq!(
+        decode(0x0E05FF12, 0, FeatureSet::ALL).mnemonic().name(),
+        "fdot"
+    );
+    assert_eq!(
+        decode(0x0E45FF12, 0, FeatureSet::ALL).mnemonic().name(),
+        "fdot"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +191,10 @@ fn sve_fmmla_f16f32_examples() {
 fn sve_fmmla_f16f32_gating() {
     gated_off(0x6430E7F3, Feature::F16f32mm);
     // The neighbouring BFMMLA (.s<-.h, <23:22>=01) still decodes.
-    assert_eq!(decode(0x6470E7F3, 0, FeatureSet::ALL).mnemonic().name(), "bfmmla");
+    assert_eq!(
+        decode(0x6470E7F3, 0, FeatureSet::ALL).mnemonic().name(),
+        "bfmmla"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -175,8 +213,14 @@ fn sve_dot_hb_examples() {
 fn sve_dot_hb_gating_and_neighbours() {
     gated_off(0x44560750, Feature::Sve2p3);
     // The existing .s<-.b (size=10) and .d<-.h (size=11) dots still decode.
-    assert_eq!(decode(0x44820420, 0, FeatureSet::ALL).mnemonic().name(), "udot");
-    assert_eq!(decode(0x44C20420, 0, FeatureSet::ALL).mnemonic().name(), "udot");
+    assert_eq!(
+        decode(0x44820420, 0, FeatureSet::ALL).mnemonic().name(),
+        "udot"
+    );
+    assert_eq!(
+        decode(0x44C20420, 0, FeatureSet::ALL).mnemonic().name(),
+        "udot"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -284,12 +328,18 @@ fn lrcpc3_ldapp_ldap_stlp_gating_and_reserved() {
     gated_off(0xD9527BB3, Feature::Rcpc3);
     gated_off(0xD9125A54, Feature::Rcpc3);
     // The legacy LDIAPP/STILP siblings (opc2=000x) still decode.
-    assert_eq!(decode(0xD9411840, 0, FeatureSet::ALL).mnemonic().name(), "ldiapp");
-    assert_eq!(decode(0xD9011840, 0, FeatureSet::ALL).mnemonic().name(), "stilp");
+    assert_eq!(
+        decode(0xD9411840, 0, FeatureSet::ALL).mnemonic().name(),
+        "ldiapp"
+    );
+    assert_eq!(
+        decode(0xD9011840, 0, FeatureSet::ALL).mnemonic().name(),
+        "stilp"
+    );
     // X-only: the 32-bit-size (sz=10/W) opc2=0101/0111 forms are unallocated.
     invalid(0x99415840); // would-be ldap with sz=10 (W)
     invalid(0x99415840 ^ (1 << 22)); // would-be stlp (L=0) with sz=10 (W)
     invalid(0x99417840); // would-be ldapp with sz=10 (W)
-    // No STLPP: opc2=0111 with L=0 is unallocated even at 64-bit width.
+                         // No STLPP: opc2=0111 with L=0 is unallocated even at 64-bit width.
     invalid(0xD9017840);
 }

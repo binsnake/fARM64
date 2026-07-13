@@ -49,17 +49,36 @@ fn without(fs: FeatureSet, feat: Feature) -> FeatureSet {
 #[track_caller]
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
 /// Assert a word is rejected (reserved / UNDEFINED).
 #[track_caller]
 fn reserved(word: u32) {
-    assert!(decode(word, 0, FeatureSet::ALL).is_invalid(), "{word:08X} should be reserved (Invalid)");
+    assert!(
+        decode(word, 0, FeatureSet::ALL).is_invalid(),
+        "{word:08X} should be reserved (Invalid)"
+    );
 }
 
 // ===========================================================================
@@ -71,8 +90,14 @@ fn mvs_alu_examples() {
     // The task's canonical examples.
     check(0xC1E3A318, "add { z24.d, z25.d }, { z24.d, z25.d }, z3.d");
     check(0xC169A22A, "srshl { z10.h, z11.h }, { z10.h, z11.h }, z9.h");
-    check(0xC1E6A939, "fminnm { z24.d - z27.d }, { z24.d - z27.d }, z6.d");
-    check(0xC1EFA13C, "fmaxnm { z28.d, z29.d }, { z28.d, z29.d }, z15.d");
+    check(
+        0xC1E6A939,
+        "fminnm { z24.d - z27.d }, { z24.d - z27.d }, z6.d",
+    );
+    check(
+        0xC1EFA13C,
+        "fmaxnm { z28.d, z29.d }, { z28.d, z29.d }, z15.d",
+    );
 }
 
 #[test]
@@ -114,15 +139,15 @@ fn mvs_alu_fp_family() {
 fn mvs_alu_reserved() {
     // word<21> == 0 is UNDEFINED (the whole slot key requires it set).
     reserved(0xC1C3A318); // add with word<21> == 0
-    // word<20> == 1 (Zm beyond z15) is RES0.
+                          // word<20> == 1 (Zm beyond z15) is RES0.
     reserved(0xC130A818);
     reserved(0xC1F0A000);
     // ADD / FSCALE / SQDMULH have no word<0> selector; a set bit is UNDEFINED.
     reserved(0xC120A301); // add, word<0> == 1
     reserved(0xC1A0A181); // fscale, word<0> == 1
     reserved(0xC1A0A401); // sqdmulh, word<0> == 1
-    // Floating-point `.b` (the non-BF16 FP ops) does not exist — only BF16 there.
-    // vgx4 reserved low bit word<1>.
+                          // Floating-point `.b` (the non-BF16 FP ops) does not exist — only BF16 there.
+                          // vgx4 reserved low bit word<1>.
     reserved(0xC1E0AB02);
 }
 
@@ -134,10 +159,16 @@ fn mvs_alu_reserved() {
 fn bfmul() {
     check(0xC129EB80, "bfmul { z0.h - z3.h }, { z28.h - z31.h }, z4.h");
     // multi × multi (vgx2) and multi × single (vgx2).
-    check(0xC120E400, "bfmul { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }");
+    check(
+        0xC120E400,
+        "bfmul { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }",
+    );
     check(0xC120E800, "bfmul { z0.h, z1.h }, { z0.h, z1.h }, z0.h");
     // multi × multi (vgx4).
-    check(0xC121E400, "bfmul { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }");
+    check(
+        0xC121E400,
+        "bfmul { z0.h - z3.h }, { z0.h - z3.h }, { z0.h - z3.h }",
+    );
 }
 
 // ===========================================================================
@@ -218,12 +249,24 @@ fn narrow_shift2_reserved() {
 
 #[test]
 fn luti6_consecutive() {
-    check(0xC12AF678, "luti6 { z24.h - z27.h }, { z19.h, z20.h }, { z10, z11 }[0]");
-    check(0xC12AF600, "luti6 { z0.h - z3.h }, { z16.h, z17.h }, { z10, z11 }[0]");
+    check(
+        0xC12AF678,
+        "luti6 { z24.h - z27.h }, { z19.h, z20.h }, { z10, z11 }[0]",
+    );
+    check(
+        0xC12AF600,
+        "luti6 { z0.h - z3.h }, { z16.h, z17.h }, { z10, z11 }[0]",
+    );
     // The index bit (word<22>).
-    check(0xC16AF600, "luti6 { z0.h - z3.h }, { z16.h, z17.h }, { z10, z11 }[1]");
+    check(
+        0xC16AF600,
+        "luti6 { z0.h - z3.h }, { z16.h, z17.h }, { z10, z11 }[1]",
+    );
     // The K3 stride-4 form still decodes alongside it.
-    check(0xC132FDE3, "luti6 { z3.h, z7.h, z11.h, z15.h }, { z15.h, z16.h }, { z18, z19 }[0]");
+    check(
+        0xC132FDE3,
+        "luti6 { z3.h, z7.h, z11.h, z15.h }, { z15.h, z16.h }, { z18, z19 }[0]",
+    );
 }
 
 #[test]
@@ -244,15 +287,36 @@ fn feature_gating() {
     let no_lut = without(FeatureSet::ALL, Feature::Lut);
 
     // Sme2-gated forms must not decode without FEAT_SME2.
-    assert!(decode(0xC1E3A318, 0, no_sme2).is_invalid(), "add needs SME2");
-    assert!(decode(0xC165E0FF, 0, no_sme2).is_invalid(), "uunpk needs SME2");
-    assert!(decode(0xC1B3E0E4, 0, no_sme2).is_invalid(), "uqcvtn needs SME2");
-    assert!(decode(0xC1EFD663, 0, no_sme2).is_invalid(), "uqrshr needs SME2");
+    assert!(
+        decode(0xC1E3A318, 0, no_sme2).is_invalid(),
+        "add needs SME2"
+    );
+    assert!(
+        decode(0xC165E0FF, 0, no_sme2).is_invalid(),
+        "uunpk needs SME2"
+    );
+    assert!(
+        decode(0xC1B3E0E4, 0, no_sme2).is_invalid(),
+        "uqcvtn needs SME2"
+    );
+    assert!(
+        decode(0xC1EFD663, 0, no_sme2).is_invalid(),
+        "uqrshr needs SME2"
+    );
 
     // BF16 forms need FEAT_SME_B16B16.
-    assert!(decode(0xC120A100, 0, no_b16).is_invalid(), "bfmax needs B16B16");
-    assert!(decode(0xC129EB80, 0, no_b16).is_invalid(), "bfmul needs B16B16");
+    assert!(
+        decode(0xC120A100, 0, no_b16).is_invalid(),
+        "bfmax needs B16B16"
+    );
+    assert!(
+        decode(0xC129EB80, 0, no_b16).is_invalid(),
+        "bfmul needs B16B16"
+    );
 
     // LUTI6 needs FEAT_LUT.
-    assert!(decode(0xC12AF678, 0, no_lut).is_invalid(), "luti6 needs LUT");
+    assert!(
+        decode(0xC12AF678, 0, no_lut).is_invalid(),
+        "luti6 needs LUT"
+    );
 }

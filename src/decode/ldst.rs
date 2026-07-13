@@ -550,23 +550,118 @@ fn classify_gp(size: u32, opc: u32, variant: RegVariant) -> Option<LdStForm> {
         };
     }
     match (size, opc) {
-        (0, 0b00) => f!(if reg { Code::StrbReg } else { Code::StrbImmUnsigned }, false),
-        (0, 0b01) => f!(if reg { Code::LdrbReg } else { Code::LdrbImmUnsigned }, false),
-        (0, 0b10) => f!(if reg { Code::LdrsbReg64 } else { Code::LdrsbImmUnsigned64 }, true),
-        (0, 0b11) => f!(if reg { Code::LdrsbReg32 } else { Code::LdrsbImmUnsigned32 }, false),
-        (1, 0b00) => f!(if reg { Code::StrhReg } else { Code::StrhImmUnsigned }, false),
-        (1, 0b01) => f!(if reg { Code::LdrhReg } else { Code::LdrhImmUnsigned }, false),
-        (1, 0b10) => f!(if reg { Code::LdrshReg64 } else { Code::LdrshImmUnsigned64 }, true),
-        (1, 0b11) => f!(if reg { Code::LdrshReg32 } else { Code::LdrshImmUnsigned32 }, false),
-        (2, 0b00) => f!(if reg { Code::StrReg32 } else { Code::StrImmUnsigned32 }, false),
-        (2, 0b01) => f!(if reg { Code::LdrReg32 } else { Code::LdrImmUnsigned32 }, false),
-        (2, 0b10) => f!(if reg { Code::LdrswReg } else { Code::LdrswImmUnsigned }, true),
-        (3, 0b00) => f!(if reg { Code::StrReg64 } else { Code::StrImmUnsigned64 }, true),
-        (3, 0b01) => f!(if reg { Code::LdrReg64 } else { Code::LdrImmUnsigned64 }, true),
+        (0, 0b00) => f!(
+            if reg {
+                Code::StrbReg
+            } else {
+                Code::StrbImmUnsigned
+            },
+            false
+        ),
+        (0, 0b01) => f!(
+            if reg {
+                Code::LdrbReg
+            } else {
+                Code::LdrbImmUnsigned
+            },
+            false
+        ),
+        (0, 0b10) => f!(
+            if reg {
+                Code::LdrsbReg64
+            } else {
+                Code::LdrsbImmUnsigned64
+            },
+            true
+        ),
+        (0, 0b11) => f!(
+            if reg {
+                Code::LdrsbReg32
+            } else {
+                Code::LdrsbImmUnsigned32
+            },
+            false
+        ),
+        (1, 0b00) => f!(
+            if reg {
+                Code::StrhReg
+            } else {
+                Code::StrhImmUnsigned
+            },
+            false
+        ),
+        (1, 0b01) => f!(
+            if reg {
+                Code::LdrhReg
+            } else {
+                Code::LdrhImmUnsigned
+            },
+            false
+        ),
+        (1, 0b10) => f!(
+            if reg {
+                Code::LdrshReg64
+            } else {
+                Code::LdrshImmUnsigned64
+            },
+            true
+        ),
+        (1, 0b11) => f!(
+            if reg {
+                Code::LdrshReg32
+            } else {
+                Code::LdrshImmUnsigned32
+            },
+            false
+        ),
+        (2, 0b00) => f!(
+            if reg {
+                Code::StrReg32
+            } else {
+                Code::StrImmUnsigned32
+            },
+            false
+        ),
+        (2, 0b01) => f!(
+            if reg {
+                Code::LdrReg32
+            } else {
+                Code::LdrImmUnsigned32
+            },
+            false
+        ),
+        (2, 0b10) => f!(
+            if reg {
+                Code::LdrswReg
+            } else {
+                Code::LdrswImmUnsigned
+            },
+            true
+        ),
+        (3, 0b00) => f!(
+            if reg {
+                Code::StrReg64
+            } else {
+                Code::StrImmUnsigned64
+            },
+            true
+        ),
+        (3, 0b01) => f!(
+            if reg {
+                Code::LdrReg64
+            } else {
+                Code::LdrImmUnsigned64
+            },
+            true
+        ),
         (3, 0b10) => {
             // PRFM.
             Some(LdStForm {
-                code: if reg { Code::PrfmReg } else { Code::PrfmImmUnsigned },
+                code: if reg {
+                    Code::PrfmReg
+                } else {
+                    Code::PrfmImmUnsigned
+                },
                 is_fp: false,
                 fp_code: 0,
                 gp_x: true,
@@ -582,7 +677,14 @@ fn classify_gp(size: u32, opc: u32, variant: RegVariant) -> Option<LdStForm> {
 fn classify_gp_unscaled(size: u32, opc: u32) -> Option<LdStForm> {
     macro_rules! f {
         ($code:expr, $x:expr) => {
-            Some(LdStForm { code: $code, is_fp: false, fp_code: 0, gp_x: $x, scale: 0, is_prfm: false })
+            Some(LdStForm {
+                code: $code,
+                is_fp: false,
+                fp_code: 0,
+                gp_x: $x,
+                scale: 0,
+                is_prfm: false,
+            })
         };
     }
     match (size, opc) {
@@ -778,7 +880,11 @@ fn decode_reg_unscaled(word: u32, out: &mut Instruction) {
     out.set(form.code);
     if form.is_fp {
         // SIMD&FP unscaled => LDUR/STUR mnemonic with the B/H/S/D/Q register.
-        out.set_mnemonic(if (opc & 1) == 1 { Mnemonic::Ldur } else { Mnemonic::Stur });
+        out.set_mnemonic(if (opc & 1) == 1 {
+            Mnemonic::Ldur
+        } else {
+            Mnemonic::Stur
+        });
         out.push_operand(simd_op(fp_reg(form.fp_code, rt)));
     } else {
         push_data_reg(out, &form, rt);
@@ -1203,7 +1309,6 @@ fn pair_code_gp(idx: u32, l: u32, kind: GpPairKind) -> Option<Code> {
     })
 }
 
-
 /// Emit `STGP <Xt1>, <Xt2>, [...]` (store tag and pair of registers, MTE).
 /// `idx` selects the addressing mode (post/offset/pre); scale is 16 bytes (×16
 /// tag-granule), i.e. shift 4.
@@ -1308,7 +1413,16 @@ fn decode_excl_single(sz: u32, l: u32, o0: u32, rs: u32, rn: u32, rt: u32, out: 
 // Raw ARM ARM bitfields; grouping into a struct would obscure the 1:1 mapping.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn decode_excl_pair(sz: u32, l: u32, o0: u32, rs: u32, rt2: u32, rn: u32, rt: u32, out: &mut Instruction) {
+fn decode_excl_pair(
+    sz: u32,
+    l: u32,
+    o0: u32,
+    rs: u32,
+    rt2: u32,
+    rn: u32,
+    rt: u32,
+    out: &mut Instruction,
+) {
     let load = l == 1;
     let acquire = o0 == 1;
     let x = sz == 3;
@@ -1368,7 +1482,16 @@ fn decode_ordered(sz: u32, l: u32, o0: u32, rn: u32, rt: u32, out: &mut Instruct
 // Raw ARM ARM bitfields; grouping into a struct would obscure the 1:1 mapping.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn decode_cas(sz: u32, l: u32, o0: u32, rs: u32, rn: u32, rt: u32, features: FeatureSet, out: &mut Instruction) {
+fn decode_cas(
+    sz: u32,
+    l: u32,
+    o0: u32,
+    rs: u32,
+    rn: u32,
+    rt: u32,
+    features: FeatureSet,
+    out: &mut Instruction,
+) {
     if !features.has(Feature::Lse) {
         return;
     }
@@ -1403,7 +1526,16 @@ fn decode_cas(sz: u32, l: u32, o0: u32, rs: u32, rn: u32, rt: u32, features: Fea
 // Raw ARM ARM bitfields; grouping into a struct would obscure the 1:1 mapping.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn decode_casp(sz: u32, l: u32, o0: u32, rs: u32, rn: u32, rt: u32, features: FeatureSet, out: &mut Instruction) {
+fn decode_casp(
+    sz: u32,
+    l: u32,
+    o0: u32,
+    rs: u32,
+    rn: u32,
+    rt: u32,
+    features: FeatureSet,
+    out: &mut Instruction,
+) {
     if !features.has(Feature::Lse) {
         return;
     }
@@ -1620,7 +1752,11 @@ fn decode_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
                 if !features.has(Feature::Ls64) {
                     return;
                 }
-                out.set(if opc == 0b101 { Code::Ld64b } else { Code::St64b });
+                out.set(if opc == 0b101 {
+                    Code::Ld64b
+                } else {
+                    Code::St64b
+                });
                 out.push_operand(gp(false, RegWidth::X64, rt));
                 out.push_operand(mem_off(rn, 0));
                 return;
@@ -1629,7 +1765,11 @@ fn decode_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
                 if !features.has(Feature::Ls64) {
                     return;
                 }
-                out.set(if opc == 0b011 { Code::St64bv } else { Code::St64bv0 });
+                out.set(if opc == 0b011 {
+                    Code::St64bv
+                } else {
+                    Code::St64bv0
+                });
                 out.push_operand(gp(false, RegWidth::X64, rs));
                 out.push_operand(gp(false, RegWidth::X64, rt));
                 out.push_operand(mem_off(rn, 0));
@@ -1650,9 +1790,24 @@ fn decode_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
             (0b001, 0) => [Code::Rcwclr, Code::Rcwclrl, Code::Rcwclra, Code::Rcwclral][ord],
             (0b010, 0) => [Code::Rcwswp, Code::Rcwswpl, Code::Rcwswpa, Code::Rcwswpal][ord],
             (0b011, 0) => [Code::Rcwset, Code::Rcwsetl, Code::Rcwseta, Code::Rcwsetal][ord],
-            (0b001, _) => [Code::Rcwsclr, Code::Rcwsclrl, Code::Rcwsclra, Code::Rcwsclral][ord],
-            (0b010, _) => [Code::Rcwsswp, Code::Rcwsswpl, Code::Rcwsswpa, Code::Rcwsswpal][ord],
-            (0b011, _) => [Code::Rcwsset, Code::Rcwssetl, Code::Rcwsseta, Code::Rcwssetal][ord],
+            (0b001, _) => [
+                Code::Rcwsclr,
+                Code::Rcwsclrl,
+                Code::Rcwsclra,
+                Code::Rcwsclral,
+            ][ord],
+            (0b010, _) => [
+                Code::Rcwsswp,
+                Code::Rcwsswpl,
+                Code::Rcwsswpa,
+                Code::Rcwsswpal,
+            ][ord],
+            (0b011, _) => [
+                Code::Rcwsset,
+                Code::Rcwssetl,
+                Code::Rcwsseta,
+                Code::Rcwssetal,
+            ][ord],
             _ => return, // opc 4..7 unallocated.
         };
         if !features.has(Feature::The) {
@@ -1767,7 +1922,11 @@ fn lsfe_ld_code(op_idx: usize, ord: usize, is_bf: bool) -> Code {
         [Ldbfmaxnm, Ldbfmaxnml, Ldbfmaxnma, Ldbfmaxnmal],
         [Ldbfminnm, Ldbfminnml, Ldbfminnma, Ldbfminnmal],
     ];
-    if is_bf { BF[op_idx][ord] } else { F[op_idx][ord] }
+    if is_bf {
+        BF[op_idx][ord]
+    } else {
+        F[op_idx][ord]
+    }
 }
 
 /// LSFE store-form [`Code`] for `(op_idx, r, is_bf)` (`r`: 0=plain,1=L).
@@ -1790,7 +1949,11 @@ fn lsfe_st_code(op_idx: usize, r: u32, is_bf: bool) -> Code {
         [Stbfminnm, Stbfminnml],
     ];
     let i = r as usize;
-    if is_bf { BF[op_idx][i] } else { F[op_idx][i] }
+    if is_bf {
+        BF[op_idx][i]
+    } else {
+        F[op_idx][i]
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1853,14 +2016,134 @@ fn ld_mnemonic(op: AtomicOp, size: u32, a: u32, r: u32) -> Mnemonic {
     use AtomicOp::*;
     use Mnemonic as M;
     match op {
-        Add => pick(size, ord, M::Ldadd, M::Ldaddl, M::Ldadda, M::Ldaddal, M::Ldaddb, M::Ldaddlb, M::Ldaddab, M::Ldaddalb, M::Ldaddh, M::Ldaddlh, M::Ldaddah, M::Ldaddalh),
-        Clr => pick(size, ord, M::Ldclr, M::Ldclrl, M::Ldclra, M::Ldclral, M::Ldclrb, M::Ldclrlb, M::Ldclrab, M::Ldclralb, M::Ldclrh, M::Ldclrlh, M::Ldclrah, M::Ldclralh),
-        Eor => pick(size, ord, M::Ldeor, M::Ldeorl, M::Ldeora, M::Ldeoral, M::Ldeorb, M::Ldeorlb, M::Ldeorab, M::Ldeoralb, M::Ldeorh, M::Ldeorlh, M::Ldeorah, M::Ldeoralh),
-        Set => pick(size, ord, M::Ldset, M::Ldsetl, M::Ldseta, M::Ldsetal, M::Ldsetb, M::Ldsetlb, M::Ldsetab, M::Ldsetalb, M::Ldseth, M::Ldsetlh, M::Ldsetah, M::Ldsetalh),
-        Smax => pick(size, ord, M::Ldsmax, M::Ldsmaxl, M::Ldsmaxa, M::Ldsmaxal, M::Ldsmaxb, M::Ldsmaxlb, M::Ldsmaxab, M::Ldsmaxalb, M::Ldsmaxh, M::Ldsmaxlh, M::Ldsmaxah, M::Ldsmaxalh),
-        Smin => pick(size, ord, M::Ldsmin, M::Ldsminl, M::Ldsmina, M::Ldsminal, M::Ldsminb, M::Ldsminlb, M::Ldsminab, M::Ldsminalb, M::Ldsminh, M::Ldsminlh, M::Ldsminah, M::Ldsminalh),
-        Umax => pick(size, ord, M::Ldumax, M::Ldumaxl, M::Ldumaxa, M::Ldumaxal, M::Ldumaxb, M::Ldumaxlb, M::Ldumaxab, M::Ldumaxalb, M::Ldumaxh, M::Ldumaxlh, M::Ldumaxah, M::Ldumaxalh),
-        Umin => pick(size, ord, M::Ldumin, M::Lduminl, M::Ldumina, M::Lduminal, M::Lduminb, M::Lduminlb, M::Lduminab, M::Lduminalb, M::Lduminh, M::Lduminlh, M::Lduminah, M::Lduminalh),
+        Add => pick(
+            size,
+            ord,
+            M::Ldadd,
+            M::Ldaddl,
+            M::Ldadda,
+            M::Ldaddal,
+            M::Ldaddb,
+            M::Ldaddlb,
+            M::Ldaddab,
+            M::Ldaddalb,
+            M::Ldaddh,
+            M::Ldaddlh,
+            M::Ldaddah,
+            M::Ldaddalh,
+        ),
+        Clr => pick(
+            size,
+            ord,
+            M::Ldclr,
+            M::Ldclrl,
+            M::Ldclra,
+            M::Ldclral,
+            M::Ldclrb,
+            M::Ldclrlb,
+            M::Ldclrab,
+            M::Ldclralb,
+            M::Ldclrh,
+            M::Ldclrlh,
+            M::Ldclrah,
+            M::Ldclralh,
+        ),
+        Eor => pick(
+            size,
+            ord,
+            M::Ldeor,
+            M::Ldeorl,
+            M::Ldeora,
+            M::Ldeoral,
+            M::Ldeorb,
+            M::Ldeorlb,
+            M::Ldeorab,
+            M::Ldeoralb,
+            M::Ldeorh,
+            M::Ldeorlh,
+            M::Ldeorah,
+            M::Ldeoralh,
+        ),
+        Set => pick(
+            size,
+            ord,
+            M::Ldset,
+            M::Ldsetl,
+            M::Ldseta,
+            M::Ldsetal,
+            M::Ldsetb,
+            M::Ldsetlb,
+            M::Ldsetab,
+            M::Ldsetalb,
+            M::Ldseth,
+            M::Ldsetlh,
+            M::Ldsetah,
+            M::Ldsetalh,
+        ),
+        Smax => pick(
+            size,
+            ord,
+            M::Ldsmax,
+            M::Ldsmaxl,
+            M::Ldsmaxa,
+            M::Ldsmaxal,
+            M::Ldsmaxb,
+            M::Ldsmaxlb,
+            M::Ldsmaxab,
+            M::Ldsmaxalb,
+            M::Ldsmaxh,
+            M::Ldsmaxlh,
+            M::Ldsmaxah,
+            M::Ldsmaxalh,
+        ),
+        Smin => pick(
+            size,
+            ord,
+            M::Ldsmin,
+            M::Ldsminl,
+            M::Ldsmina,
+            M::Ldsminal,
+            M::Ldsminb,
+            M::Ldsminlb,
+            M::Ldsminab,
+            M::Ldsminalb,
+            M::Ldsminh,
+            M::Ldsminlh,
+            M::Ldsminah,
+            M::Ldsminalh,
+        ),
+        Umax => pick(
+            size,
+            ord,
+            M::Ldumax,
+            M::Ldumaxl,
+            M::Ldumaxa,
+            M::Ldumaxal,
+            M::Ldumaxb,
+            M::Ldumaxlb,
+            M::Ldumaxab,
+            M::Ldumaxalb,
+            M::Ldumaxh,
+            M::Ldumaxlh,
+            M::Ldumaxah,
+            M::Ldumaxalh,
+        ),
+        Umin => pick(
+            size,
+            ord,
+            M::Ldumin,
+            M::Lduminl,
+            M::Ldumina,
+            M::Lduminal,
+            M::Lduminb,
+            M::Lduminlb,
+            M::Lduminab,
+            M::Lduminalb,
+            M::Lduminh,
+            M::Lduminlh,
+            M::Lduminah,
+            M::Lduminalh,
+        ),
     }
 }
 
@@ -1896,14 +2179,86 @@ fn st_mnemonic(op: AtomicOp, size: u32, r: u32) -> Mnemonic {
     use AtomicOp::*;
     use Mnemonic as M;
     match op {
-        Add => pick_st(size, r, M::Stadd, M::Staddl, M::Staddb, M::Staddlb, M::Staddh, M::Staddlh),
-        Clr => pick_st(size, r, M::Stclr, M::Stclrl, M::Stclrb, M::Stclrlb, M::Stclrh, M::Stclrlh),
-        Eor => pick_st(size, r, M::Steor, M::Steorl, M::Steorb, M::Steorlb, M::Steorh, M::Steorlh),
-        Set => pick_st(size, r, M::Stset, M::Stsetl, M::Stsetb, M::Stsetlb, M::Stseth, M::Stsetlh),
-        Smax => pick_st(size, r, M::Stsmax, M::Stsmaxl, M::Stsmaxb, M::Stsmaxlb, M::Stsmaxh, M::Stsmaxlh),
-        Smin => pick_st(size, r, M::Stsmin, M::Stsminl, M::Stsminb, M::Stsminlb, M::Stsminh, M::Stsminlh),
-        Umax => pick_st(size, r, M::Stumax, M::Stumaxl, M::Stumaxb, M::Stumaxlb, M::Stumaxh, M::Stumaxlh),
-        Umin => pick_st(size, r, M::Stumin, M::Stuminl, M::Stuminb, M::Stuminlb, M::Stuminh, M::Stuminlh),
+        Add => pick_st(
+            size,
+            r,
+            M::Stadd,
+            M::Staddl,
+            M::Staddb,
+            M::Staddlb,
+            M::Staddh,
+            M::Staddlh,
+        ),
+        Clr => pick_st(
+            size,
+            r,
+            M::Stclr,
+            M::Stclrl,
+            M::Stclrb,
+            M::Stclrlb,
+            M::Stclrh,
+            M::Stclrlh,
+        ),
+        Eor => pick_st(
+            size,
+            r,
+            M::Steor,
+            M::Steorl,
+            M::Steorb,
+            M::Steorlb,
+            M::Steorh,
+            M::Steorlh,
+        ),
+        Set => pick_st(
+            size,
+            r,
+            M::Stset,
+            M::Stsetl,
+            M::Stsetb,
+            M::Stsetlb,
+            M::Stseth,
+            M::Stsetlh,
+        ),
+        Smax => pick_st(
+            size,
+            r,
+            M::Stsmax,
+            M::Stsmaxl,
+            M::Stsmaxb,
+            M::Stsmaxlb,
+            M::Stsmaxh,
+            M::Stsmaxlh,
+        ),
+        Smin => pick_st(
+            size,
+            r,
+            M::Stsmin,
+            M::Stsminl,
+            M::Stsminb,
+            M::Stsminlb,
+            M::Stsminh,
+            M::Stsminlh,
+        ),
+        Umax => pick_st(
+            size,
+            r,
+            M::Stumax,
+            M::Stumaxl,
+            M::Stumaxb,
+            M::Stumaxlb,
+            M::Stumaxh,
+            M::Stumaxlh,
+        ),
+        Umin => pick_st(
+            size,
+            r,
+            M::Stumin,
+            M::Stuminl,
+            M::Stuminb,
+            M::Stuminlb,
+            M::Stuminh,
+            M::Stuminlh,
+        ),
     }
 }
 
@@ -1987,10 +2342,34 @@ fn atomic_code(size: u32, a: u32, r: u32, op: AtomicOp) -> Option<Code> {
             (1, _) => Code::Ldseth,
             _ => return None,
         },
-        AtomicOp::Smax => atomic_simple(size, Code::Ldsmax32, Code::Ldsmax64, Code::Ldsmaxb, Code::Ldsmaxh),
-        AtomicOp::Smin => atomic_simple(size, Code::Ldsmin32, Code::Ldsmin64, Code::Ldsminb, Code::Ldsminh),
-        AtomicOp::Umax => atomic_simple(size, Code::Ldumax32, Code::Ldumax64, Code::Ldumaxb, Code::Ldumaxh),
-        AtomicOp::Umin => atomic_simple(size, Code::Ldumin32, Code::Ldumin64, Code::Lduminb, Code::Lduminh),
+        AtomicOp::Smax => atomic_simple(
+            size,
+            Code::Ldsmax32,
+            Code::Ldsmax64,
+            Code::Ldsmaxb,
+            Code::Ldsmaxh,
+        ),
+        AtomicOp::Smin => atomic_simple(
+            size,
+            Code::Ldsmin32,
+            Code::Ldsmin64,
+            Code::Ldsminb,
+            Code::Ldsminh,
+        ),
+        AtomicOp::Umax => atomic_simple(
+            size,
+            Code::Ldumax32,
+            Code::Ldumax64,
+            Code::Ldumaxb,
+            Code::Ldumaxh,
+        ),
+        AtomicOp::Umin => atomic_simple(
+            size,
+            Code::Ldumin32,
+            Code::Ldumin64,
+            Code::Lduminb,
+            Code::Lduminh,
+        ),
     })
 }
 
@@ -2434,16 +2813,46 @@ fn decode_the_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
             } else {
                 match opc {
                     0b000 => (
-                        &[Code::Ldtadd32, Code::Ldtaddl32, Code::Ldtadda32, Code::Ldtaddal32],
-                        &[Code::Ldtadd64, Code::Ldtaddl64, Code::Ldtadda64, Code::Ldtaddal64],
+                        &[
+                            Code::Ldtadd32,
+                            Code::Ldtaddl32,
+                            Code::Ldtadda32,
+                            Code::Ldtaddal32,
+                        ],
+                        &[
+                            Code::Ldtadd64,
+                            Code::Ldtaddl64,
+                            Code::Ldtadda64,
+                            Code::Ldtaddal64,
+                        ],
                     ),
                     0b001 => (
-                        &[Code::Ldtclr32, Code::Ldtclrl32, Code::Ldtclra32, Code::Ldtclral32],
-                        &[Code::Ldtclr64, Code::Ldtclrl64, Code::Ldtclra64, Code::Ldtclral64],
+                        &[
+                            Code::Ldtclr32,
+                            Code::Ldtclrl32,
+                            Code::Ldtclra32,
+                            Code::Ldtclral32,
+                        ],
+                        &[
+                            Code::Ldtclr64,
+                            Code::Ldtclrl64,
+                            Code::Ldtclra64,
+                            Code::Ldtclral64,
+                        ],
                     ),
                     0b011 => (
-                        &[Code::Ldtset32, Code::Ldtsetl32, Code::Ldtseta32, Code::Ldtsetal32],
-                        &[Code::Ldtset64, Code::Ldtsetl64, Code::Ldtseta64, Code::Ldtsetal64],
+                        &[
+                            Code::Ldtset32,
+                            Code::Ldtsetl32,
+                            Code::Ldtseta32,
+                            Code::Ldtsetal32,
+                        ],
+                        &[
+                            Code::Ldtset64,
+                            Code::Ldtsetl64,
+                            Code::Ldtseta64,
+                            Code::Ldtsetal64,
+                        ],
                     ),
                     _ => return,
                 }
@@ -2466,7 +2875,12 @@ fn decode_the_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
                 return;
             }
             let code = if sz == 1 {
-                [Code::Rcwscas, Code::Rcwscasl, Code::Rcwscasa, Code::Rcwscasal][ord]
+                [
+                    Code::Rcwscas,
+                    Code::Rcwscasl,
+                    Code::Rcwscasa,
+                    Code::Rcwscasal,
+                ][ord]
             } else {
                 [Code::Rcwcas, Code::Rcwcasl, Code::Rcwcasa, Code::Rcwcasal][ord]
             };
@@ -2489,9 +2903,19 @@ fn decode_the_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
                 return;
             }
             let code = if sz == 1 {
-                [Code::Rcwscasp, Code::Rcwscaspl, Code::Rcwscaspa, Code::Rcwscaspal][ord]
+                [
+                    Code::Rcwscasp,
+                    Code::Rcwscaspl,
+                    Code::Rcwscaspa,
+                    Code::Rcwscaspal,
+                ][ord]
             } else {
-                [Code::Rcwcasp, Code::Rcwcaspl, Code::Rcwcaspa, Code::Rcwcaspal][ord]
+                [
+                    Code::Rcwcasp,
+                    Code::Rcwcaspl,
+                    Code::Rcwcaspa,
+                    Code::Rcwcaspal,
+                ][ord]
             };
             out.set(code);
             // Rs, Rs+1, Rt, Rt+1, [Xn|SP].
@@ -2545,25 +2969,55 @@ fn decode_the_atomic(word: u32, features: FeatureSet, out: &mut Instruction) {
                     }
                     0b001 => Some((
                         if sz == 1 {
-                            [Code::Rcwsclrp, Code::Rcwsclrpl, Code::Rcwsclrpa, Code::Rcwsclrpal][ord]
+                            [
+                                Code::Rcwsclrp,
+                                Code::Rcwsclrpl,
+                                Code::Rcwsclrpa,
+                                Code::Rcwsclrpal,
+                            ][ord]
                         } else {
-                            [Code::Rcwclrp, Code::Rcwclrpl, Code::Rcwclrpa, Code::Rcwclrpal][ord]
+                            [
+                                Code::Rcwclrp,
+                                Code::Rcwclrpl,
+                                Code::Rcwclrpa,
+                                Code::Rcwclrpal,
+                            ][ord]
                         },
                         Feature::The,
                     )),
                     0b010 => Some((
                         if sz == 1 {
-                            [Code::Rcwsswpp, Code::Rcwsswppl, Code::Rcwsswppa, Code::Rcwsswppal][ord]
+                            [
+                                Code::Rcwsswpp,
+                                Code::Rcwsswppl,
+                                Code::Rcwsswppa,
+                                Code::Rcwsswppal,
+                            ][ord]
                         } else {
-                            [Code::Rcwswpp, Code::Rcwswppl, Code::Rcwswppa, Code::Rcwswppal][ord]
+                            [
+                                Code::Rcwswpp,
+                                Code::Rcwswppl,
+                                Code::Rcwswppa,
+                                Code::Rcwswppal,
+                            ][ord]
                         },
                         Feature::The,
                     )),
                     0b011 => Some((
                         if sz == 1 {
-                            [Code::Rcwssetp, Code::Rcwssetpl, Code::Rcwssetpa, Code::Rcwssetpal][ord]
+                            [
+                                Code::Rcwssetp,
+                                Code::Rcwssetpl,
+                                Code::Rcwssetpa,
+                                Code::Rcwssetpal,
+                            ][ord]
                         } else {
-                            [Code::Rcwsetp, Code::Rcwsetpl, Code::Rcwsetpa, Code::Rcwsetpal][ord]
+                            [
+                                Code::Rcwsetp,
+                                Code::Rcwsetpl,
+                                Code::Rcwsetpa,
+                                Code::Rcwsetpal,
+                            ][ord]
                         },
                         Feature::The,
                     )),
@@ -2710,7 +3164,10 @@ mod tests {
         let mut buf = [0u8; 128];
         let mut sink = BufSink::new(&mut buf);
         FmtFormatter::new().format(&insn, &mut sink);
-        assert!(!sink.overflowed(), "BufSink overflowed rendering {expected:?}");
+        assert!(
+            !sink.overflowed(),
+            "BufSink overflowed rendering {expected:?}"
+        );
         assert_eq!(sink.as_str(), expected, "word={word:#010x}");
     }
 
@@ -2941,7 +3398,10 @@ mod tests {
         assert_dis(0x4CDF70DD, "ld1     {v29.16b}, [x6], #0x10");
         assert_dis(0x4CDFA129, "ld1     {v9.16b, v10.16b}, [x9], #0x20");
         // Register-list wraparound past v31 and 4-register .8b post-imm.
-        assert_dis(0x0CDF22DE, "ld1     {v30.8b, v31.8b, v0.8b, v1.8b}, [x22], #0x20");
+        assert_dis(
+            0x0CDF22DE,
+            "ld1     {v30.8b, v31.8b, v0.8b, v1.8b}, [x22], #0x20",
+        );
         // LD2/LD3/LD4 + ST4 multiple, no-offset.
         assert_dis(0x4C000080, "st4     {v0.16b, v1.16b, v2.16b, v3.16b}, [x4]");
     }
@@ -2954,15 +3414,24 @@ mod tests {
         assert_dis(0x0DD7A0B2, "ld3     {v18.s, v19.s, v20.s}[0], [x5], x23");
         assert_dis(0x0D80A4C5, "st3     {v5.d, v6.d, v7.d}[0], [x6], x0");
         // LD4 single (.s, four-register) post-index immediate (= 4*4 bytes).
-        assert_dis(0x0DBFB139, "st4     {v25.s, v26.s, v27.s, v28.s}[1], [x9], #0x10");
+        assert_dis(
+            0x0DBFB139,
+            "st4     {v25.s, v26.s, v27.s, v28.s}[1], [x9], #0x10",
+        );
     }
 
     #[test]
     fn simd_ld_replicate() {
         // LDnR use the full arrangement; post-imm = count * element-bytes.
         assert_dis(0x0DDFC4A5, "ld1r    {v5.4h}, [x5], #0x2");
-        assert_dis(0x0DFFE507, "ld4r    {v7.4h, v8.4h, v9.4h, v10.4h}, [x8], #0x8");
-        assert_dis(0x4DF8EED7, "ld4r    {v23.2d, v24.2d, v25.2d, v26.2d}, [x22], x24");
+        assert_dis(
+            0x0DFFE507,
+            "ld4r    {v7.4h, v8.4h, v9.4h, v10.4h}, [x8], #0x8",
+        );
+        assert_dis(
+            0x4DF8EED7,
+            "ld4r    {v23.2d, v24.2d, v25.2d, v26.2d}, [x22], x24",
+        );
     }
 
     #[test]
@@ -2972,7 +3441,10 @@ mod tests {
         let ld1r = 0x0DDFC4A5u32;
         let st1r = ld1r & !(1 << 22);
         let insn = decode(st1r, ADDRESS, FeatureSet::ALL);
-        assert!(insn.is_invalid(), "store-replicate must be invalid: {st1r:#010x}");
+        assert!(
+            insn.is_invalid(),
+            "store-replicate must be invalid: {st1r:#010x}"
+        );
     }
 
     #[test]
@@ -2989,7 +3461,10 @@ mod tests {
         // Without FEAT_LS64 these encodings are not admitted (and are not LSE).
         for word in [0xF83FD020u32, 0xF83F9020, 0xF822B020, 0xF822A020] {
             let insn = decode(word, ADDRESS, FeatureSet::BASE.with(Feature::Lse));
-            assert!(insn.is_invalid(), "LS64 must be gated by FEAT_LS64: {word:#010x}");
+            assert!(
+                insn.is_invalid(),
+                "LS64 must be gated by FEAT_LS64: {word:#010x}"
+            );
         }
     }
 
@@ -2998,7 +3473,9 @@ mod tests {
         // Sweep the four load/store op0 nibbles (word<27:24> high bits) across the
         // full low 24 bits. The decoder must be total and panic-free for both the
         // all-features and base feature sets.
-        for hi in [0x08u32, 0x0C, 0x18, 0x1C, 0x38, 0x3C, 0x48, 0x4C, 0x88, 0x8C, 0xC8, 0xCC, 0xF8, 0xFC] {
+        for hi in [
+            0x08u32, 0x0C, 0x18, 0x1C, 0x38, 0x3C, 0x48, 0x4C, 0x88, 0x8C, 0xC8, 0xCC, 0xF8, 0xFC,
+        ] {
             for lo in 0..=0xffffu32 {
                 let word = (hi << 24) | (lo << 4) | (lo & 0xf);
                 let _ = decode(word, ADDRESS, FeatureSet::ALL);

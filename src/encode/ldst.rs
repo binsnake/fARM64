@@ -640,7 +640,11 @@ fn enc_reg_immidx(insn: &Instruction) -> R {
         return Err(EncodeError::InvalidOperand);
     }
     let imm9 = encode_imm9(imm)?;
-    let op4 = if variant == RegVariant::ImmPre { 0b11 } else { 0b01 };
+    let op4 = if variant == RegVariant::ImmPre {
+        0b11
+    } else {
+        0b01
+    };
     let word = (form.size << 30)
         | (0b111 << 27)
         | (form.v << 26)
@@ -741,13 +745,8 @@ fn enc_reg_unpriv(insn: &Instruction) -> R {
         return Err(EncodeError::InvalidOperand);
     }
     let imm9 = encode_imm9(imm)?;
-    let word = (size << 30)
-        | (0b111 << 27)
-        | (opc << 22)
-        | (imm9 << 12)
-        | (0b10 << 10)
-        | (rn << 5)
-        | rt;
+    let word =
+        (size << 30) | (0b111 << 27) | (opc << 22) | (imm9 << 12) | (0b10 << 10) | (rn << 5) | rt;
     Ok(word)
 }
 
@@ -1442,9 +1441,18 @@ fn the_atomic_fields(code: Code) -> Option<(u32, u32, u32, u32, u32, u32, TheSha
             }
         };
     }
-    ldt!(Ldtadd32, Ldtaddl32, Ldtadda32, Ldtaddal32, Ldtadd64, Ldtaddl64, Ldtadda64, Ldtaddal64, 0, 0b000);
-    ldt!(Ldtclr32, Ldtclrl32, Ldtclra32, Ldtclral32, Ldtclr64, Ldtclrl64, Ldtclra64, Ldtclral64, 0, 0b001);
-    ldt!(Ldtset32, Ldtsetl32, Ldtseta32, Ldtsetal32, Ldtset64, Ldtsetl64, Ldtseta64, Ldtsetal64, 0, 0b011);
+    ldt!(
+        Ldtadd32, Ldtaddl32, Ldtadda32, Ldtaddal32, Ldtadd64, Ldtaddl64, Ldtadda64, Ldtaddal64, 0,
+        0b000
+    );
+    ldt!(
+        Ldtclr32, Ldtclrl32, Ldtclra32, Ldtclral32, Ldtclr64, Ldtclrl64, Ldtclra64, Ldtclral64, 0,
+        0b001
+    );
+    ldt!(
+        Ldtset32, Ldtsetl32, Ldtseta32, Ldtsetal32, Ldtset64, Ldtsetl64, Ldtseta64, Ldtsetal64, 0,
+        0b011
+    );
     ldt!(Swpt32, Swptl32, Swpta32, Swptal32, Swpt64, Swptl64, Swpta64, Swptal64, 1, 0b000);
 
     // RCWCAS (sz 0) / RCWSCAS (sz 1): op2=10, o3=0, opc=0, single Rs,Rt (X).
@@ -1498,7 +1506,17 @@ fn the_atomic_fields(code: Code) -> Option<(u32, u32, u32, u32, u32, u32, TheSha
 /// `size 011 0 01 A R 1 Rs o3 opc(14:12) op2(11:10) Rn Rt`.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-fn the_atomic_word(sz: u32, a: u32, r: u32, rs: u32, o3: u32, opc: u32, op2: u32, rn: u32, rt: u32) -> u32 {
+fn the_atomic_word(
+    sz: u32,
+    a: u32,
+    r: u32,
+    rs: u32,
+    o3: u32,
+    opc: u32,
+    op2: u32,
+    rn: u32,
+    rt: u32,
+) -> u32 {
     (sz << 30)
         | (0b011 << 27)
         | (0b01 << 24)
@@ -1940,12 +1958,7 @@ fn enc_ldapstl(insn: &Instruction) -> R {
         return Err(EncodeError::InvalidOperand);
     }
     let imm9 = encode_imm9(imm)?;
-    let word = (size << 30)
-        | (0b011001 << 24)
-        | (opc << 22)
-        | (imm9 << 12)
-        | (rn << 5)
-        | rt;
+    let word = (size << 30) | (0b011001 << 24) | (opc << 22) | (imm9 << 12) | (rn << 5) | rt;
     Ok(word)
 }
 
@@ -2103,13 +2116,8 @@ fn enc_stlr_ldapr_wb(insn: &Instruction) -> R {
         return Err(EncodeError::InvalidOperand);
     }
     let l = load as u32;
-    let word = (sz << 30)
-        | (0b011001 << 24)
-        | (1 << 23)
-        | (l << 22)
-        | (0b10 << 10)
-        | (rn << 5)
-        | rt;
+    let word =
+        (sz << 30) | (0b011001 << 24) | (1 << 23) | (l << 22) | (0b10 << 10) | (rn << 5) | rt;
     Ok(word)
 }
 
@@ -2267,32 +2275,32 @@ mod tests {
         rt(0x7983E17B); // ldrsh x27, [x11, #0x1f0]
         rt(0x3D4666EE); // ldr b14, [x23, #0x199]
         rt(0x3DDEABF2); // ldr q18, [sp, #0x7aa0]
-        // Register offset.
+                        // Register offset.
         rt(0xF87B5ADC); // ldr x28, [x22, w27, uxtw #0x3]
         rt(0xF86D7B64); // ldr x4, [x27, x13, lsl #0x3]
         rt(0xBC7F6A15); // ldr s21, [x16, xzr]
         rt(0x3863E8A0); // ldrb w0, [x5, x3, sxtx]
         rt(0x3862F9C1); // ldrb w1, [x14, x2, sxtx #0x0]
         rt(0x387E7B04); // ldrb w4, [x24, x30, lsl #0x0]
-        // Unscaled / pre / post.
+                        // Unscaled / pre / post.
         rt(0xF843F3F3); // ldur x19, [sp, #0x3f]
         rt(0xF845EC10); // ldr x16, [x0, #0x5e]!
         rt(0xF85FA74E); // ldr x14, [x26], #-0x6
         rt(0xF85E09FB); // ldtr x27, [x15, #-0x20]
-        // Literal + prefetch.
+                        // Literal + prefetch.
         rt(0x58564E32); // ldr x18, <lit>
         rt(0x98993236); // ldrsw x22, <lit>
         rt(0xD80580C5); // prfm pldl3strm, <lit>
         rt(0xF9818708); // prfm plil1keep, [x24, #0x308]
         rt(0xF89961AF); // prfum #0xf, [x13, #-0x6a]
-        // Pair.
+                        // Pair.
         rt(0xA943A9CC); // ldp x12, x10, [x14, #0x38]
         rt(0xA8EA2124); // ldp x4, x8, [x9], #-0x160
         rt(0xA9EACE40); // ldp x0, x19, [x18, #-0x158]!
         rt(0x69723695); // ldpsw x21, x13, [x20, #-0x70]
         rt(0xA86520FA); // ldnp x26, x8, [x7, #-0x1b0]
         rt(0xAD576824); // ldp q4, q26, [x1, #0x2e0]
-        // Exclusive / ordered.
+                        // Exclusive / ordered.
         rt(0xC8572629); // ldxr x9, [x17]
         rt(0xC806455E); // stxr w6, x30, [x10]
         rt(0xC8677530); // ldxp x16, x29, [x9]
@@ -2300,7 +2308,7 @@ mod tests {
         rt(0xC8DFFD72); // ldar x18, [x11]
         rt(0xC88DD332); // stlr x18, [x25]
         rt(0xC8C124B7); // ldlar x23, [x5]
-        // LSE atomics + CAS.
+                        // LSE atomics + CAS.
         rt(0xC8BB7E15); // cas x27, x21, [x16]
         rt(0x48227F0A); // casp x2, x3, x10, x11, [x24]
         rt(0x88EDFC7E); // casal w13, w30, [x3]
@@ -2309,7 +2317,7 @@ mod tests {
         rt(0xF82183F0); // swp x1, x16, [sp]
         rt(0xF83F021F); // stadd xzr, [x16]
         rt(0xF8BFC058); // ldapr x24, [x2]
-        // PAC, RCpc unscaled, tags.
+                        // PAC, RCpc unscaled, tags.
         rt(0xF8246596); // ldraa x22, [x12, #0x230]
         rt(0xF8AC1C5A); // ldrab x26, [x2, #0x608]!
         rt(0xD94CC1FF); // ldapur xzr, [x15, #0xcc]

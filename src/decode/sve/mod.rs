@@ -1,15 +1,18 @@
 //! SVE / SVE2 encoding group (`op0 = word<28:25> = 0b0010`) — hand-written.
 //!
 //! Transcribed from the *ARM Architecture Reference Manual* SVE encoding index.
-//! The SVE space is enormous (~34% of the differential corpus); this module is
+//! The SVE space spans several independent instruction families; this module is
 //! the top-level classifier that dispatches to the family submodules:
 //!
 //! * [`sve_int`] — integer arithmetic / logical / shift / reduction / INDEX /
 //!   INC-DEC / CNT / compare-immediate / MOV-DUP-CPY / DOT and the SVE2 integer
 //!   multiply-add and widening families.
-//! * [`sve_perm`] — permute / predicate-logical / table / unpack (stub for now).
-//! * [`sve_fp`] — floating-point (stub for now).
-//! * [`sve_mem`] — loads / stores / prefetch (stub for now).
+//! * [`sve_perm`] — permute, predicate generation/logical, and compare families.
+//! * [`sve_fp`] — floating-point arithmetic, conversion, compare, reduction,
+//!   complex, and multiply-add families.
+//! * [`sve_mem`] — contiguous, gather/scatter, structured, and non-temporal
+//!   loads/stores, plus prefetch and register-transfer forms.
+//! * [`sve_lut`] — FEAT_LUT lookup-table reads.
 //!
 //! Dispatch key. The eight SVE quadrants are selected by `word<31:29>`:
 //!

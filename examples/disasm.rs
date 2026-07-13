@@ -43,10 +43,8 @@ fn emit_word<W: Write>(token: &str, out: &mut W) -> io::Result<()> {
         }
     };
 
-    // The per-group decoders are currently `todo!()` stubs that panic. Catch a
-    // panic so a single unimplemented group does not abort the whole CLI run;
-    // such words simply render as `<unimplemented>`. (Once decoders land this is
-    // a transparent no-op — real instructions never panic.)
+    // Keep the manual diagnostic resilient if an unexpected decoder panic is
+    // introduced: one bad word should not abort a stream of spot checks.
     let rendered = std::panic::catch_unwind(|| {
         let bytes = word.to_le_bytes();
         let mut dec = Decoder::new(&bytes, ADDRESS, DecoderOptions::default());
@@ -65,8 +63,8 @@ fn emit_word<W: Write>(token: &str, out: &mut W) -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
-    // Suppress the default panic backtrace from the (currently stubbed)
-    // `todo!()` group decoders; each decode is wrapped in `catch_unwind`.
+    // Each diagnostic decode is wrapped in `catch_unwind`; suppress its default
+    // panic-hook output so the tabular result stays readable.
     std::panic::set_hook(Box::new(|_| {}));
 
     let stdout = io::stdout();

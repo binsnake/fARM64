@@ -37,7 +37,7 @@ pub struct Instruction {
     /// Number of valid entries in `operands`.
     pub(crate) op_count: u8,
     /// Packed instruction flags (flow-control class, flag effect, alias-applied,
-    /// ...), laid out by codegen. Kept as a `u8` to hold `Instruction` small.
+    /// ...). Kept as a `u8` to hold `Instruction` small.
     pub(crate) flags: u8,
     /// Inline operand storage; only `op_count` entries are meaningful.
     pub(crate) operands: [Operand; MAX_OPERANDS],

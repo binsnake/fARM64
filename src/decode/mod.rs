@@ -4,13 +4,13 @@
 //! hand-written decoder transcribed from the *ARM Architecture Reference Manual*
 //! top-level encoding classification (ARM ARM C4.1, "A64 instruction set
 //! encoding"). There is no bytecode and no table walk on the hot path: the entry
-//! point [`decode_into`] dispatches on `op0 = word<28:25>` to one of the eight
+//! point [`crate::decode::decode_into`] dispatches on `op0 = word<28:25>` to one of the eight
 //! A64 encoding groups, and each group decoder (in the sibling modules) matches
 //! its own sub-fields and builds the [`Instruction`] directly.
 //!
 //! Field extraction and the ARM shared pseudocode (`DecodeBitMasks`,
 //! `AdvSIMDExpandImm`, `VFPExpandImm`, `Replicate`, `HighestSetBit`,
-//! sign-extension, ...) are plain hand-written functions in [`bits`].
+//! sign-extension, ...) are plain hand-written functions in [`crate::decode::bits`].
 //!
 //! Top-level `op0` map (ARM ARM C4.1, table "Main encoding table"):
 //!

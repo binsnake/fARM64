@@ -21,7 +21,7 @@ use crate::enums::{Condition, VectorArrangement as VA};
 use crate::instruction::Instruction;
 use crate::mnemonic::{Code, Mnemonic};
 use crate::operand::Operand;
-use crate::register::{Register, RegClass};
+use crate::register::{RegClass, Register};
 
 type R = Result<u32, EncodeError>;
 
@@ -299,7 +299,8 @@ mod tests {
             .encode()
             .unwrap_or_else(|e| panic!("encode of {word:#010x} ({:?}) failed: {e:?}", insn.code()));
         assert_eq!(
-            got, word,
+            got,
+            word,
             "round-trip mismatch for {word:#010x}: re-encoded {got:#010x} (code={:?}, mnem={:?})",
             insn.code(),
             insn.mnemonic()

@@ -2,19 +2,20 @@
 name = "fARM64"
 version = "0.0.1"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.74.1"
 license = "MIT"
-description = "A pure-Rust, no_std, zero-heap AArch64 (A64) disassembler, hand-written from the ARM Architecture Reference Manual."
+description = "A pure-Rust, no_std, zero-heap AArch64 (A64) disassembler and semantic encoder."
 readme = "README.md"
-keywords = ["aarch64", "arm64", "disassembler", "no_std", "decoder"]
+keywords = ["aarch64", "arm64", "disassembler", "encoder", "no_std"]
 categories = ["no-std", "encoding", "hardware-support"]
 repository = "https://github.com/binsnake/fARM64"
+exclude = ["/.github/", "/.claude/", "/refs/"]
 
-# Original implementation derived from the ARM ARM (not a port of any other
-# decoder). Licensed MIT (matches the repo LICENSE).
-# The `xtask` sibling is a host-only code generator for the mechanical
-# lookup tables (the `Code`/`Mnemonic` enums and `&'static str` name tables); it
-# is NOT published. The library itself is hermetic: no build.rs, no network.
+# Arm architectural behavior is implemented from the Arm ARM. Apple AMX/GXF
+# implementation-defined sources are recorded in NOTICE. Licensed MIT.
+# The `xtask` sibling is a host-only scaffold for a future mechanical table
+# generator; it is not published or run by downstream builds. The library is
+# hermetic: no build.rs, no network.
 [workspace]
 members = ["xtask"]
 
@@ -25,7 +26,7 @@ members = ["xtask"]
 # no-CRT decoder + default formatter that performs ZERO heap allocation. Every
 # capability that needs a heap or an OS is strictly additive and opt-in.
 #
-# Portability tiers (see `open_decisions` / README):
+# Portability tiers (see README):
 #   Tier A  default ........ no_std, no alloc  (must always build & run)
 #   Tier B  feature "alloc" . String/Vec conveniences, info factory
 #   Tier C  feature "std" ... std::error::Error impl, std-only test helpers
@@ -37,32 +38,30 @@ default = []
 # Tier C: opt into the standard library. Implies `alloc`.
 std = ["alloc"]
 
-# Tier B: opt into an allocator for String/Vec conveniences (format-to-String,
-# the allocate-once InstructionInfoFactory, token-collecting String sink).
+# Tier B: opt into allocator-backed String/Vec conveniences (format-to-String
+# and the token-collecting String sink) plus the factory-shaped
+# InstructionInfoFactory compatibility API. The current factory stores its
+# cached value inline and does not itself allocate.
 alloc = []
 
-# Secondary formatter dialect (GNU / objdump style). Pure no_std, no alloc.
+# GNU compatibility formatter; currently UAL-equivalent. Pure no_std, no alloc.
 fmt-gnu = []
 
-# ---- Per-extension compile-out gates (independent of runtime FeatureSet) ----
-# A cargo feature decides what is COMPILED IN; the runtime FeatureSet decides
-# what is ACCEPTED at decode time. A base-only wasm build can omit the SVE/SME
-# tables entirely for a smaller binary.
-fp16 = []
-bf16 = []
-lse = []
-pauth = []
-mte = []
+# ---- Compile-out gates (independent of runtime FeatureSet) -----------------
+# `sve` and `sme` include their large decoder/encoder modules. `crypto` includes
+# the Advanced SIMD crypto decoder; its public enum variants and encoder support
+# remain available so the public type universe is stable across feature sets.
+# Runtime FeatureSet checks are a separate accept/reject layer.
 sme = []
 sve = []
 crypto = []
 
-# Convenience meta-feature: every extension compiled in.
-full = ["fp16", "bf16", "lse", "pauth", "mte", "sme", "sve", "crypto"]
+# Convenience meta-feature: every optional implementation module compiled in.
+full = ["sme", "sve", "crypto"]
 
 # ---- Test/bench-only audit gate (NOT for downstream use) ----
-# Installs a global allocator that panics on ANY allocation so the differential
-# harness can PROVE the decode_into + FmtFormatter+BufSink path is zero-heap.
+# Enables the test allocator that counts allocation calls while exercising the
+# decode_into + FmtFormatter+BufSink path.
 no-alloc-audit = []
 
 # No runtime dependencies: keeps wasm32-unknown-unknown and aarch64-unknown-none

@@ -49,26 +49,57 @@ fn ld1_st1_tile_nonzero(word: u32) -> bool {
     }
     // tile-number width = 4 - slice-index width; slice-index width per size:
     // B=4, H=3, W=2, D=1, Q=0.
-    let imm_bits = if b24 == 1 { 0 } else { [4u32, 3, 2, 1][sz as usize] };
+    let imm_bits = if b24 == 1 {
+        0
+    } else {
+        [4u32, 3, 2, 1][sz as usize]
+    };
     let tile = (word & 0xf) >> imm_bits;
     tile != 0
 }
 
 /// Decode `word` and assert it is not `Invalid` (survives the hardening).
 fn assert_decodes(word: u32) {
-    assert!(!decode(word, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode", word);
+    assert!(
+        !decode(word, 0, FeatureSet::ALL).is_invalid(),
+        "{:08X} should decode",
+        word
+    );
 }
 
 /// Decode `word`, re-encode, re-decode; require identical mnemonic + operands.
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
-    assert_eq!(enc, word, "{:08X} ({}) re-encoded to {:08X}", word, insn.mnemonic().name(), enc);
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
+    assert_eq!(
+        enc,
+        word,
+        "{:08X} ({}) re-encoded to {:08X}",
+        word,
+        insn.mnemonic().name(),
+        enc
+    );
     let insn2 = decode(enc, 0, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{:08X} mnemonic drift", word);
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{:08X} mnemonic drift",
+        word
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
     for i in 0..insn.op_count() {
         assert_eq!(
             format!("{:?}", insn.op(i)),
@@ -91,7 +122,12 @@ fn assert_survives(word: u32) {
 }
 
 fn assert_invalid(word: u32, why: &str) {
-    assert!(decode(word, 0, FeatureSet::ALL).is_invalid(), "{:08X} should be Invalid ({})", word, why);
+    assert!(
+        decode(word, 0, FeatureSet::ALL).is_invalid(),
+        "{:08X} should be Invalid ({})",
+        word,
+        why
+    );
 }
 
 /// LLVM-valid canonical examples (oracle `--mattr=+all`) must keep decoding.
@@ -153,7 +189,11 @@ fn ld1_st1_bit4_reserved() {
     ];
     for &v in &valids {
         // sanity: the base (bit4==0) decodes.
-        assert!(!decode(v, 0, FeatureSet::ALL).is_invalid(), "{:08X} base should decode", v);
+        assert!(
+            !decode(v, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} base should decode",
+            v
+        );
         // setting word<4> makes it UNDEFINED.
         assert_invalid(v | (1 << 4), "ld1/st1 word<4>=1");
     }
@@ -165,13 +205,19 @@ fn ld1_st1_bit4_reserved() {
 fn ld1q_st1q_size_reserved() {
     // Valid ld1q (sz==11) base.
     let base = 0xE1DE4A4Du32;
-    assert!(!decode(base, 0, FeatureSet::ALL).is_invalid(), "ld1q sz=11 should decode");
+    assert!(
+        !decode(base, 0, FeatureSet::ALL).is_invalid(),
+        "ld1q sz=11 should decode"
+    );
     // sz=01 and sz=10 with word<24>==1 are UNDEFINED.
     let clear_sz = base & !(0b11 << 22);
     assert_invalid(clear_sz | (0b01 << 22), "ld1q-region sz=01");
     assert_invalid(clear_sz | (0b10 << 22), "ld1q-region sz=10");
     // sz=11 still decodes (the valid Q form).
-    assert!(!decode(clear_sz | (0b11 << 22), 0, FeatureSet::ALL).is_invalid(), "sz=11 should decode");
+    assert!(
+        !decode(clear_sz | (0b11 << 22), 0, FeatureSet::ALL).is_invalid(),
+        "sz=11 should decode"
+    );
 }
 
 /// `LDR`/`STR` ZA: `word<20:16>`, `word<15>`, `word<12:10>`, `word<4>` are fixed
@@ -179,14 +225,20 @@ fn ld1q_st1q_size_reserved() {
 #[test]
 fn ldr_str_za_fixed_fields() {
     let base = 0xE100004Du32; // ldr za[w12, #0xd], [x2, #0xd, mul vl]
-    assert!(!decode(base, 0, FeatureSet::ALL).is_invalid(), "ldr-za base should decode");
+    assert!(
+        !decode(base, 0, FeatureSet::ALL).is_invalid(),
+        "ldr-za base should decode"
+    );
     // Each fixed-zero bit, set on its own, is UNDEFINED.
     for bitpos in [16u32, 17, 18, 19, 20, 15, 10, 11, 12, 4] {
         assert_invalid(base | (1 << bitpos), "ldr/str za fixed-zero bit set");
     }
     // The STR variant (op = word<21>) likewise.
     let str_base = base | (1 << 21);
-    assert!(!decode(str_base, 0, FeatureSet::ALL).is_invalid(), "str-za base should decode");
+    assert!(
+        !decode(str_base, 0, FeatureSet::ALL).is_invalid(),
+        "str-za base should decode"
+    );
     for bitpos in [16u32, 15, 12, 4] {
         assert_invalid(str_base | (1 << bitpos), "str za fixed-zero bit set");
     }
@@ -231,7 +283,11 @@ fn ld1_st1_sweep() {
             }
         }
     }
-    assert!(decoded >= 500, "expected many ZA ld/st forms to survive, got {}", decoded);
+    assert!(
+        decoded >= 500,
+        "expected many ZA ld/st forms to survive, got {}",
+        decoded
+    );
 }
 
 /// The whole region must be gated on FEAT_SME.
@@ -240,8 +296,16 @@ fn gated_by_feature_sme() {
     let no_sme = without_feature(FeatureSet::ALL, Feature::Sme);
     let words = [0xE011E5A3u32, 0xE1DE4A4D, 0xE100004D, 0xE1200106];
     for w in words {
-        assert!(decode(w, 0, no_sme).is_invalid(), "{:08X} should require FEAT_SME", w);
-        assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode with FEAT_SME", w);
+        assert!(
+            decode(w, 0, no_sme).is_invalid(),
+            "{:08X} should require FEAT_SME",
+            w
+        );
+        assert!(
+            !decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} should decode with FEAT_SME",
+            w
+        );
     }
 }
 

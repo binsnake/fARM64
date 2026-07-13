@@ -15,7 +15,7 @@
 //!
 //! Discrimination of the families is by the standard SIMD field layout
 //! (`word<31>=0`, `word<30>=Q`, `word<29>=U`, `word<28:24>` = `01110`/`11110`
-//! [vector] or `01111`/`11111` [by-element], `word<23:22>=size`, then the
+//! **vector** or `01111`/`11111` **by-element**, `word<23:22>=size`, then the
 //! `word<21>` / `word<11:10>` / `word<21:17>` selectors). Half-precision and
 //! BF16 forms gate on [`Feature::Fp16`] / [`Feature::Bf16`] (decoding under the
 //! default `FeatureSet::ALL`).
@@ -37,58 +37,247 @@ use crate::register::Register;
 // ---------------------------------------------------------------------------
 
 const V: [Register; 32] = [
-    Register::V0, Register::V1, Register::V2, Register::V3, Register::V4, Register::V5, Register::V6, Register::V7,
-    Register::V8, Register::V9, Register::V10, Register::V11, Register::V12, Register::V13, Register::V14, Register::V15,
-    Register::V16, Register::V17, Register::V18, Register::V19, Register::V20, Register::V21, Register::V22, Register::V23,
-    Register::V24, Register::V25, Register::V26, Register::V27, Register::V28, Register::V29, Register::V30, Register::V31,
+    Register::V0,
+    Register::V1,
+    Register::V2,
+    Register::V3,
+    Register::V4,
+    Register::V5,
+    Register::V6,
+    Register::V7,
+    Register::V8,
+    Register::V9,
+    Register::V10,
+    Register::V11,
+    Register::V12,
+    Register::V13,
+    Register::V14,
+    Register::V15,
+    Register::V16,
+    Register::V17,
+    Register::V18,
+    Register::V19,
+    Register::V20,
+    Register::V21,
+    Register::V22,
+    Register::V23,
+    Register::V24,
+    Register::V25,
+    Register::V26,
+    Register::V27,
+    Register::V28,
+    Register::V29,
+    Register::V30,
+    Register::V31,
 ];
 const BR: [Register; 32] = [
-    Register::B0, Register::B1, Register::B2, Register::B3, Register::B4, Register::B5, Register::B6, Register::B7,
-    Register::B8, Register::B9, Register::B10, Register::B11, Register::B12, Register::B13, Register::B14, Register::B15,
-    Register::B16, Register::B17, Register::B18, Register::B19, Register::B20, Register::B21, Register::B22, Register::B23,
-    Register::B24, Register::B25, Register::B26, Register::B27, Register::B28, Register::B29, Register::B30, Register::B31,
+    Register::B0,
+    Register::B1,
+    Register::B2,
+    Register::B3,
+    Register::B4,
+    Register::B5,
+    Register::B6,
+    Register::B7,
+    Register::B8,
+    Register::B9,
+    Register::B10,
+    Register::B11,
+    Register::B12,
+    Register::B13,
+    Register::B14,
+    Register::B15,
+    Register::B16,
+    Register::B17,
+    Register::B18,
+    Register::B19,
+    Register::B20,
+    Register::B21,
+    Register::B22,
+    Register::B23,
+    Register::B24,
+    Register::B25,
+    Register::B26,
+    Register::B27,
+    Register::B28,
+    Register::B29,
+    Register::B30,
+    Register::B31,
 ];
 const HR: [Register; 32] = [
-    Register::H0, Register::H1, Register::H2, Register::H3, Register::H4, Register::H5, Register::H6, Register::H7,
-    Register::H8, Register::H9, Register::H10, Register::H11, Register::H12, Register::H13, Register::H14, Register::H15,
-    Register::H16, Register::H17, Register::H18, Register::H19, Register::H20, Register::H21, Register::H22, Register::H23,
-    Register::H24, Register::H25, Register::H26, Register::H27, Register::H28, Register::H29, Register::H30, Register::H31,
+    Register::H0,
+    Register::H1,
+    Register::H2,
+    Register::H3,
+    Register::H4,
+    Register::H5,
+    Register::H6,
+    Register::H7,
+    Register::H8,
+    Register::H9,
+    Register::H10,
+    Register::H11,
+    Register::H12,
+    Register::H13,
+    Register::H14,
+    Register::H15,
+    Register::H16,
+    Register::H17,
+    Register::H18,
+    Register::H19,
+    Register::H20,
+    Register::H21,
+    Register::H22,
+    Register::H23,
+    Register::H24,
+    Register::H25,
+    Register::H26,
+    Register::H27,
+    Register::H28,
+    Register::H29,
+    Register::H30,
+    Register::H31,
 ];
 const SR: [Register; 32] = [
-    Register::S0, Register::S1, Register::S2, Register::S3, Register::S4, Register::S5, Register::S6, Register::S7,
-    Register::S8, Register::S9, Register::S10, Register::S11, Register::S12, Register::S13, Register::S14, Register::S15,
-    Register::S16, Register::S17, Register::S18, Register::S19, Register::S20, Register::S21, Register::S22, Register::S23,
-    Register::S24, Register::S25, Register::S26, Register::S27, Register::S28, Register::S29, Register::S30, Register::S31,
+    Register::S0,
+    Register::S1,
+    Register::S2,
+    Register::S3,
+    Register::S4,
+    Register::S5,
+    Register::S6,
+    Register::S7,
+    Register::S8,
+    Register::S9,
+    Register::S10,
+    Register::S11,
+    Register::S12,
+    Register::S13,
+    Register::S14,
+    Register::S15,
+    Register::S16,
+    Register::S17,
+    Register::S18,
+    Register::S19,
+    Register::S20,
+    Register::S21,
+    Register::S22,
+    Register::S23,
+    Register::S24,
+    Register::S25,
+    Register::S26,
+    Register::S27,
+    Register::S28,
+    Register::S29,
+    Register::S30,
+    Register::S31,
 ];
 const DR: [Register; 32] = [
-    Register::D0, Register::D1, Register::D2, Register::D3, Register::D4, Register::D5, Register::D6, Register::D7,
-    Register::D8, Register::D9, Register::D10, Register::D11, Register::D12, Register::D13, Register::D14, Register::D15,
-    Register::D16, Register::D17, Register::D18, Register::D19, Register::D20, Register::D21, Register::D22, Register::D23,
-    Register::D24, Register::D25, Register::D26, Register::D27, Register::D28, Register::D29, Register::D30, Register::D31,
+    Register::D0,
+    Register::D1,
+    Register::D2,
+    Register::D3,
+    Register::D4,
+    Register::D5,
+    Register::D6,
+    Register::D7,
+    Register::D8,
+    Register::D9,
+    Register::D10,
+    Register::D11,
+    Register::D12,
+    Register::D13,
+    Register::D14,
+    Register::D15,
+    Register::D16,
+    Register::D17,
+    Register::D18,
+    Register::D19,
+    Register::D20,
+    Register::D21,
+    Register::D22,
+    Register::D23,
+    Register::D24,
+    Register::D25,
+    Register::D26,
+    Register::D27,
+    Register::D28,
+    Register::D29,
+    Register::D30,
+    Register::D31,
 ];
 const QR: [Register; 32] = [
-    Register::Q0, Register::Q1, Register::Q2, Register::Q3, Register::Q4, Register::Q5, Register::Q6, Register::Q7,
-    Register::Q8, Register::Q9, Register::Q10, Register::Q11, Register::Q12, Register::Q13, Register::Q14, Register::Q15,
-    Register::Q16, Register::Q17, Register::Q18, Register::Q19, Register::Q20, Register::Q21, Register::Q22, Register::Q23,
-    Register::Q24, Register::Q25, Register::Q26, Register::Q27, Register::Q28, Register::Q29, Register::Q30, Register::Q31,
+    Register::Q0,
+    Register::Q1,
+    Register::Q2,
+    Register::Q3,
+    Register::Q4,
+    Register::Q5,
+    Register::Q6,
+    Register::Q7,
+    Register::Q8,
+    Register::Q9,
+    Register::Q10,
+    Register::Q11,
+    Register::Q12,
+    Register::Q13,
+    Register::Q14,
+    Register::Q15,
+    Register::Q16,
+    Register::Q17,
+    Register::Q18,
+    Register::Q19,
+    Register::Q20,
+    Register::Q21,
+    Register::Q22,
+    Register::Q23,
+    Register::Q24,
+    Register::Q25,
+    Register::Q26,
+    Register::Q27,
+    Register::Q28,
+    Register::Q29,
+    Register::Q30,
+    Register::Q31,
 ];
 
 /// A bare register operand (no decorations).
 #[inline]
 fn plain(reg: Register) -> Operand {
-    Operand::Reg { reg, arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg,
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A vector register operand `V{n}` with arrangement `arr`.
 #[inline]
 fn vreg(n: u32, arr: VA) -> Operand {
-    Operand::Reg { reg: V[(n & 0x1f) as usize], arr: Some(arr), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: V[(n & 0x1f) as usize],
+        arr: Some(arr),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// An indexed vector-element operand `V{n}.<Ts>[index]`.
 #[inline]
 fn vreg_idx(n: u32, arr: VA, index: u8) -> Operand {
-    Operand::Reg { reg: V[(n & 0x1f) as usize], arr: Some(arr), lane: Some(index), shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: V[(n & 0x1f) as usize],
+        arr: Some(arr),
+        lane: Some(index),
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A scalar SIMD register operand of the element width `eb` (8/16/32/64/128).
@@ -117,10 +306,34 @@ fn sca(n: u32, eb: u16) -> Operand {
 fn arr_sizeq(size: u32, q: u32) -> VA {
     let q = q & 1 == 1;
     match size & 3 {
-        0 => if q { VA::V16B } else { VA::V8B },
-        1 => if q { VA::V8H } else { VA::V4H },
-        2 => if q { VA::V4S } else { VA::V2S },
-        _ => if q { VA::V2D } else { VA::V1D },
+        0 => {
+            if q {
+                VA::V16B
+            } else {
+                VA::V8B
+            }
+        }
+        1 => {
+            if q {
+                VA::V8H
+            } else {
+                VA::V4H
+            }
+        }
+        2 => {
+            if q {
+                VA::V4S
+            } else {
+                VA::V2S
+            }
+        }
+        _ => {
+            if q {
+                VA::V2D
+            } else {
+                VA::V1D
+            }
+        }
     }
 }
 
@@ -141,7 +354,11 @@ fn arr_fp(sz: u32, q: u32) -> Option<VA> {
 /// The half-precision FP arrangement for `Q`: `.4h`/`.8h`.
 #[inline]
 fn arr_fp16(q: u32) -> VA {
-    if q & 1 == 1 { VA::V8H } else { VA::V4H }
+    if q & 1 == 1 {
+        VA::V8H
+    } else {
+        VA::V4H
+    }
 }
 
 /// Element width in bits for an integer `size` field.
@@ -504,8 +721,16 @@ fn fp_three_same(
     // sources into `.2s`/`.4s` and so are not scalar.
     let a = bit(size, 1);
     let fmlal_code = match (u, opcode) {
-        (0, 0b11101) => Some(if a == 0 { Code::FmlalVec } else { Code::FmlslVec }),
-        (1, 0b11001) => Some(if a == 0 { Code::Fmlal2Vec } else { Code::Fmlsl2Vec }),
+        (0, 0b11101) => Some(if a == 0 {
+            Code::FmlalVec
+        } else {
+            Code::FmlslVec
+        }),
+        (1, 0b11001) => Some(if a == 0 {
+            Code::Fmlal2Vec
+        } else {
+            Code::Fmlsl2Vec
+        }),
         _ => None,
     };
     if let Some(code) = fmlal_code {
@@ -963,7 +1188,11 @@ fn simd_three_reg_ext(word: u32, features: FeatureSet, out: &mut Instruction) ->
                 }
                 (0, 0b11) if features.has(Feature::Fp8) => {
                     // FMLALB (Q=0) / FMLALT (Q=1): Vd.8H, Vn.16B, Vm.16B.
-                    let code = if q == 0 { Code::FmlalbVec } else { Code::FmlaltVec };
+                    let code = if q == 0 {
+                        Code::FmlalbVec
+                    } else {
+                        Code::FmlaltVec
+                    };
                     emit3(out, code, rd, VA::V8H, rn, VA::V16B, rm, VA::V16B);
                 }
                 (1, 0b01) if features.has(Feature::Bf16) => {
@@ -973,7 +1202,11 @@ fn simd_three_reg_ext(word: u32, features: FeatureSet, out: &mut Instruction) ->
                 }
                 (1, 0b11) if features.has(Feature::Bf16) => {
                     // BFMLALB (Q=0) / BFMLALT (Q=1): Vd.4S, Vn.8H, Vm.8H.
-                    let code = if q == 0 { Code::BfmlalbVec } else { Code::BfmlaltVec };
+                    let code = if q == 0 {
+                        Code::BfmlalbVec
+                    } else {
+                        Code::BfmlaltVec
+                    };
                     emit3(out, code, rd, VA::V4S, rn, VA::V8H, rm, VA::V8H);
                 }
                 _ => {}
@@ -1002,16 +1235,52 @@ fn simd_three_reg_ext(word: u32, features: FeatureSet, out: &mut Instruction) ->
             if q == 1 {
                 match (u, size) {
                     (0, 0b01) if features.has(Feature::F16f32mm) => {
-                        emit3(out, Code::FmmlaVecF16F32, rd, VA::V4S, rn, VA::V8H, rm, VA::V8H);
+                        emit3(
+                            out,
+                            Code::FmmlaVecF16F32,
+                            rd,
+                            VA::V4S,
+                            rn,
+                            VA::V8H,
+                            rm,
+                            VA::V8H,
+                        );
                     }
                     (0, 0b11) if features.has(Feature::F16mm) => {
-                        emit3(out, Code::FmmlaVecF16, rd, VA::V8H, rn, VA::V8H, rm, VA::V8H);
+                        emit3(
+                            out,
+                            Code::FmmlaVecF16,
+                            rd,
+                            VA::V8H,
+                            rn,
+                            VA::V8H,
+                            rm,
+                            VA::V8H,
+                        );
                     }
                     (1, 0b00) if features.has(Feature::F8f16mm) => {
-                        emit3(out, Code::FmmlaVecF8F16, rd, VA::V8H, rn, VA::V16B, rm, VA::V16B);
+                        emit3(
+                            out,
+                            Code::FmmlaVecF8F16,
+                            rd,
+                            VA::V8H,
+                            rn,
+                            VA::V16B,
+                            rm,
+                            VA::V16B,
+                        );
                     }
                     (1, 0b10) if features.has(Feature::F8f32mm) => {
-                        emit3(out, Code::FmmlaVecF8F32, rd, VA::V4S, rn, VA::V16B, rm, VA::V16B);
+                        emit3(
+                            out,
+                            Code::FmmlaVecF8F32,
+                            rd,
+                            VA::V4S,
+                            rn,
+                            VA::V16B,
+                            rm,
+                            VA::V16B,
+                        );
                     }
                     (1, 0b01) if features.has(Feature::Bf16) => {
                         emit3(out, Code::BfmmlaVec, rd, VA::V4S, rn, VA::V8H, rm, VA::V8H);
@@ -1344,13 +1613,13 @@ fn int_two_reg_misc(
     // Compare-against-zero forms carry a trailing `#0` immediate.
     // (CMGT/CMEQ/CMLT for U=0; CMGE/CMLE for U=1, plus ABS/NEG.)
     enum Misc {
-        Same(Code),      // Vd.T, Vn.T
-        CmpZero(Code),   // Vd.T, Vn.T, #0
-        Narrow(Code),    // Vd.<Tb>, Vn.<Ta>  (XTN/SQXTN/...)
-        Long(Code),      // SADDLP/UADDLP/SADALP/UADALP: Vd.<Ta>, Vn.<Tb>
-        Rev(Code, u8),   // REV with element grouping (containers)
-        ShllOp,          // SHLL/SHLL2 (special shift)
-        Bitwise(Code),   // MVN/RBIT: Vd.T, Vn.T with T always .8b/.16b
+        Same(Code),    // Vd.T, Vn.T
+        CmpZero(Code), // Vd.T, Vn.T, #0
+        Narrow(Code),  // Vd.<Tb>, Vn.<Ta>  (XTN/SQXTN/...)
+        Long(Code),    // SADDLP/UADDLP/SADALP/UADALP: Vd.<Ta>, Vn.<Tb>
+        Rev(Code, u8), // REV with element grouping (containers)
+        ShllOp,        // SHLL/SHLL2 (special shift)
+        Bitwise(Code), // MVN/RBIT: Vd.T, Vn.T with T always .8b/.16b
     }
 
     let m = match (u, opcode) {
@@ -1419,7 +1688,9 @@ fn int_two_reg_misc(
                             return;
                         }
                     }
-                    Code::SuqaddVec | Code::UsqaddVec | Code::SqabsVec | Code::SqnegVec => esize(size),
+                    Code::SuqaddVec | Code::UsqaddVec | Code::SqabsVec | Code::SqnegVec => {
+                        esize(size)
+                    }
                     _ => return,
                 };
                 out.set(code);
@@ -1526,7 +1797,11 @@ fn int_two_reg_misc(
             let ta = wide_arr(size);
             let tb = arr_sizeq(size, q);
             let shift = esize(size) as u64; // 8/16/32
-            out.set(if q == 1 { Code::Shll2Vec } else { Code::ShllVec });
+            out.set(if q == 1 {
+                Code::Shll2Vec
+            } else {
+                Code::ShllVec
+            });
             out.push_operand(vreg(rd, ta));
             out.push_operand(vreg(rn, tb));
             out.push_operand(Operand::ImmUnsigned(shift));
@@ -1554,9 +1829,12 @@ fn int_misc_size_ok(code: Code, size: u32, q: u32) -> bool {
         // CLS/CLZ: B/H/S.
         Code::ClsVec | Code::ClzVec => size <= 0b10,
         // ABS/NEG/SQABS/SQNEG/SUQADD/USQADD: B/H/S/D, but `.1d` invalid.
-        Code::AbsVec | Code::NegVec | Code::SqabsVec | Code::SqnegVec | Code::SuqaddVec | Code::UsqaddVec => {
-            !(size == 0b11 && q == 0)
-        }
+        Code::AbsVec
+        | Code::NegVec
+        | Code::SqabsVec
+        | Code::SqnegVec
+        | Code::SuqaddVec
+        | Code::UsqaddVec => !(size == 0b11 && q == 0),
         _ => !(size == 0b11 && q == 0),
     }
 }
@@ -1887,7 +2165,11 @@ fn fp_misc_widenarrow(
             } else {
                 (VA::V2D, if q == 1 { VA::V4S } else { VA::V2S })
             };
-            out.set(if q == 1 { Code::Fcvtl2Vec } else { Code::FcvtlVec });
+            out.set(if q == 1 {
+                Code::Fcvtl2Vec
+            } else {
+                Code::FcvtlVec
+            });
             out.push_operand(vreg(rd, ta));
             out.push_operand(vreg(rn, tb));
         }
@@ -1898,7 +2180,11 @@ fn fp_misc_widenarrow(
             } else {
                 (VA::V2D, if q == 1 { VA::V4S } else { VA::V2S })
             };
-            out.set(if q == 1 { Code::Fcvtn2Vec } else { Code::FcvtnVec });
+            out.set(if q == 1 {
+                Code::Fcvtn2Vec
+            } else {
+                Code::FcvtnVec
+            });
             out.push_operand(vreg(rd, tb));
             out.push_operand(vreg(rn, ta));
         }
@@ -1906,7 +2192,11 @@ fn fp_misc_widenarrow(
             // FCVTXN{2} <Vd>.<Tb>, <Vn>.2d : narrow double->single round-to-odd.
             let ta = VA::V2D;
             let tb = if q == 1 { VA::V4S } else { VA::V2S };
-            out.set(if q == 1 { Code::Fcvtxn2Vec } else { Code::FcvtxnVec });
+            out.set(if q == 1 {
+                Code::Fcvtxn2Vec
+            } else {
+                Code::FcvtxnVec
+            });
             out.push_operand(vreg(rd, tb));
             out.push_operand(vreg(rn, ta));
         }
@@ -2073,7 +2363,11 @@ fn across_lanes(word: u32, scalar: bool, features: FeatureSet, out: &mut Instruc
         return;
     }
     let src = arr_sizeq(size, q);
-    let dst_eb = if is_long { esize(size) * 2 } else { esize(size) };
+    let dst_eb = if is_long {
+        esize(size) * 2
+    } else {
+        esize(size)
+    };
     out.set(code);
     out.push_operand(sca(rd, dst_eb));
     out.push_operand(vreg(rn, src));
@@ -2108,13 +2402,13 @@ fn decode_by_element(word: u32, scalar: bool, features: FeatureSet, out: &mut In
     // the integer arrangement.
     #[derive(Clone, Copy)]
     enum ByEl {
-        SameInt(Code),     // MUL/MLA/MLS: Vd.T, Vn.T, Vm.Ts[i]
-        SameFp(Code),      // FMUL/FMLA/...: Vd.T(fp), Vn.T(fp), Vm.Ts[i]
-        LongInt(Code),     // SMULL/UMULL/SMLAL/...: Vd.<2×>, Vn.<n>, Vm.Ts[i]
-        LongSat(Code),     // SQDMULL/SQDMLAL/SQDMLSL
-        SatSame(Code),     // SQDMULH/SQRDMULH/SQRDMLAH/SQRDMLSH
-        Fmlal(Code),       // FMLAL/FMLSL (widening .2s/.4s <- .2h/.4h)
-        Dot(Code),         // SDOT/UDOT by element: Vd.<2s/4s>, Vn.<8b/16b>, Vm.4b[i]
+        SameInt(Code), // MUL/MLA/MLS: Vd.T, Vn.T, Vm.Ts[i]
+        SameFp(Code),  // FMUL/FMLA/...: Vd.T(fp), Vn.T(fp), Vm.Ts[i]
+        LongInt(Code), // SMULL/UMULL/SMLAL/...: Vd.<2×>, Vn.<n>, Vm.Ts[i]
+        LongSat(Code), // SQDMULL/SQDMLAL/SQDMLSL
+        SatSame(Code), // SQDMULH/SQRDMULH/SQRDMLAH/SQRDMLSH
+        Fmlal(Code),   // FMLAL/FMLSL (widening .2s/.4s <- .2h/.4h)
+        Dot(Code),     // SDOT/UDOT by element: Vd.<2s/4s>, Vn.<8b/16b>, Vm.4b[i]
     }
 
     // FCMLA by element (U=1, opcode `RR01` with rotate `RR=word<14:13>`): a
@@ -2289,7 +2583,11 @@ fn decode_by_element(word: u32, scalar: bool, features: FeatureSet, out: &mut In
             if scalar || size != 0b10 {
                 return;
             }
-            let (ta, tb) = if q == 1 { (VA::V4S, VA::V4H) } else { (VA::V2S, VA::V2H) };
+            let (ta, tb) = if q == 1 {
+                (VA::V4S, VA::V4H)
+            } else {
+                (VA::V2S, VA::V2H)
+            };
             // For FMLAL the index is always a half-element index.
             let (vm_h, idx_h) = decode_index_h(word);
             out.set(code);
@@ -2429,7 +2727,11 @@ fn by_element_ext(
                 0b11 => {
                     if features.has(Feature::Fp8) {
                         let (vm, idx) = decode_index_b(word);
-                        let code = if q == 0 { Code::FmlalbVec } else { Code::FmlaltVec };
+                        let code = if q == 0 {
+                            Code::FmlalbVec
+                        } else {
+                            Code::FmlaltVec
+                        };
                         out.set(code);
                         out.push_operand(vreg(rd, VA::V8H));
                         out.push_operand(vreg(rn, VA::V16B));
@@ -2514,7 +2816,11 @@ fn by_element_ext(
                     // size11: BFMLALB (Q=0) / BFMLALT (Q=1): Vm.H[H:L:M].
                     if features.has(Feature::Bf16) {
                         let (vm, idx) = decode_index_h(word);
-                        let code = if q == 0 { Code::BfmlalbVec } else { Code::BfmlaltVec };
+                        let code = if q == 0 {
+                            Code::BfmlalbVec
+                        } else {
+                            Code::BfmlaltVec
+                        };
                         out.set(code);
                         out.push_operand(vreg(rd, VA::V4S));
                         out.push_operand(vreg(rn, VA::V8H));
@@ -2647,7 +2953,10 @@ mod tests {
         crate::decode::decode_into(word, 0x1000, FeatureSet::ALL, &mut insn);
         assert!(!insn.is_invalid(), "word {word:#010x} failed to decode");
         let got = insn.encode().expect("encode");
-        assert_eq!(got, word, "round-trip mismatch for {word:#010x}: got {got:#010x}");
+        assert_eq!(
+            got, word,
+            "round-trip mismatch for {word:#010x}: got {got:#010x}"
+        );
     }
 
     #[test]
@@ -2854,7 +3163,7 @@ mod tests {
     fn reserved_and_panic_free() {
         // `.1d` (size==11, Q==0) is invalid for a three-same byte/half/word op.
         invalid(0x0EE08400); // add v0.1d, ... -> reserved
-        // Sweep a slice of the SIMD-arith space for panic-freedom.
+                             // Sweep a slice of the SIMD-arith space for panic-freedom.
         for w in (0x0E00_0000u32..0x0E00_0000u32.wrapping_add(8192)).step_by(11) {
             let mut insn = Instruction::default();
             crate::decode::simd_fp::decode(w, 0, FeatureSet::ALL, &mut insn);

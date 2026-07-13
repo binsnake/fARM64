@@ -38,12 +38,34 @@ fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
     let enc = encode(&insn).unwrap_or_else(|e| {
-        panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e)
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
     });
-    assert_eq!(enc, word, "{:08X} ({}) re-encoded to {:08X}", word, insn.mnemonic().name(), enc);
+    assert_eq!(
+        enc,
+        word,
+        "{:08X} ({}) re-encoded to {:08X}",
+        word,
+        insn.mnemonic().name(),
+        enc
+    );
     let insn2 = decode(enc, 0, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{:08X} mnemonic drift", word);
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{:08X} mnemonic drift",
+        word
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
     for i in 0..insn.op_count() {
         assert_eq!(
             format!("{:?}", insn.op(i)),
@@ -61,14 +83,14 @@ fn examples_decode_as_expected() {
     // (word, mnemonic, operand_count) — canonical LLVM (+all) oracle encodings.
     let cases: &[(u32, &str, usize)] = &[
         // LDF<op> (load form: Rs, Rt, [Xn]) — H/S/D + ordering.
-        (0x7C20039A, "ldfadd", 3),    // ldfadd   h0, h26, [x28]
-        (0xBCA10062, "ldfadda", 3),   // ldfadda  s1, s2,  [x3]
-        (0xFC6403E5, "ldfaddl", 3),   // ldfaddl  d4, d5,  [sp]
-        (0x7CE60107, "ldfaddal", 3),  // ldfaddal h6, h7,  [x8]
-        (0xBC204041, "ldfmax", 3),    // ldfmax   s0, s1,  [x2]
-        (0xBC205041, "ldfmin", 3),    // ldfmin   s0, s1,  [x2]
-        (0xBC206041, "ldfmaxnm", 3),  // ldfmaxnm s0, s1,  [x2]
-        (0x7C207041, "ldfminnm", 3),  // ldfminnm h0, h1,  [x2]
+        (0x7C20039A, "ldfadd", 3),   // ldfadd   h0, h26, [x28]
+        (0xBCA10062, "ldfadda", 3),  // ldfadda  s1, s2,  [x3]
+        (0xFC6403E5, "ldfaddl", 3),  // ldfaddl  d4, d5,  [sp]
+        (0x7CE60107, "ldfaddal", 3), // ldfaddal h6, h7,  [x8]
+        (0xBC204041, "ldfmax", 3),   // ldfmax   s0, s1,  [x2]
+        (0xBC205041, "ldfmin", 3),   // ldfmin   s0, s1,  [x2]
+        (0xBC206041, "ldfmaxnm", 3), // ldfmaxnm s0, s1,  [x2]
+        (0x7C207041, "ldfminnm", 3), // ldfminnm h0, h1,  [x2]
         // STF<op> (store form: Rs, [Xn]) — Rt==31, ordering none/L.
         (0xBC20803F, "stfadd", 2),    // stfadd     s0, [x1]
         (0xFC60803F, "stfaddl", 2),   // stfaddl    d0, [x1]
@@ -94,7 +116,13 @@ fn examples_decode_as_expected() {
 #[test]
 fn exhaustive_roundtrip() {
     // (rs, rn, rt) register tuples to exercise.
-    let regs = [(0u32, 0u32, 0u32), (1, 2, 3), (5, 31, 9), (31, 1, 7), (26, 28, 0)];
+    let regs = [
+        (0u32, 0u32, 0u32),
+        (1, 2, 3),
+        (5, 31, 9),
+        (31, 1, 7),
+        (26, 28, 0),
+    ];
     let mut decoded = 0usize;
     for size in 0..4 {
         for a in 0..2 {
@@ -116,7 +144,11 @@ fn exhaustive_roundtrip() {
             }
         }
     }
-    assert!(decoded >= 200, "expected many LSFE forms to decode, got {}", decoded);
+    assert!(
+        decoded >= 200,
+        "expected many LSFE forms to decode, got {}",
+        decoded
+    );
 }
 
 #[test]
@@ -126,19 +158,36 @@ fn reserved_and_store_constraints() {
         for o3 in 0..2 {
             for opc in [0b001u32, 0b010, 0b011] {
                 let w = mk(size, 0, 0, 1, o3, opc, 2, if o3 == 1 { 31 } else { 3 });
-                assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} opc={:03b} should be Invalid", w, opc);
+                assert!(
+                    decode(w, 0, FeatureSet::ALL).is_invalid(),
+                    "{:08X} opc={:03b} should be Invalid",
+                    w,
+                    opc
+                );
             }
         }
     }
     // Store form (o3=1) with Rt != 31 is UNDEFINED.
     let st_badrt = mk(2, 0, 0, 1, 1, 0b000, 2, 5);
-    assert!(decode(st_badrt, 0, FeatureSet::ALL).is_invalid(), "{:08X} store Rt!=31 should be Invalid", st_badrt);
+    assert!(
+        decode(st_badrt, 0, FeatureSet::ALL).is_invalid(),
+        "{:08X} store Rt!=31 should be Invalid",
+        st_badrt
+    );
     // Store form (o3=1) with A=1 is UNDEFINED.
     let st_acquire = mk(2, 1, 0, 1, 1, 0b000, 2, 31);
-    assert!(decode(st_acquire, 0, FeatureSet::ALL).is_invalid(), "{:08X} store A=1 should be Invalid", st_acquire);
+    assert!(
+        decode(st_acquire, 0, FeatureSet::ALL).is_invalid(),
+        "{:08X} store A=1 should be Invalid",
+        st_acquire
+    );
     // The load form with the same fields *does* decode (sanity: layout is right).
     let ld = mk(2, 1, 0, 1, 0, 0b000, 2, 5);
-    assert!(!decode(ld, 0, FeatureSet::ALL).is_invalid(), "{:08X} load form should decode", ld);
+    assert!(
+        !decode(ld, 0, FeatureSet::ALL).is_invalid(),
+        "{:08X} load form should decode",
+        ld
+    );
 }
 
 #[test]
@@ -146,8 +195,16 @@ fn gated_by_feature() {
     let no_lsfe = without_lsfe(FeatureSet::ALL);
     let words = [0x7C20039Au32, 0xBC20803F, 0x3C200041, 0x3C20803F];
     for w in words {
-        assert!(decode(w, 0, no_lsfe).is_invalid(), "{:08X} should require FEAT_LSFE", w);
-        assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode with FEAT_LSFE", w);
+        assert!(
+            decode(w, 0, no_lsfe).is_invalid(),
+            "{:08X} should require FEAT_LSFE",
+            w
+        );
+        assert!(
+            !decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} should decode with FEAT_LSFE",
+            w
+        );
     }
 }
 

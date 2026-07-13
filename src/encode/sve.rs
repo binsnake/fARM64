@@ -1,21 +1,21 @@
 //! Encoder for the SVE / SVE2 group — the inverse of [`crate::decode::sve`].
 //!
-//! Gated behind `#[cfg(feature = "sve")]`. Without the feature the [`encode`]
-//! stub returns [`EncodeError::Unsupported`] and the default build still
-//! compiles. With it, every `Sve*` [`Code`] the decoder produces is inverted:
-//! dispatch on [`Instruction::code`], branch on [`Instruction::mnemonic`] to
+//! Gated behind `#[cfg(feature = "sve")]`. Without the feature the
+//! [`crate::encode::sve::encode`] stub returns
+//! [`crate::encode::EncodeError::Unsupported`] and the default build still
+//! compiles. With it, every `Sve*` [`crate::mnemonic::Code`] the decoder produces
+//! is inverted: dispatch on [`crate::instruction::Instruction::code`], branch on
+//! [`crate::instruction::Instruction::mnemonic`] to
 //! recover the alias operand layout, then pack the exact bitfields (the inverse
 //! of the decoder's field + alias math). Reconstructs the word purely from the
-//! instruction's semantics — never reads [`Instruction::word`]. Total and
+//! instruction's semantics — never reads [`crate::instruction::Instruction::word`]. Total and
 //! panic-free.
 
 /// Encode an SVE/SVE2 instruction. Without the `sve` feature this is the
 /// compiling stub that declines everything.
 #[cfg(not(feature = "sve"))]
 #[inline]
-pub fn encode(
-    _insn: &crate::instruction::Instruction,
-) -> Result<u32, crate::encode::EncodeError> {
+pub fn encode(_insn: &crate::instruction::Instruction) -> Result<u32, crate::encode::EncodeError> {
     Err(crate::encode::EncodeError::Unsupported)
 }
 

@@ -21,12 +21,35 @@ use fARM64::{encode, Feature, FeatureSet};
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
-    assert_eq!(enc, word, "{:08X} ({}) re-encoded to {:08X}", word, insn.mnemonic().name(), enc);
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
+    assert_eq!(
+        enc,
+        word,
+        "{:08X} ({}) re-encoded to {:08X}",
+        word,
+        insn.mnemonic().name(),
+        enc
+    );
     let insn2 = decode(enc, 0, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{:08X} mnemonic drift", word);
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{:08X} mnemonic drift",
+        word
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
 }
 
 fn is_invalid(word: u32) -> bool {
@@ -63,7 +86,10 @@ fn dup_indexed_bit21_reserved() {
     // DUP indexed / scalar-broadcast `MOV Zd.T, Zn.T[i]` requires `<21>=1`.
     assert!(is_invalid(0x05CB21BB), "05CB21BB (b21=0) should be Invalid");
     assert!(!is_invalid(0x05EB21BB), "05EB21BB canonical should decode"); // mov z27.b, z13.b[53]
-    assert!(!is_invalid(0x05212020), "05212020 scalar broadcast should decode"); // mov z0.b, b1
+    assert!(
+        !is_invalid(0x05212020),
+        "05212020 scalar broadcast should decode"
+    ); // mov z0.b, b1
     assert_roundtrip(0x05EB21BB);
     assert_roundtrip(0x05212020);
 }
@@ -72,8 +98,8 @@ fn dup_indexed_bit21_reserved() {
 fn abdl_bit12_and_histseg_size_reserved() {
     // {S,U}ABDL{B,T} (`<15:13>=001`) fix `<12>=1`; `<12>=0` is reserved.
     for &(bad, good) in &[
-        (0x45CE27DC, 0x45CE37DC), // sabdlt z28.d, z30.s, z14.s
-        (0x455E2982, 0x455E3982), // uabdlb z2.h, z12.b, z30.b
+        (0x45CE27DC, 0x45CE37DC),              // sabdlt z28.d, z30.s, z14.s
+        (0x455E2982, 0x455E3982),              // uabdlb z2.h, z12.b, z30.b
         (0x45423020 & !(1 << 12), 0x45423020), // sabdlb z0.h, z1.b, z2.b
     ] {
         assert!(is_invalid(bad), "{:08X} ABDL <12>=0 should be Invalid", bad);
@@ -82,7 +108,11 @@ fn abdl_bit12_and_histseg_size_reserved() {
     }
     // HISTSEG is `.b` only — non-zero size is reserved.
     for bad in [0x456BA3EBu32, 0x45ABA3EB, 0x45EBA3EB] {
-        assert!(is_invalid(bad), "{:08X} histseg size!=0 should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} histseg size!=0 should be Invalid",
+            bad
+        );
     }
     assert!(!is_invalid(0x452BA3EB), "452BA3EB histseg should decode");
     assert_roundtrip(0x452BA3EB);
@@ -96,12 +126,19 @@ fn incp_decp_reserved_fields() {
         (0x25FC8F2A, 0x25EC892A), // incp   x10, p9.d
         (0x25398FA1, 0x25298DA1), // uqincp x1, p13.b
     ] {
-        assert!(is_invalid(bad), "{:08X} INCP reserved should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} INCP reserved should be Invalid",
+            bad
+        );
         assert!(!is_invalid(good), "{:08X} canonical should decode", good);
         assert_roundtrip(good);
     }
     // INC/DEC element-count vector: `<12>=0`; non-saturating also `<11>=0`.
-    assert!(is_invalid(0x04F7DDCE), "04F7DDCE decd <11>=1 should be Invalid");
+    assert!(
+        is_invalid(0x04F7DDCE),
+        "04F7DDCE decd <11>=1 should be Invalid"
+    );
     assert!(!is_invalid(0x04F7C5CE), "04F7C5CE decd should decode");
     assert_roundtrip(0x04F7C5CE);
 }
@@ -113,7 +150,11 @@ fn minmax_mul_imm_bit13_reserved() {
         (0x256AE249, 0x256AC249), // smin z9.h, z9.h, #0x12
         (0x2570E249, 0x2570C249), // mul  z9.h, z9.h, #0x12
     ] {
-        assert!(is_invalid(bad), "{:08X} min/max/mul <13>=1 should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} min/max/mul <13>=1 should be Invalid",
+            bad
+        );
         assert!(!is_invalid(good), "{:08X} canonical should decode", good);
         assert_roundtrip(good);
     }
@@ -122,12 +163,21 @@ fn minmax_mul_imm_bit13_reserved() {
 #[test]
 fn rdvl_rn_and_udot_h_idx_reserved() {
     // RDVL fixes the `Rn` field to `11111`.
-    assert!(is_invalid(0x04BC5304), "04BC5304 RDVL Rn!=11111 should be Invalid");
+    assert!(
+        is_invalid(0x04BC5304),
+        "04BC5304 RDVL Rn!=11111 should be Invalid"
+    );
     assert!(!is_invalid(0x04BF5304), "04BF5304 RDVL should decode");
     assert_roundtrip(0x04BF5304);
     // UDOT/SDOT 2-way `.h` indexed requires `<23:22>=10`.
-    assert!(is_invalid(0x44D6CF8A), "44D6CF8A udot .h idx <22>=1 should be Invalid");
-    assert!(!is_invalid(0x4496CF8A), "4496CF8A udot .h idx should decode");
+    assert!(
+        is_invalid(0x44D6CF8A),
+        "44D6CF8A udot .h idx <22>=1 should be Invalid"
+    );
+    assert!(
+        !is_invalid(0x4496CF8A),
+        "4496CF8A udot .h idx should decode"
+    );
     assert_roundtrip(0x4496CF8A);
 }
 
@@ -145,9 +195,9 @@ fn multivector_narrowing_shift() {
         (0x45A83800, "uqrshrn"),
         (0x45A82000, "sqshrun"),
         (0x45A80800, "sqrshrun"),
-        (0x45AF0000, "sqshrn"),  // .b<-.h, #1
-        (0x45BF0000, "sqshrn"),  // .h<-.s, #1
-        (0x45B00045, "sqshrn"),  // .h<-.s, #16
+        (0x45AF0000, "sqshrn"), // .b<-.h, #1
+        (0x45BF0000, "sqshrn"), // .h<-.s, #1
+        (0x45B00045, "sqshrn"), // .h<-.s, #16
     ];
     for &(w, m) in cases {
         assert_eq!(mnem(w), m, "{:08X} mnemonic", w);
@@ -194,24 +244,40 @@ fn sve2p2_fp8_bf16_gaps() {
 
 fn without(fs: FeatureSet, f: Feature) -> FeatureSet {
     let bit = f as u32;
-    FeatureSet { features0: fs.features0 & !(1u64 << bit), features1: fs.features1 & !(1u64 << bit) }
+    FeatureSet {
+        features0: fs.features0 & !(1u64 << bit),
+        features1: fs.features1 & !(1u64 << bit),
+    }
 }
 
 #[test]
 fn added_families_feature_gated() {
     // Multi-vector narrowing shift + CNTP-as-counter require SVE2.1.
     for w in [0x45A80000u32, 0x25208300] {
-        assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode with all", w);
-        assert!(decode(w, 0, without(FeatureSet::ALL, Feature::Sve2p1)).is_invalid(),
-            "{:08X} should require Sve2p1", w);
+        assert!(
+            !decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} should decode with all",
+            w
+        );
+        assert!(
+            decode(w, 0, without(FeatureSet::ALL, Feature::Sve2p1)).is_invalid(),
+            "{:08X} should require Sve2p1",
+            w
+        );
     }
     // BFSCALE requires SVE_B16B16; the FP8 converts require FP8.
-    assert!(decode(0x65099846, 0, without(FeatureSet::ALL, Feature::SveB16b16)).is_invalid(),
-        "bfscale should require SveB16b16");
+    assert!(
+        decode(0x65099846, 0, without(FeatureSet::ALL, Feature::SveB16b16)).is_invalid(),
+        "bfscale should require SveB16b16"
+    );
     // bf2cvt is FP8->BF16 (FEAT_FP8); scvtflt is int->FP, gated FEAT_SVE2p3
     // (re-gated in the P batch, verified against LLVM `requires:`).
-    assert!(decode(0x65083CF9, 0, without(FeatureSet::ALL, Feature::Fp8)).is_invalid(),
-        "bf2cvt should require Fp8");
-    assert!(decode(0x654C3A4A, 0, without(FeatureSet::ALL, Feature::Sve2p3)).is_invalid(),
-        "scvtflt should require Sve2p3");
+    assert!(
+        decode(0x65083CF9, 0, without(FeatureSet::ALL, Feature::Fp8)).is_invalid(),
+        "bf2cvt should require Fp8"
+    );
+    assert!(
+        decode(0x654C3A4A, 0, without(FeatureSet::ALL, Feature::Sve2p3)).is_invalid(),
+        "scvtflt should require Sve2p3"
+    );
 }

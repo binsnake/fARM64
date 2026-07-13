@@ -180,10 +180,7 @@ pub fn decode(word: u32, out: &mut Instruction) {
     // multiple of 4), `1` → strided step-4 `{Zd, Zd+4, Zd+8, Zd+12}` (`word<3:2>`
     // RES0, bases z0..z3 / z16..z19). This shape has no count marker, so it is
     // matched before the generic indexed-source scan below. FEAT_LUT.
-    if bit(word, 22) == 0
-        && bits(word, 16, 3) == 0b010
-        && bits(word, 10, 6) == 0
-    {
+    if bit(word, 22) == 0 && bits(word, 16, 3) == 0b010 && bits(word, 10, 6) == 0 {
         // Source 3-register group base `Zn = word<9:7>`; `word<6:5>` RES0.
         if bits(word, 5, 2) != 0 {
             return;
@@ -228,12 +225,7 @@ pub fn decode(word: u32, out: &mut Instruction) {
     // it is matched before the indexed marker scan. The destination is the 4-group
     // `{Zd, ..}` — consecutive (`word<20> == 0`, base multiple-of-4) or strided
     // (`word<20> == 1`, step 4, base `word<3:2> == 0`).
-    if !is_l2
-        && !single
-        && bit(word, 16) == 1
-        && bits(word, 14, 2) == 0
-        && bits(word, 12, 2) == 0
-    {
+    if !is_l2 && !single && bit(word, 16) == 1 && bits(word, 14, 2) == 0 && bits(word, 12, 2) == 0 {
         // Pair source base even.
         if zn & 1 != 0 {
             return;
@@ -328,8 +320,16 @@ pub fn decode(word: u32, out: &mut Instruction) {
         4
     };
 
-    out.set(if is_l2 { Code::SmeLuti2Zt } else { Code::SmeLuti4Zt });
-    out.set_mnemonic(if is_l2 { Mnemonic::Luti2 } else { Mnemonic::Luti4 });
+    out.set(if is_l2 {
+        Code::SmeLuti2Zt
+    } else {
+        Code::SmeLuti4Zt
+    });
+    out.set_mnemonic(if is_l2 {
+        Mnemonic::Luti2
+    } else {
+        Mnemonic::Luti4
+    });
     if count == 1 {
         // Single destination renders as a bare `Z<d>.<T>` (no braces).
         out.push_operand(Operand::Reg {

@@ -23,12 +23,35 @@ use fARM64::{encode, Feature, FeatureSet};
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
-    assert_eq!(enc, word, "{:08X} ({}) re-encoded to {:08X}", word, insn.mnemonic().name(), enc);
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
+    assert_eq!(
+        enc,
+        word,
+        "{:08X} ({}) re-encoded to {:08X}",
+        word,
+        insn.mnemonic().name(),
+        enc
+    );
     let insn2 = decode(enc, 0, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{:08X} mnemonic drift", word);
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{:08X} mnemonic drift",
+        word
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
 }
 
 fn text(word: u32) -> String {
@@ -44,18 +67,18 @@ fn text(word: u32) -> String {
 fn quadword_examples() {
     // (word, mnemonic, op_count) — canonical LLVM (+all) oracle encodings.
     let cases: &[(u32, &str, usize)] = &[
-        (0xc41fa000, "ld1q", 3),  // ld1q {z0.q}, p0/z, [z0.d]
-        (0xc401a000, "ld1q", 3),  // ld1q {z0.q}, p0/z, [z0.d, x1]
-        (0xe43f2000, "st1q", 3),  // st1q {z0.q}, p0, [z0.d]
-        (0xe4212000, "st1q", 3),  // st1q {z0.q}, p0, [z0.d, x1]
-        (0xa5208101, "ld3q", 3),  // ld3q {z1.q-z3.q}, p0/z, [x8, x0, lsl #4]
-        (0xa4a18000, "ld2q", 3),  // ld2q ... ss
-        (0xa498e000, "ld2q", 3),  // ld2q ... imm
-        (0xa5a18000, "ld4q", 3),  // ld4q ... ss
-        (0xe4610000, "st2q", 3),  // st2q ... ss
-        (0xe4480000, "st2q", 3),  // st2q ... imm
-        (0xe4a10000, "st3q", 3),  // st3q ... ss
-        (0xe4e10000, "st4q", 3),  // st4q ... ss
+        (0xc41fa000, "ld1q", 3), // ld1q {z0.q}, p0/z, [z0.d]
+        (0xc401a000, "ld1q", 3), // ld1q {z0.q}, p0/z, [z0.d, x1]
+        (0xe43f2000, "st1q", 3), // st1q {z0.q}, p0, [z0.d]
+        (0xe4212000, "st1q", 3), // st1q {z0.q}, p0, [z0.d, x1]
+        (0xa5208101, "ld3q", 3), // ld3q {z1.q-z3.q}, p0/z, [x8, x0, lsl #4]
+        (0xa4a18000, "ld2q", 3), // ld2q ... ss
+        (0xa498e000, "ld2q", 3), // ld2q ... imm
+        (0xa5a18000, "ld4q", 3), // ld4q ... ss
+        (0xe4610000, "st2q", 3), // st2q ... ss
+        (0xe4480000, "st2q", 3), // st2q ... imm
+        (0xe4a10000, "st3q", 3), // st3q ... ss
+        (0xe4e10000, "st4q", 3), // st4q ... ss
     ];
     for &(w, m, n) in cases {
         let insn = decode(w, 0, FeatureSet::ALL);
@@ -64,7 +87,10 @@ fn quadword_examples() {
         assert_roundtrip(w);
     }
     // Spot-check a couple of full renderings (house style: comma list, hex lsl).
-    assert_eq!(text(0xa5208101), "ld3q    {z1.q, z2.q, z3.q}, p0/z, [x8, x0, lsl #0x4]");
+    assert_eq!(
+        text(0xa5208101),
+        "ld3q    {z1.q, z2.q, z3.q}, p0/z, [x8, x0, lsl #0x4]"
+    );
     assert_eq!(text(0xc41fa000), "ld1q    {z0.q}, p0/z, [z0.d]");
     assert_eq!(text(0xc401a000), "ld1q    {z0.q}, p0/z, [z0.d, x1]");
 }
@@ -87,7 +113,14 @@ fn quadword_struct_roundtrip_sweep() {
                     nfield = (nreg as u32 - 1) << 23;
                 }
                 let sel = if store { 0b000 } else { 0b100 };
-                let w = (top << 24) | nfield | (1 << 21) | (rm << 16) | (sel << 13) | (pg << 10) | (rn << 5) | zt;
+                let w = (top << 24)
+                    | nfield
+                    | (1 << 21)
+                    | (rm << 16)
+                    | (sel << 13)
+                    | (pg << 10)
+                    | (rn << 5)
+                    | zt;
                 if !decode(w, 0, FeatureSet::ALL).is_invalid() {
                     decoded += 1;
                     assert_roundtrip(w);
@@ -96,7 +129,14 @@ fn quadword_struct_roundtrip_sweep() {
                 let isel = if store { 0b000 } else { 0b111 };
                 let b20 = if store { 0 } else { 1 };
                 let i4 = 7u32; // imm4 = 7 -> #(7*nreg), mul vl
-                let wi = (top << 24) | nfield | (b20 << 20) | (i4 << 16) | (isel << 13) | (pg << 10) | (rn << 5) | zt;
+                let wi = (top << 24)
+                    | nfield
+                    | (b20 << 20)
+                    | (i4 << 16)
+                    | (isel << 13)
+                    | (pg << 10)
+                    | (rn << 5)
+                    | zt;
                 if !decode(wi, 0, FeatureSet::ALL).is_invalid() {
                     decoded += 1;
                     assert_roundtrip(wi);
@@ -104,7 +144,11 @@ fn quadword_struct_roundtrip_sweep() {
             }
         }
     }
-    assert!(decoded >= 30, "expected many quadword structured forms, got {}", decoded);
+    assert!(
+        decoded >= 30,
+        "expected many quadword structured forms, got {}",
+        decoded
+    );
 }
 
 #[test]
@@ -115,15 +159,29 @@ fn quadword_gather_roundtrip_and_reserved() {
             let w = if load {
                 0xc400_0000 | (0b101 << 13) | (rm << 16) | (pg << 10) | (zn << 5) | zt
             } else {
-                0xe400_0000 | (0b001 << 21) | (0b001 << 13) | (rm << 16) | (pg << 10) | (zn << 5) | zt
+                0xe400_0000
+                    | (0b001 << 21)
+                    | (0b001 << 13)
+                    | (rm << 16)
+                    | (pg << 10)
+                    | (zn << 5)
+                    | zt
             };
-            assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode", w);
+            assert!(
+                !decode(w, 0, FeatureSet::ALL).is_invalid(),
+                "{:08X} should decode",
+                w
+            );
             assert_roundtrip(w);
         }
     }
     // Structured ss form with Xm==31 (xzr) is UNDEFINED.
     let bad = (0xa4u32 << 24) | (1 << 23) | (1 << 21) | (31 << 16) | (0b100 << 13);
-    assert!(decode(bad, 0, FeatureSet::ALL).is_invalid(), "{:08X} ss xzr should be Invalid", bad);
+    assert!(
+        decode(bad, 0, FeatureSet::ALL).is_invalid(),
+        "{:08X} ss xzr should be Invalid",
+        bad
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -148,13 +206,27 @@ fn revd_reserved_slots_invalid() {
     // size != 00 is reserved (UNDEFINED) for both /m and /z.
     for size in 1u32..=3 {
         for mbit in 0u32..=1 {
-            let w = (0x05u32 << 24) | (size << 22) | (1 << 21) | (0b01110 << 16) | ((0b100 | mbit) << 13) | (1 << 5);
-            assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} size={} should be Invalid", w, size);
+            let w = (0x05u32 << 24)
+                | (size << 22)
+                | (1 << 21)
+                | (0b01110 << 16)
+                | ((0b100 | mbit) << 13)
+                | (1 << 5);
+            assert!(
+                decode(w, 0, FeatureSet::ALL).is_invalid(),
+                "{:08X} size={} should be Invalid",
+                w,
+                size
+            );
         }
     }
     // `<21>` must be 1 (the merging-form over-decode that was fixed).
     let no21 = (0x05u32 << 24) | (0b01110 << 16) | (0b100 << 13) | (1 << 5);
-    assert!(decode(no21, 0, FeatureSet::ALL).is_invalid(), "{:08X} <21>=0 should be Invalid", no21);
+    assert!(
+        decode(no21, 0, FeatureSet::ALL).is_invalid(),
+        "{:08X} <21>=0 should be Invalid",
+        no21
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +251,12 @@ fn while_pair_pn_examples() {
         let insn = decode(w, 0, FeatureSet::ALL);
         assert_eq!(insn.mnemonic().name(), m, "{:08X} mnemonic", w);
         assert_eq!(insn.op_count(), n, "{:08X} op count", w);
-        assert_eq!(format_to_string(&FmtFormatter::new(), &insn), t, "{:08X} render", w);
+        assert_eq!(
+            format_to_string(&FmtFormatter::new(), &insn),
+            t,
+            "{:08X} render",
+            w
+        );
         assert_roundtrip(w);
     }
 }
@@ -260,7 +337,12 @@ fn fp_unary_zeroing_examples() {
         let insn = decode(w, 0, FeatureSet::ALL);
         assert_eq!(insn.mnemonic().name(), m, "{:08X} mnemonic", w);
         assert_eq!(insn.op_count(), 3, "{:08X} op count", w);
-        assert_eq!(format_to_string(&FmtFormatter::new(), &insn), t, "{:08X} render", w);
+        assert_eq!(
+            format_to_string(&FmtFormatter::new(), &insn),
+            t,
+            "{:08X} render",
+            w
+        );
         assert_roundtrip(w);
     }
 }
@@ -273,7 +355,12 @@ fn fp_unary_zeroing_sweep() {
     for size in 0u32..=3 {
         for opc in 0u32..8 {
             for sel in [4u32, 5, 6, 7] {
-                let w = (0x64u32 << 24) | (size << 22) | (0b11 << 19) | (opc << 16) | (sel << 13) | (1 << 5);
+                let w = (0x64u32 << 24)
+                    | (size << 22)
+                    | (0b11 << 19)
+                    | (opc << 16)
+                    | (sel << 13)
+                    | (1 << 5);
                 if !decode(w, 0, FeatureSet::ALL).is_invalid() {
                     n += 1;
                     assert_roundtrip(w);
@@ -302,11 +389,22 @@ fn gated_by_sve2p1() {
         0x64dea000,    // fcvtzu /z
     ];
     for w in words {
-        assert!(decode(w, 0, no).is_invalid(), "{:08X} should require FEAT_SVE2p1", w);
-        assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode with FEAT_SVE2p1", w);
+        assert!(
+            decode(w, 0, no).is_invalid(),
+            "{:08X} should require FEAT_SVE2p1",
+            w
+        );
+        assert!(
+            !decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} should decode with FEAT_SVE2p1",
+            w
+        );
     }
     // The REVD *merging* form is base SVE and must still decode without SVE2.1.
-    assert!(!decode(0x052e8020, 0, no).is_invalid(), "REVD /m must remain base-SVE");
+    assert!(
+        !decode(0x052e8020, 0, no).is_invalid(),
+        "REVD /m must remain base-SVE"
+    );
 }
 
 /// `FeatureSet::ALL` minus the `Sve2p1` bit (in both words).

@@ -173,12 +173,7 @@ fn decode_addsub_imm(word: u32, out: &mut Instruction) {
     let rd_is_31 = rd == 31;
     let rn_is_31 = rn == 31;
 
-    if !flag_setting
-        && op == 0
-        && sh == 0
-        && imm12 == 0
-        && (rd_is_31 || rn_is_31)
-    {
+    if !flag_setting && op == 0 && sh == 0 && imm12 == 0 && (rd_is_31 || rn_is_31) {
         // MOV (to/from SP): both registers are SP-capable.
         out.set_mnemonic(Mnemonic::Mov);
         out.push_operand(reg(true, w, rd));
@@ -188,7 +183,11 @@ fn decode_addsub_imm(word: u32, out: &mut Instruction) {
 
     if flag_setting && rd_is_31 {
         // CMP (SUBS) / CMN (ADDS): drop Rd, Rn is SP-capable.
-        out.set_mnemonic(if op == 1 { Mnemonic::Cmp } else { Mnemonic::Cmn });
+        out.set_mnemonic(if op == 1 {
+            Mnemonic::Cmp
+        } else {
+            Mnemonic::Cmn
+        });
         out.push_operand(reg(true, w, rn));
         out.push_operand(imm_op);
         return;
@@ -227,7 +226,11 @@ fn decode_addsub_imm_tags(word: u32, features: FeatureSet, out: &mut Instruction
     let rn = bits(word, 5, 5);
     let rd = bits(word, 0, 5);
 
-    out.set(if op == 1 { Code::SubgImm } else { Code::AddgImm });
+    out.set(if op == 1 {
+        Code::SubgImm
+    } else {
+        Code::AddgImm
+    });
     // Rd, Rn are both SP-capable (64-bit).
     out.push_operand(reg(true, RegWidth::X64, rd));
     out.push_operand(reg(true, RegWidth::X64, rn));
@@ -418,7 +421,11 @@ fn decode_move_wide(word: u32, out: &mut Instruction) {
         if !imm_is_zero_shifted && !is_32_all_ones {
             // value = NOT(imm16 << shift), truncated to datasize.
             let raw = !((imm16 as u64) << shift);
-            let val = if datasize == 32 { raw & 0xffff_ffff } else { raw };
+            let val = if datasize == 32 {
+                raw & 0xffff_ffff
+            } else {
+                raw
+            };
             out.set_mnemonic(Mnemonic::Mov);
             out.push_operand(reg(false, w, rd));
             out.push_operand(Operand::ImmSigned(signed_imm(val, datasize)));

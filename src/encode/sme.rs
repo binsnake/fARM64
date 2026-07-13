@@ -1,14 +1,16 @@
 //! Encoder for the SME (Scalable Matrix Extension) group — the inverse of
 //! [`crate::decode::sme`].
 //!
-//! Gated behind `#[cfg(feature = "sme")]`. Without the feature the [`encode`]
-//! stub returns [`EncodeError::Unsupported`] and `is_sme` reports `false`, so the
-//! default build still compiles. With it, every `Sme*` [`Code`] the decoder
-//! produces is inverted: dispatch on [`Instruction::code`] to a family encoder,
+//! Gated behind `#[cfg(feature = "sme")]`. Without the feature the
+//! [`crate::encode::sme::encode`] stub returns
+//! [`crate::encode::EncodeError::Unsupported`] and `is_sme` reports `false`, so
+//! the default build still compiles. With it, every `Sme*`
+//! [`crate::mnemonic::Code`] the decoder produces is inverted: dispatch on
+//! [`crate::instruction::Instruction::code`] to a family encoder,
 //! read the operands the decoder pushed (the binja `z`-prefixed tile-slice
 //! spellings included), and pack the exact bitfields in reverse. It reconstructs
 //! the word purely from the instruction's semantics — it never reads
-//! [`Instruction::word`]. Total and panic-free.
+//! [`crate::instruction::Instruction::word`]. Total and panic-free.
 //!
 //! `SMSTART`/`SMSTOP` are *not* handled here: they are `MSR (immediate)` PSTATE
 //! encodings owned by [`crate::encode::branch_sys`] (mirroring the decoder).
@@ -58,7 +60,7 @@ mod imp {
     use crate::instruction::Instruction;
     use crate::mnemonic::Code;
     use crate::operand::{Operand, SliceIndicator, SveMemMode};
-    use crate::register::{Register, RegClass};
+    use crate::register::{RegClass, Register};
 
     type R = Result<u32, EncodeError>;
 
@@ -192,36 +194,35 @@ mod imp {
             SmeLuti6Zt => enc_luti6_zt(insn),
             SmeLuti6 | SmeLuti6Consec => enc_luti6(insn),
             SmeAddMVS2 | SmeAddMVS4 | SmeSmaxMVS2 | SmeSmaxMVS4 | SmeUmaxMVS2 | SmeUmaxMVS4
-            | SmeSminMVS2 | SmeSminMVS4 | SmeUminMVS2 | SmeUminMVS4 | SmeSrshlMVS2 | SmeSrshlMVS4
-            | SmeUrshlMVS2 | SmeUrshlMVS4 | SmeSqdmulhMVS2 | SmeSqdmulhMVS4 | SmeFmaxMVS2
-            | SmeFmaxMVS4 | SmeFminMVS2 | SmeFminMVS4 | SmeFmaxnmMVS2 | SmeFmaxnmMVS4
-            | SmeFminnmMVS2 | SmeFminnmMVS4 | SmeFscaleMVS2 | SmeFscaleMVS4 | SmeBfmaxMVS2
-            | SmeBfmaxMVS4 | SmeBfminMVS2 | SmeBfminMVS4 | SmeBfmaxnmMVS2 | SmeBfmaxnmMVS4
-            | SmeBfminnmMVS2 | SmeBfminnmMVS4 | SmeBfscaleMVS2 | SmeBfscaleMVS4 => {
-                enc_mvs_alu(insn)
-            }
+            | SmeSminMVS2 | SmeSminMVS4 | SmeUminMVS2 | SmeUminMVS4 | SmeSrshlMVS2
+            | SmeSrshlMVS4 | SmeUrshlMVS2 | SmeUrshlMVS4 | SmeSqdmulhMVS2 | SmeSqdmulhMVS4
+            | SmeFmaxMVS2 | SmeFmaxMVS4 | SmeFminMVS2 | SmeFminMVS4 | SmeFmaxnmMVS2
+            | SmeFmaxnmMVS4 | SmeFminnmMVS2 | SmeFminnmMVS4 | SmeFscaleMVS2 | SmeFscaleMVS4
+            | SmeBfmaxMVS2 | SmeBfmaxMVS4 | SmeBfminMVS2 | SmeBfminMVS4 | SmeBfmaxnmMVS2
+            | SmeBfmaxnmMVS4 | SmeBfminnmMVS2 | SmeBfminnmMVS4 | SmeBfscaleMVS2
+            | SmeBfscaleMVS4 => enc_mvs_alu(insn),
             SmeSmaxMV2 | SmeSmaxMV4 | SmeUmaxMV2 | SmeUmaxMV4 | SmeSminMV2 | SmeSminMV4
             | SmeUminMV2 | SmeUminMV4 | SmeSrshlMV2 | SmeSrshlMV4 | SmeUrshlMV2 | SmeUrshlMV4
-            | SmeSqdmulhMV2 | SmeSqdmulhMV4 | SmeFamaxMV2 | SmeFamaxMV4 | SmeFaminMV2 | SmeFaminMV4
-            | SmeFscaleMVMV2 | SmeFscaleMVMV4 | SmeBfmaxMV2 | SmeBfmaxMV4 | SmeBfminMV2 | SmeBfminMV4
-            | SmeBfmaxnmMV2 | SmeBfmaxnmMV4 | SmeBfminnmMV2 | SmeBfminnmMV4 | SmeBfscaleMV2
-            | SmeBfscaleMV4 => enc_mvm_alu(insn),
+            | SmeSqdmulhMV2 | SmeSqdmulhMV4 | SmeFamaxMV2 | SmeFamaxMV4 | SmeFaminMV2
+            | SmeFaminMV4 | SmeFscaleMVMV2 | SmeFscaleMVMV4 | SmeBfmaxMV2 | SmeBfmaxMV4
+            | SmeBfminMV2 | SmeBfminMV4 | SmeBfmaxnmMV2 | SmeBfmaxnmMV4 | SmeBfminnmMV2
+            | SmeBfminnmMV4 | SmeBfscaleMV2 | SmeBfscaleMV4 => enc_mvm_alu(insn),
             SmeSunpk | SmeUunpk => enc_unpk(insn),
             SmeSqcvt | SmeUqcvt | SmeSqcvtu | SmeSqcvtnNarrow | SmeUqcvtnNarrow
             | SmeSqcvtunNarrow => enc_cvt_narrow(insn),
             SmeFcvtNarrow | SmeFcvtnNarrowFp | SmeBfcvtNarrow | SmeBfcvtnNarrowFp
             | SmeFcvtWiden | SmeFcvtlWiden => enc_fp_cvt(insn),
             SmeFcvtNarrowFp8 | SmeFcvtnNarrowFp8 | SmeBfcvtNarrowFp8 | SmeF1cvtWiden
-            | SmeF1cvtlWiden | SmeF2cvtWiden | SmeF2cvtlWiden | SmeBf1cvtWiden | SmeBf1cvtlWiden
-            | SmeBf2cvtWiden | SmeBf2cvtlWiden | SmeFrintn | SmeFrintp | SmeFrintm | SmeFrinta
-            | SmeScvtf | SmeUcvtf | SmeFcvtzs | SmeFcvtzu => enc_fp_cvt2(insn),
+            | SmeF1cvtlWiden | SmeF2cvtWiden | SmeF2cvtlWiden | SmeBf1cvtWiden
+            | SmeBf1cvtlWiden | SmeBf2cvtWiden | SmeBf2cvtlWiden | SmeFrintn | SmeFrintp
+            | SmeFrintm | SmeFrinta | SmeScvtf | SmeUcvtf | SmeFcvtzs | SmeFcvtzu => {
+                enc_fp_cvt2(insn)
+            }
             SmeSqrshrV2 | SmeUqrshrV2 | SmeSqrshruV2 => enc_narrow_shift2(insn),
             SmeMovaMultiZToTile | SmeMovaMultiTileToZ | SmeMovazMultiTileToZ => {
                 enc_za_tile_move(insn)
             }
-            SmeMovaArrayToVec | SmeMovazArrayToVec | SmeMovaVecToArray => {
-                enc_za_array_move(insn)
-            }
+            SmeMovaArrayToVec | SmeMovazArrayToVec | SmeMovaVecToArray => enc_za_array_move(insn),
             SmeZeroMask | SmeZeroZt0 | SmeZeroArray => enc_zero(insn),
             SmeMovtZt0Z | SmeMovtZt0X | SmeMovtXZt0 => enc_movt(insn),
             other => {
@@ -501,7 +502,9 @@ mod imp {
             Operand::Reg { reg, .. } if reg.class() == RegClass::Sve => {
                 Ok((0, reg.number() as u32))
             }
-            Operand::SveVecGroup { first, count: 2, .. } => Ok((1, first.number() as u32)),
+            Operand::SveVecGroup {
+                first, count: 2, ..
+            } => Ok((1, first.number() as u32)),
             _ => Err(EncodeError::InvalidOperand),
         }
     }
@@ -515,7 +518,11 @@ mod imp {
     /// ADDHA(0)/ADDVA(1); `word<22>` is the element size (`.S` 2-bit / `.D`
     /// 3-bit ZAda).
     fn enc_addha_addva(insn: &Instruction) -> R {
-        let v = if insn.code() == Code::SmeAddva { 1u32 } else { 0 };
+        let v = if insn.code() == Code::SmeAddva {
+            1u32
+        } else {
+            0
+        };
 
         let zada = z(insn, 0)?;
         let pn = p3(insn, 1)?;
@@ -524,8 +531,12 @@ mod imp {
 
         // Element size from the ZAda arrangement (`.S` or `.D`).
         let is64 = match insn.op(0) {
-            Operand::Reg { arr: Some(VA::Sd), .. } => true,
-            Operand::Reg { arr: Some(VA::Ss), .. } => false,
+            Operand::Reg {
+                arr: Some(VA::Sd), ..
+            } => true,
+            Operand::Reg {
+                arr: Some(VA::Ss), ..
+            } => false,
             _ => return Err(EncodeError::InvalidOperand),
         };
         let sz22 = if is64 { 1u32 } else { 0 };
@@ -537,13 +548,8 @@ mod imp {
             return Err(EncodeError::InvalidOperand);
         }
 
-        let word = 0xC090_0000
-            | (sz22 << 22)
-            | (pm << 13)
-            | (pn << 10)
-            | (zn << 5)
-            | (v << 16)
-            | zada;
+        let word =
+            0xC090_0000 | (sz22 << 22) | (pm << 13) | (pn << 10) | (zn << 5) | (v << 16) | zada;
         Ok(word)
     }
 
@@ -635,7 +641,8 @@ mod imp {
         let imm_u = (imm as u32) & ((1u32 << imm_bits).wrapping_sub(1));
         let field = (tile << imm_bits) | imm_u;
 
-        let base = 0xC000_0000 | (size << 22) | (q << 16) | (vertical << 15) | (rs << 13) | (pg << 10);
+        let base =
+            0xC000_0000 | (size << 22) | (q << 16) | (vertical << 15) | (rs << 13) | (pg << 10);
 
         let word = if to_vector {
             // word<17> == 1; field at word<8:5>, Zd at word<4:0>. `MOVAZ` (the
@@ -756,7 +763,11 @@ mod imp {
     /// `op = word<21>` picks LDR(0)/STR(1); `Wv = w12 + word<14:13>`;
     /// `imm4 = word<3:0>` (also the `MUL VL` multiple); `Rn = word<9:5>`.
     fn enc_ldr_str_za(insn: &Instruction) -> R {
-        let is_store = if insn.code() == Code::SmeStrZa { 1u32 } else { 0 };
+        let is_store = if insn.code() == Code::SmeStrZa {
+            1u32
+        } else {
+            0
+        };
 
         // Operand 0: the whole-array select `za[Wv, #imm4]`.
         let (sel, imm4) = match insn.op(0) {
@@ -769,10 +780,7 @@ mod imp {
                 ..
             } => {
                 // Whole-array form: no tile, no slice direction, no arrangement.
-                if reg != Register::None
-                    || slice != SliceIndicator::None
-                    || arr.is_some()
-                {
+                if reg != Register::None || slice != SliceIndicator::None || arr.is_some() {
                     return Err(EncodeError::InvalidOperand);
                 }
                 (sel, imm as i32)
@@ -822,9 +830,15 @@ mod imp {
         // only — the tile-slice `MOV`/`MOVAZ` form carries a slice direction and
         // is encoded elsewhere).
         let (arr, sel, off, span, vg) = match insn.op(0) {
-            Operand::SmeZaSlice { arr, sel, off, span, vg, slice: SliceIndicator::None, .. } => {
-                (arr, sel, off, span, vg)
-            }
+            Operand::SmeZaSlice {
+                arr,
+                sel,
+                off,
+                span,
+                vg,
+                slice: SliceIndicator::None,
+                ..
+            } => (arr, sel, off, span, vg),
             _ => return Err(EncodeError::InvalidOperand),
         };
         if arr != Some(f.acc) || span != f.span || vg != f.vg {
@@ -884,7 +898,9 @@ mod imp {
         };
         // Operand 1: the consecutive even pair { Zn, Zn+1 }.
         let znp = match insn.op(1) {
-            Operand::SveVecGroup { first, count, arr, .. } if count == 2 && arr == Some(f.src) => {
+            Operand::SveVecGroup {
+                first, count, arr, ..
+            } if count == 2 && arr == Some(f.src) => {
                 let n = first.number() as u32;
                 if n & 1 != 0 {
                     return Err(EncodeError::InvalidOperand);
@@ -897,9 +913,12 @@ mod imp {
         let zm = z_single(insn, 2, f.src)?;
         // Operand 3: the restricted Zk[idx].
         let (zk, idx) = match insn.op(3) {
-            Operand::Reg { reg, arr: None, lane: Some(l), .. } if reg.class() == RegClass::Sve => {
-                (reg.number() as u32, l as u32)
-            }
+            Operand::Reg {
+                reg,
+                arr: None,
+                lane: Some(l),
+                ..
+            } if reg.class() == RegClass::Sve => (reg.number() as u32, l as u32),
             _ => return Err(EncodeError::InvalidOperand),
         };
         // Restricted Zk: z20..z23 → 0..3, z28..z31 → 4..7.
@@ -946,11 +965,12 @@ mod imp {
     #[inline]
     fn z_single(insn: &Instruction, n: usize, arr: VA) -> Result<u32, EncodeError> {
         match insn.op(n) {
-            Operand::Reg { reg, arr: a, lane: None, .. }
-                if reg.class() == RegClass::Sve && a == Some(arr) =>
-            {
-                Ok(reg.number() as u32)
-            }
+            Operand::Reg {
+                reg,
+                arr: a,
+                lane: None,
+                ..
+            } if reg.class() == RegClass::Sve && a == Some(arr) => Ok(reg.number() as u32),
             _ => Err(EncodeError::InvalidOperand),
         }
     }
@@ -959,9 +979,12 @@ mod imp {
     #[inline]
     fn z_single_idx(insn: &Instruction, n: usize, arr: VA) -> Result<(u32, u32), EncodeError> {
         match insn.op(n) {
-            Operand::Reg { reg, arr: a, lane: Some(l), .. }
-                if reg.class() == RegClass::Sve && a == Some(arr) =>
-            {
+            Operand::Reg {
+                reg,
+                arr: a,
+                lane: Some(l),
+                ..
+            } if reg.class() == RegClass::Sve && a == Some(arr) => {
                 Ok((reg.number() as u32, l as u32))
             }
             _ => Err(EncodeError::InvalidOperand),
@@ -980,9 +1003,12 @@ mod imp {
         mask: u32,
     ) -> Result<u32, EncodeError> {
         match insn.op(n) {
-            Operand::SveVecGroup { first, count, arr: a, .. }
-                if count == vg && a == Some(arr) && first.class() == RegClass::Sve =>
-            {
+            Operand::SveVecGroup {
+                first,
+                count,
+                arr: a,
+                ..
+            } if count == vg && a == Some(arr) && first.class() == RegClass::Sve => {
                 let base = first.number() as u32;
                 let scale = 1u32 << (5 - mask.count_ones());
                 if base % scale != 0 {
@@ -1146,7 +1172,13 @@ mod imp {
         // Operand 0: the data vector group. `count` selects vgx2/vgx4; `stride`
         // selects the consecutive (`1`) or strided (`8`/`4`) family.
         let (first, count, group_arr, stride) = match insn.op(0) {
-            Operand::SveVecGroup { first, count, arr: Some(a), stride, .. } => (first, count, a, stride),
+            Operand::SveVecGroup {
+                first,
+                count,
+                arr: Some(a),
+                stride,
+                ..
+            } => (first, count, a, stride),
             _ => return Err(EncodeError::InvalidOperand),
         };
         if first.class() != RegClass::Sve || group_arr != arr {
@@ -1186,7 +1218,12 @@ mod imp {
 
         // Operand 2: the addressing mode.
         match insn.op(2) {
-            Operand::MemExt { base, index, extend, shift } => {
+            Operand::MemExt {
+                base,
+                index,
+                extend,
+                shift,
+            } => {
                 if base.class() != RegClass::Gp || index.class() != RegClass::Gp {
                     return Err(EncodeError::InvalidOperand);
                 }
@@ -1200,7 +1237,12 @@ mod imp {
                 word |= (index.number() as u32) << 16; // bit22 == 0: scalar+scalar
                 word |= (base.number() as u32) << 5;
             }
-            Operand::SveMem { base, imm, mode: SveMemMode::ScalarImmMulVl, .. } => {
+            Operand::SveMem {
+                base,
+                imm,
+                mode: SveMemMode::ScalarImmMulVl,
+                ..
+            } => {
                 if base.class() != RegClass::Gp {
                     return Err(EncodeError::InvalidOperand);
                 }
@@ -1244,9 +1286,12 @@ mod imp {
         };
         // Operand 0: the single destination vector `Zd.<b|h>`.
         let (zd, dst) = match insn.op(0) {
-            Operand::Reg { reg, arr: Some(a), lane: None, .. } if reg.class() == RegClass::Sve => {
-                (reg.number() as u32, a)
-            }
+            Operand::Reg {
+                reg,
+                arr: Some(a),
+                lane: None,
+                ..
+            } if reg.class() == RegClass::Sve => (reg.number() as u32, a),
             _ => return Err(EncodeError::InvalidOperand),
         };
         // Operand 2: the `#shift` immediate.
@@ -1292,11 +1337,13 @@ mod imp {
         // (base multiple of 4, packed directly in `word<4:0>`).
         let (zd_field, slot) = if consec {
             let zd = match insn.op(0) {
-                Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sh), stride: 1, .. }
-                    if first.class() == RegClass::Sve =>
-                {
-                    first.number() as u32
-                }
+                Operand::SveVecGroup {
+                    first,
+                    count: 4,
+                    arr: Some(VA::Sh),
+                    stride: 1,
+                    ..
+                } if first.class() == RegClass::Sve => first.number() as u32,
                 _ => return Err(EncodeError::InvalidOperand),
             };
             if (zd & 0x3) != 0 {
@@ -1305,11 +1352,13 @@ mod imp {
             (zd, 0xc120_f400u32) // word<15:10> == 111101
         } else {
             let zd = match insn.op(0) {
-                Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sh), stride: 4, .. }
-                    if first.class() == RegClass::Sve =>
-                {
-                    first.number() as u32
-                }
+                Operand::SveVecGroup {
+                    first,
+                    count: 4,
+                    arr: Some(VA::Sh),
+                    stride: 4,
+                    ..
+                } if first.class() == RegClass::Sve => first.number() as u32,
                 _ => return Err(EncodeError::InvalidOperand),
             };
             if (zd & 0x0c) != 0 || zd > 19 {
@@ -1319,11 +1368,13 @@ mod imp {
         };
         // Operand 1: 2-register consecutive source group, `.h`. Base is `word<9:5>`.
         let zn = match insn.op(1) {
-            Operand::SveVecGroup { first, count: 2, arr: Some(VA::Sh), stride: 1, .. }
-                if first.class() == RegClass::Sve =>
-            {
-                first.number() as u32
-            }
+            Operand::SveVecGroup {
+                first,
+                count: 2,
+                arr: Some(VA::Sh),
+                stride: 1,
+                ..
+            } if first.class() == RegClass::Sve => first.number() as u32,
             _ => return Err(EncodeError::InvalidOperand),
         };
         // Operand 2: the table pair `{ Zt, Zt+1 }[index]` (no element suffix). The
@@ -1390,8 +1441,16 @@ mod imp {
         };
         let is_bf = matches!(
             insn.code(),
-            SmeBfmaxMVS2 | SmeBfmaxMVS4 | SmeBfminMVS2 | SmeBfminMVS4 | SmeBfmaxnmMVS2
-                | SmeBfmaxnmMVS4 | SmeBfminnmMVS2 | SmeBfminnmMVS4 | SmeBfscaleMVS2 | SmeBfscaleMVS4
+            SmeBfmaxMVS2
+                | SmeBfmaxMVS4
+                | SmeBfminMVS2
+                | SmeBfminMVS4
+                | SmeBfmaxnmMVS2
+                | SmeBfmaxnmMVS4
+                | SmeBfminnmMVS2
+                | SmeBfminnmMVS4
+                | SmeBfscaleMVS2
+                | SmeBfscaleMVS4
         );
         let size: u32 = if is_bf {
             if arr != VA::Sh {
@@ -1409,16 +1468,21 @@ mod imp {
         };
         // The destination and first source are the same group; require they match.
         let zdn = match insn.op(0) {
-            Operand::SveVecGroup { first, count, stride: 1, .. }
-                if count == vg && first.class() == RegClass::Sve =>
-            {
-                first.number() as u32
-            }
+            Operand::SveVecGroup {
+                first,
+                count,
+                stride: 1,
+                ..
+            } if count == vg && first.class() == RegClass::Sve => first.number() as u32,
             _ => return Err(EncodeError::InvalidOperand),
         };
         match insn.op(1) {
-            Operand::SveVecGroup { first, count, stride: 1, .. }
-                if count == vg && first.number() as u32 == zdn => {}
+            Operand::SveVecGroup {
+                first,
+                count,
+                stride: 1,
+                ..
+            } if count == vg && first.number() as u32 == zdn => {}
             _ => return Err(EncodeError::InvalidOperand),
         }
         // vgx2 base in `word<4:1>` (stride 2), vgx4 in `word<4:2>` (stride 4).
@@ -1494,8 +1558,16 @@ mod imp {
         };
         let is_bf = matches!(
             insn.code(),
-            SmeBfmaxMV2 | SmeBfmaxMV4 | SmeBfminMV2 | SmeBfminMV4 | SmeBfmaxnmMV2 | SmeBfmaxnmMV4
-                | SmeBfminnmMV2 | SmeBfminnmMV4 | SmeBfscaleMV2 | SmeBfscaleMV4
+            SmeBfmaxMV2
+                | SmeBfmaxMV4
+                | SmeBfminMV2
+                | SmeBfminMV4
+                | SmeBfmaxnmMV2
+                | SmeBfmaxnmMV4
+                | SmeBfminnmMV2
+                | SmeBfminnmMV4
+                | SmeBfscaleMV2
+                | SmeBfscaleMV4
         );
         let size: u32 = if is_bf {
             if arr != VA::Sh {
@@ -1513,16 +1585,21 @@ mod imp {
         };
         // The destination and first source are the same group; require they match.
         let zdn = match insn.op(0) {
-            Operand::SveVecGroup { first, count, stride: 1, .. }
-                if count == vg && first.class() == RegClass::Sve =>
-            {
-                first.number() as u32
-            }
+            Operand::SveVecGroup {
+                first,
+                count,
+                stride: 1,
+                ..
+            } if count == vg && first.class() == RegClass::Sve => first.number() as u32,
             _ => return Err(EncodeError::InvalidOperand),
         };
         match insn.op(1) {
-            Operand::SveVecGroup { first, count, stride: 1, .. }
-                if count == vg && first.number() as u32 == zdn => {}
+            Operand::SveVecGroup {
+                first,
+                count,
+                stride: 1,
+                ..
+            } if count == vg && first.number() as u32 == zdn => {}
             _ => return Err(EncodeError::InvalidOperand),
         }
         // vgx2 base in `word<4:1>` (stride 2), vgx4 in `word<4:2>` (stride 4).
@@ -1561,9 +1638,13 @@ mod imp {
         // Operand 0: the destination group, `.h`/`.s`/`.d` (count 2 → vgx2, 4 →
         // vgx4).
         let (zd, dst, count) = match insn.op(0) {
-            Operand::SveVecGroup { first, count, arr: Some(a), stride: 1, .. }
-                if (count == 2 || count == 4) && first.class() == RegClass::Sve =>
-            {
+            Operand::SveVecGroup {
+                first,
+                count,
+                arr: Some(a),
+                stride: 1,
+                ..
+            } if (count == 2 || count == 4) && first.class() == RegClass::Sve => {
                 (first.number() as u32, a, count)
             }
             _ => return Err(EncodeError::InvalidOperand),
@@ -1602,9 +1683,12 @@ mod imp {
         use Code::*;
         // Operand 0: single destination `Zd.<b|h>`.
         let (zd, dst) = match insn.op(0) {
-            Operand::Reg { reg, arr: Some(a), lane: None, .. } if reg.class() == RegClass::Sve => {
-                (reg.number() as u32, a)
-            }
+            Operand::Reg {
+                reg,
+                arr: Some(a),
+                lane: None,
+                ..
+            } if reg.class() == RegClass::Sve => (reg.number() as u32, a),
             _ => return Err(EncodeError::InvalidOperand),
         };
         // Source group count (2 or 4) selects the encoding.
@@ -1780,11 +1864,12 @@ mod imp {
         };
         // Operand 0: single destination `Zd.h`.
         let zd = match insn.op(0) {
-            Operand::Reg { reg, arr: Some(VA::Sh), lane: None, .. }
-                if reg.class() == RegClass::Sve =>
-            {
-                reg.number() as u32
-            }
+            Operand::Reg {
+                reg,
+                arr: Some(VA::Sh),
+                lane: None,
+                ..
+            } if reg.class() == RegClass::Sve => reg.number() as u32,
             _ => return Err(EncodeError::InvalidOperand),
         };
         // Operand 2: `#shift` in `1..=16` → `word<19:16> = 16 - shift`.
@@ -1798,12 +1883,7 @@ mod imp {
         let imm4 = 16 - shift;
         // Operand 1: the 2-register consecutive source group `.s`, base `word<9:6>`.
         let zn = group_field(insn, 1, 2, VA::Ss, 0x3c0)?;
-        let word = 0xc1e0_d400
-            | (uresult << 20)
-            | (imm4 << 16)
-            | (zn << 6)
-            | (uinput << 5)
-            | zd;
+        let word = 0xc1e0_d400 | (uresult << 20) | (imm4 << 16) | (zn << 6) | (uinput << 5) | zd;
         Ok(word)
     }
 
@@ -1819,19 +1899,27 @@ mod imp {
     /// of `decode::sme::sme_lut::decode`. Operands: `[ Zd.b, zt0, Zn ]`.
     fn enc_luti6_single(insn: &Instruction) -> R {
         let zd = match insn.op(0) {
-            Operand::Reg { reg, arr: Some(VA::Sb), lane: None, .. } if reg.class() == RegClass::Sve => {
-                reg.number() as u32
-            }
+            Operand::Reg {
+                reg,
+                arr: Some(VA::Sb),
+                lane: None,
+                ..
+            } if reg.class() == RegClass::Sve => reg.number() as u32,
             _ => return Err(EncodeError::InvalidOperand),
         };
         match insn.op(1) {
-            Operand::Reg { reg: Register::Zt0, .. } => {}
+            Operand::Reg {
+                reg: Register::Zt0, ..
+            } => {}
             _ => return Err(EncodeError::InvalidOperand),
         }
         let zn = match insn.op(2) {
-            Operand::Reg { reg, arr: None, lane: None, .. } if reg.class() == RegClass::Sve => {
-                reg.number() as u32
-            }
+            Operand::Reg {
+                reg,
+                arr: None,
+                lane: None,
+                ..
+            } if reg.class() == RegClass::Sve => reg.number() as u32,
             _ => return Err(EncodeError::InvalidOperand),
         };
         Ok(0xc0c8_4000 | (zn << 5) | zd)
@@ -1846,25 +1934,33 @@ mod imp {
     fn enc_luti6_zt(insn: &Instruction) -> R {
         // Operand 0: 4-register `.b` destination group, consecutive or strided.
         let (zd, dst_strided) = match insn.op(0) {
-            Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sb), stride, .. }
-                if first.class() == RegClass::Sve && (stride == 1 || stride == 4) =>
-            {
+            Operand::SveVecGroup {
+                first,
+                count: 4,
+                arr: Some(VA::Sb),
+                stride,
+                ..
+            } if first.class() == RegClass::Sve && (stride == 1 || stride == 4) => {
                 (first.number() as u32, stride == 4)
             }
             _ => return Err(EncodeError::InvalidOperand),
         };
         // Operand 1: ZT0.
         match insn.op(1) {
-            Operand::Reg { reg: Register::Zt0, .. } => {}
+            Operand::Reg {
+                reg: Register::Zt0, ..
+            } => {}
             _ => return Err(EncodeError::InvalidOperand),
         }
         // Operand 2: 3-register consecutive `.<none>` source group `{ Zn - Zn+2 }`.
         let zn = match insn.op(2) {
-            Operand::SveVecGroup { first, count: 3, arr: None, stride: 1, .. }
-                if first.class() == RegClass::Sve =>
-            {
-                first.number() as u32
-            }
+            Operand::SveVecGroup {
+                first,
+                count: 3,
+                arr: None,
+                stride: 1,
+                ..
+            } if first.class() == RegClass::Sve => first.number() as u32,
             _ => return Err(EncodeError::InvalidOperand),
         };
         // Source base z0..z7 (encoded in word<9:7>; word<6:5> RES0).
@@ -1893,21 +1989,32 @@ mod imp {
         // --- LUTI4 register-pair source form (`.B`, 4-reg dest) ---
         // Detected by a no-suffix, no-index 2-register *source* group at operand 2.
         if !is_l2 {
-            if let Operand::SveVecGroup { first: src, count: 2, arr: None, stride: 1, .. } =
-                insn.op(2)
+            if let Operand::SveVecGroup {
+                first: src,
+                count: 2,
+                arr: None,
+                stride: 1,
+                ..
+            } = insn.op(2)
             {
                 // Operand 0: 4-register `.B` destination group — consecutive
                 // (stride 1) or strided (stride 4).
                 let (zd, dst_strided) = match insn.op(0) {
-                    Operand::SveVecGroup { first, count: 4, arr: Some(VA::Sb), stride, .. }
-                        if first.class() == RegClass::Sve && (stride == 1 || stride == 4) =>
-                    {
+                    Operand::SveVecGroup {
+                        first,
+                        count: 4,
+                        arr: Some(VA::Sb),
+                        stride,
+                        ..
+                    } if first.class() == RegClass::Sve && (stride == 1 || stride == 4) => {
                         (first.number() as u32, stride == 4)
                     }
                     _ => return Err(EncodeError::InvalidOperand),
                 };
                 match insn.op(1) {
-                    Operand::Reg { reg: Register::Zt0, .. } => {}
+                    Operand::Reg {
+                        reg: Register::Zt0, ..
+                    } => {}
                     _ => return Err(EncodeError::InvalidOperand),
                 }
                 if src.class() != RegClass::Sve {
@@ -1937,14 +2044,19 @@ mod imp {
 
         // Operand 0: the destination — a single `Zd.<T>` or a 2/4-register group.
         let (zd, count, arr, stride) = match insn.op(0) {
-            Operand::Reg { reg, arr: Some(a), lane: None, .. }
-                if reg.class() == RegClass::Sve =>
-            {
-                (reg.number() as u32, 1u8, a, 1u8)
-            }
-            Operand::SveVecGroup { first, count, arr: Some(a), stride, .. }
-                if first.class() == RegClass::Sve && (count == 2 || count == 4) =>
-            {
+            Operand::Reg {
+                reg,
+                arr: Some(a),
+                lane: None,
+                ..
+            } if reg.class() == RegClass::Sve => (reg.number() as u32, 1u8, a, 1u8),
+            Operand::SveVecGroup {
+                first,
+                count,
+                arr: Some(a),
+                stride,
+                ..
+            } if first.class() == RegClass::Sve && (count == 2 || count == 4) => {
                 (first.number() as u32, count, a, stride)
             }
             _ => return Err(EncodeError::InvalidOperand),
@@ -1992,17 +2104,20 @@ mod imp {
 
         // Operand 1: ZT0.
         match insn.op(1) {
-            Operand::Reg { reg: Register::Zt0, .. } => {}
+            Operand::Reg {
+                reg: Register::Zt0, ..
+            } => {}
             _ => return Err(EncodeError::InvalidOperand),
         }
 
         // Operand 2: the indexed table source `Zn[index]`.
         let (zn, index) = match insn.op(2) {
-            Operand::Reg { reg, arr: None, lane: Some(l), .. }
-                if reg.class() == RegClass::Sve =>
-            {
-                (reg.number() as u32, l as u32)
-            }
+            Operand::Reg {
+                reg,
+                arr: None,
+                lane: Some(l),
+                ..
+            } if reg.class() == RegClass::Sve => (reg.number() as u32, l as u32),
             _ => return Err(EncodeError::InvalidOperand),
         };
 
@@ -2055,11 +2170,23 @@ mod imp {
         let movaz = code == SmeMovazMultiTileToZ;
 
         // Locate the ZA tile-slice operand and the Z group operand by direction.
-        let (group_idx, tile_idx) = if to_vector { (0usize, 1usize) } else { (1usize, 0usize) };
+        let (group_idx, tile_idx) = if to_vector {
+            (0usize, 1usize)
+        } else {
+            (1usize, 0usize)
+        };
 
         // ZA tile-slice operand.
         let (arr, sel, off, span, tile, vertical) = match insn.op(tile_idx) {
-            Operand::SmeZaSlice { arr: Some(a), sel, off, span, tile, slice, vg: 0 } => {
+            Operand::SmeZaSlice {
+                arr: Some(a),
+                sel,
+                off,
+                span,
+                tile,
+                slice,
+                vg: 0,
+            } => {
                 let v = match slice {
                     SliceIndicator::Vertical => true,
                     SliceIndicator::Horizontal => false,
@@ -2103,7 +2230,11 @@ mod imp {
             return Err(EncodeError::InvalidImmediate);
         }
         let off_field = off as u32 / span as u32;
-        let off_max = if off_bits == 0 { 0 } else { (1u32 << off_bits) - 1 };
+        let off_max = if off_bits == 0 {
+            0
+        } else {
+            (1u32 << off_bits) - 1
+        };
         if off_field > off_max {
             return Err(EncodeError::InvalidImmediate);
         }
@@ -2114,12 +2245,13 @@ mod imp {
 
         // The Z group: count == span, consecutive (stride 1).
         let zbase = match insn.op(group_idx) {
-            Operand::SveVecGroup { first, count, arr: Some(a), stride, .. }
-                if first.class() == RegClass::Sve
-                    && a == arr
-                    && stride == 1
-                    && count == span =>
-            {
+            Operand::SveVecGroup {
+                first,
+                count,
+                arr: Some(a),
+                stride,
+                ..
+            } if first.class() == RegClass::Sve && a == arr && stride == 1 && count == span => {
                 first.number() as u32
             }
             _ => return Err(EncodeError::InvalidOperand),
@@ -2151,7 +2283,11 @@ mod imp {
         let to_vector = matches!(code, SmeMovaArrayToVec | SmeMovazArrayToVec);
         let movaz = code == SmeMovazArrayToVec;
 
-        let (group_idx, slice_idx) = if to_vector { (0usize, 1usize) } else { (1usize, 0usize) };
+        let (group_idx, slice_idx) = if to_vector {
+            (0usize, 1usize)
+        } else {
+            (1usize, 0usize)
+        };
 
         // ZA-array-vector slice operand `za.d[Ws, off, vgxN]`: `.d` only, `tile == 0`,
         // single-index offset (`span == 1`), multi-vector count in `vg`.
@@ -2189,11 +2325,13 @@ mod imp {
 
         // Z group: count == span, consecutive (stride 1), `.d`.
         let zbase = match insn.op(group_idx) {
-            Operand::SveVecGroup { first, count, arr: Some(VA::Sd), stride: 1, .. }
-                if first.class() == RegClass::Sve && count == span =>
-            {
-                first.number() as u32
-            }
+            Operand::SveVecGroup {
+                first,
+                count,
+                arr: Some(VA::Sd),
+                stride: 1,
+                ..
+            } if first.class() == RegClass::Sve && count == span => first.number() as u32,
             _ => return Err(EncodeError::InvalidOperand),
         };
         // The group base must be span-aligned (vgx2 even / vgx4 multiple-of-4).
@@ -2207,11 +2345,19 @@ mod imp {
             word |= 1 << 17; // direction = ZA -> vectors
             word |= (movaz as u32) << 9;
             // Zd group base at word<4:1> (vgx2) / word<4:2> (vgx4); offset at <7:5>.
-            let zfield = if span == 2 { (zbase / 2) << 1 } else { (zbase / 4) << 2 };
+            let zfield = if span == 2 {
+                (zbase / 2) << 1
+            } else {
+                (zbase / 4) << 2
+            };
             word |= (off << 5) | zfield;
         } else {
             // Zn group base at word<9:6> (vgx2) / word<9:7> (vgx4); offset at <2:0>.
-            let zfield = if span == 2 { (zbase / 2) << 6 } else { (zbase / 4) << 7 };
+            let zfield = if span == 2 {
+                (zbase / 2) << 6
+            } else {
+                (zbase / 4) << 7
+            };
             word |= zfield | off;
         }
         Ok(word)
@@ -2295,7 +2441,10 @@ mod imp {
             SmeMovtZt0Z => {
                 // `movt zt0[idx, mul vl], Zt`: idx = word<13:12>, Zt = word<4:0>.
                 let index = match insn.op(0) {
-                    Operand::SmeZt0Index { index, mul_vl: true } => index as u32,
+                    Operand::SmeZt0Index {
+                        index,
+                        mul_vl: true,
+                    } => index as u32,
                     _ => return Err(EncodeError::InvalidOperand),
                 };
                 if index > 3 {
@@ -2307,7 +2456,10 @@ mod imp {
             SmeMovtZt0X => {
                 // `movt zt0[off], Xt`: off = word<14:12>*8, Xt = word<4:0>.
                 let off = match insn.op(0) {
-                    Operand::SmeZt0Index { index, mul_vl: false } => index as u32,
+                    Operand::SmeZt0Index {
+                        index,
+                        mul_vl: false,
+                    } => index as u32,
                     _ => return Err(EncodeError::InvalidOperand),
                 };
                 let xt = xgp(insn, 1)?;
@@ -2317,7 +2469,10 @@ mod imp {
             SmeMovtXZt0 => {
                 // `movt Xt, zt0[off]`: off = word<14:12>*8, Xt = word<4:0>.
                 let off = match insn.op(1) {
-                    Operand::SmeZt0Index { index, mul_vl: false } => index as u32,
+                    Operand::SmeZt0Index {
+                        index,
+                        mul_vl: false,
+                    } => index as u32,
                     _ => return Err(EncodeError::InvalidOperand),
                 };
                 let xt = xgp(insn, 0)?;
@@ -2408,7 +2563,7 @@ mod imp {
             rt(0x80851312); // fmops  z2.s
             rt(0x8184B942); // bfmopa z2.s
             rt(0x819EC990); // bfmops z0.s
-            // Outer products (integer).
+                            // Outer products (integer).
             rt(0xA0822DA1); // smopa  z1.s
             rt(0xA1A98383); // umopa  z3.s
             rt(0xA0A0AC03); // sumopa z3.s
@@ -2416,22 +2571,22 @@ mod imp {
             rt(0xA094D912); // smops  z2.s
             rt(0xA0CFCB26); // smopa  z6.d
             rt(0xA1E301C4); // umopa  z4.d
-            // ADDHA / ADDVA.
+                            // ADDHA / ADDVA.
             rt(0xC0909662); // addha  z2.s
             rt(0xC091BA23); // addva  z3.s
             rt(0xC0D053E5); // addha  z5.d
             rt(0xC0D16EE5); // addva  z5.d
-            // MOVA tile -> vector.
+                            // MOVA tile -> vector.
             rt(0xC002D4B0); // mova z16.b, ..., z0v.b[w14,#5]
             rt(0xC0825448); // mova z8.s
             rt(0xC042BD71); // mova z17.h
             rt(0xC0C350F0); // mova z16.q (no index)
-            // MOVA vector -> tile.
+                            // MOVA vector -> tile.
             rt(0xC0002F06);
             rt(0xC0803C6A);
             rt(0xC0C0F4E9);
             rt(0xC0C1D2E5); // .q vertical (no index)
-            // ZA array load/store.
+                            // ZA array load/store.
             rt(0xE011E5A3); // ld1b
             rt(0xE059A9C2); // ld1h
             rt(0xE0D76421); // ld1d
@@ -2439,7 +2594,7 @@ mod imp {
             rt(0xE024806B); // st1b
             rt_sem(0xE1F50B6D); // st1q (word<3:0> discarded; semantic round-trip)
             rt_sem(0xE0B24FE7); // st1w sp base (bits<3:2> above index discarded)
-            // LDR / STR ZA whole array.
+                                // LDR / STR ZA whole array.
             rt(0xE100004D); // ldr za[w12,#d]
             rt(0xE1200106); // str za[w12,#6]
             rt(0xE10062A0); // ldr za[w15,#0] (imm4==0)
@@ -2452,7 +2607,7 @@ mod imp {
             rt(0xC1208452); // sel { z18.b, z19.b }, pn9, { z2.b, z3.b }, { z0.b, z1.b }
             rt(0xC1258010); // sel { z16.b - z19.b }, pn8, { z0.b - z3.b }, { z4.b - z7.b }
             rt(0xC1608452); // sel .h
-            // CLAMP (S/U/F/BF), vgx2 and vgx4.
+                            // CLAMP (S/U/F/BF), vgx2 and vgx4.
             rt(0xC120C40F); // uclamp { z14.b, z15.b }, z0.b, z0.b
             rt(0xC1A0CC0D); // uclamp { z12.s - z15.s }, z0.s, z0.s
             rt(0xC120C40E); // sclamp { z14.b, z15.b }, z0.b, z0.b
@@ -2460,7 +2615,7 @@ mod imp {
             rt(0xC1A0C80C); // fclamp { z12.s - z15.s }, z0.s, z0.s
             rt(0xC120C000); // bfclamp { z0.h, z1.h }, z0.h, z0.h
             rt(0xC120C800); // bfclamp { z0.h - z3.h }, z0.h, z0.h
-            // ZIP/UZP, vgx2 (incl .q) and vgx4 (incl .q).
+                            // ZIP/UZP, vgx2 (incl .q) and vgx4 (incl .q).
             rt(0xC120D000); // zip { z0.b, z1.b }, z0.b, z0.b
             rt(0xC120D400); // zip { z0.q, z1.q }, z0.q, z0.q
             rt(0xC120D001); // uzp { z0.b, z1.b }, z0.b, z0.b
@@ -2487,7 +2642,7 @@ mod imp {
             rt(0xA0604000); // st1w { z0.s, z1.s }, pn8, [x0]
             rt(0xA0204015); // stnt1w { z20.s, z21.s }, pn8, [x0, x0, lsl #2]
             rt(0xA0200001); // stnt1b { z0.b, z1.b }, pn8, [x0, x0]
-            // SP base resolves and round-trips.
+                            // SP base resolves and round-trips.
             rt(0xA00043E0 | (31 << 5)); // ld1d ... [sp, ...] style base
         }
 
@@ -2529,53 +2684,54 @@ mod imp {
             // every structural bit (strided/imm/store/reserved/num/msz/reserved/N)
             // and the predicate, striding the register/offset fields.
             for b24 in 0..2u32 {
-            for b22 in 0..2u32 {
-                for b21 in 0..2u32 {
-                    for b20 in 0..2u32 {
-                        for b15 in 0..2u32 {
-                            for msz in 0..4u32 {
-                                for b1 in 0..2u32 {
-                                    for b0 in 0..2u32 {
-                                        for b3 in 0..2u32 {
-                                        for pn in [0u32, 3, 7] {
-                                            for hi16 in [0u32, 1, 7, 17, 31] {
-                                                for rn in [0u32, 5, 31] {
-                                                    for zt in [0u32, 2, 12, 28] {
-                                                        let word = 0xA000_0000
-                                                            | (b24 << 24)
-                                                            | (b22 << 22)
-                                                            | (b21 << 21)
-                                                            | (b20 << 20)
-                                                            | (hi16 << 16)
-                                                            | (b15 << 15)
-                                                            | (msz << 13)
-                                                            | (pn << 10)
-                                                            | (rn << 5)
-                                                            | zt
-                                                            | (b3 << 3)
-                                                            | (b1 << 1)
-                                                            | b0;
-                                                        let insn = dec(word);
-                                                        if insn.is_invalid() {
-                                                            continue;
-                                                        }
-                                                        let got =
+                for b22 in 0..2u32 {
+                    for b21 in 0..2u32 {
+                        for b20 in 0..2u32 {
+                            for b15 in 0..2u32 {
+                                for msz in 0..4u32 {
+                                    for b1 in 0..2u32 {
+                                        for b0 in 0..2u32 {
+                                            for b3 in 0..2u32 {
+                                                for pn in [0u32, 3, 7] {
+                                                    for hi16 in [0u32, 1, 7, 17, 31] {
+                                                        for rn in [0u32, 5, 31] {
+                                                            for zt in [0u32, 2, 12, 28] {
+                                                                let word = 0xA000_0000
+                                                                    | (b24 << 24)
+                                                                    | (b22 << 22)
+                                                                    | (b21 << 21)
+                                                                    | (b20 << 20)
+                                                                    | (hi16 << 16)
+                                                                    | (b15 << 15)
+                                                                    | (msz << 13)
+                                                                    | (pn << 10)
+                                                                    | (rn << 5)
+                                                                    | zt
+                                                                    | (b3 << 3)
+                                                                    | (b1 << 1)
+                                                                    | b0;
+                                                                let insn = dec(word);
+                                                                if insn.is_invalid() {
+                                                                    continue;
+                                                                }
+                                                                let got =
                                                             insn.encode().unwrap_or_else(|e| {
                                                                 panic!(
                                                                     "encode {word:#010x} ({:?}) failed: {e:?}",
                                                                     insn.code()
                                                                 )
                                                             });
-                                                        assert_eq!(
+                                                                assert_eq!(
                                                             got, word,
                                                             "mem round-trip {word:#010x} ({:?})",
                                                             insn.code()
                                                         );
-                                                        checked += 1;
+                                                                checked += 1;
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
                                         }
                                     }
                                 }
@@ -2583,7 +2739,6 @@ mod imp {
                         }
                     }
                 }
-            }
             }
             assert!(checked > 0, "swept no memory encodings");
 
@@ -2633,10 +2788,14 @@ mod imp {
                                             f.code
                                         );
                                         let got = insn.encode().unwrap_or_else(|e| {
-                                            panic!("encode {w:#010x} ({:?}) failed: {e:?}", insn.code())
+                                            panic!(
+                                                "encode {w:#010x} ({:?}) failed: {e:?}",
+                                                insn.code()
+                                            )
                                         });
                                         assert_eq!(
-                                            got, w,
+                                            got,
+                                            w,
                                             "alu round-trip {w:#010x} ({:?})",
                                             insn.code()
                                         );

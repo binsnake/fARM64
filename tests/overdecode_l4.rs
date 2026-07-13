@@ -28,12 +28,34 @@ fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
     let enc = encode(&insn).unwrap_or_else(|e| {
-        panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e)
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
     });
-    assert_eq!(enc, word, "{:08X} ({}) re-encoded to {:08X}", word, insn.mnemonic().name(), enc);
+    assert_eq!(
+        enc,
+        word,
+        "{:08X} ({}) re-encoded to {:08X}",
+        word,
+        insn.mnemonic().name(),
+        enc
+    );
     let insn2 = decode(enc, 0, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{:08X} mnemonic drift", word);
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{:08X} mnemonic drift",
+        word
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
 }
 
 fn is_invalid(word: u32) -> bool {
@@ -56,8 +78,16 @@ fn ins_general_q0_reserved() {
         (0x0E031C11, 0x4E031C11),       // mov v17.b[1], w0
         (0x0E0B1C11, 0x4E0B1C11),       // mov v17.h[2], w0
     ] {
-        assert!(is_invalid(bad), "{:08X} INS-general Q==0 should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical INS-general should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} INS-general Q==0 should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical INS-general should decode",
+            good
+        );
         assert_eq!(mnem(good), "mov");
         assert_roundtrip(good);
     }
@@ -71,8 +101,16 @@ fn ins_element_q0_reserved() {
         (0x2E080411, 0x6E080411),       // mov v17.d[0], v0.d[0]
         (0x2E020411, 0x6E020411),       // mov v17.h[0], v0.h[0]
     ] {
-        assert!(is_invalid(bad), "{:08X} INS-element Q==0 should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical INS-element should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} INS-element Q==0 should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical INS-element should decode",
+            good
+        );
         assert_eq!(mnem(good), "mov");
         assert_roundtrip(good);
     }
@@ -88,7 +126,11 @@ fn copy_other_forms_unaffected() {
         0x0E033C11,    // umov w17, v0.h[1]
         0x4E0C2C11,    // smov x17, v0.s[1]
     ] {
-        assert!(!is_invalid(w), "{:08X} non-INS copy form should still decode", w);
+        assert!(
+            !is_invalid(w),
+            "{:08X} non-INS copy form should still decode",
+            w
+        );
         assert_roundtrip(w);
     }
 }
@@ -102,7 +144,11 @@ fn saddlbt_slot01_reserved() {
     // `<11:10>`: 00=SADDLBT, 10=SSUBLBT, 11=SSUBLTB; the `01` slot is reserved
     // at every size (`455386AB`/`459386AB`/`45D386AB` all `<unknown>`).
     for bad in [0x455386ABu32, 0x459386AB, 0x45D386AB] {
-        assert!(is_invalid(bad), "{:08X} SADDLBT <10>=1 should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} SADDLBT <10>=1 should be Invalid",
+            bad
+        );
     }
     let cases: &[(u32, &str)] = &[
         (0x455382AB, "saddlbt"), // .h <- .b
@@ -139,7 +185,10 @@ fn pmull_s_size10_reserved() {
         assert_roundtrip(w);
     }
     // ...and the integer MULL `.s` form (size==10) is NOT affected (still valid).
-    assert!(!is_invalid(0x45827020), "45827020 smullb .s should still decode");
+    assert!(
+        !is_invalid(0x45827020),
+        "45827020 smullb .s should still decode"
+    );
     assert_eq!(mnem(0x45827020), "smullb");
     assert_roundtrip(0x45827020);
 }
@@ -157,8 +206,16 @@ fn fp_imm_bits9_6_reserved() {
         (0x65DF91FF, 0x65DF903F),       // fmin z31.d, p4/m, z31.d, #1.0
         (0x65DB80E6, 0x65DB8026),       // fsubr z6.d, p0/m, z6.d, #1.0
     ] {
-        assert!(is_invalid(bad), "{:08X} FP-imm <9:6>!=0 should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical FP-imm should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} FP-imm <9:6>!=0 should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical FP-imm should decode",
+            good
+        );
         assert_roundtrip(good);
     }
     // The allocated per-op constant set is unchanged (i1 selects the constant).

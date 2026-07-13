@@ -54,7 +54,13 @@ pub fn normalize(s: &str) -> String {
     // (2)+(3) Lower-case and turn tabs into spaces in one pass.
     let lowered: String = body
         .chars()
-        .map(|c| if c == '\t' { ' ' } else { c.to_ascii_lowercase() })
+        .map(|c| {
+            if c == '\t' {
+                ' '
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
         .collect();
 
     // (4)+(5)+(6) in one pass. `pending_space` means "at least one whitespace
@@ -100,13 +106,12 @@ pub fn normalize(s: &str) -> String {
 /// Decode `word` with fARM64 at [`ADDRESS_TEST`] and return
 /// `(is_invalid, formatted_text)` using the default [`FmtFormatter`].
 ///
-/// `is_invalid` is `true` when the case was *not attempted* — either the decoder
-/// produced [`Code::Invalid`] OR the (currently stubbed) group decoder panicked
-/// via `todo!()`. Panics are caught so a single unimplemented group cannot abort
-/// the whole corpus sweep; the caller treats both as "not attempted".
+/// `is_invalid` is `true` when the decoder produced [`Code::Invalid`] or an
+/// unexpected panic was caught. Panics are isolated so one word cannot abort a
+/// long external-corpus sweep; the caller treats either outcome as not decoded.
 ///
 /// Install [`silence_panics`] once before a bulk sweep to suppress the default
-/// panic-hook backtrace spam from the many `todo!()` stubs.
+/// panic-hook output from any unexpected decoder failure.
 pub fn disasm_farm64(word: u32) -> (bool, String) {
     use fARM64::format::{FmtFormatter, Formatter};
     use fARM64::{Decoder, DecoderOptions};
@@ -123,14 +128,13 @@ pub fn disasm_farm64(word: u32) -> (bool, String) {
 
     match result {
         Ok(pair) => pair,
-        // A stubbed group decoder panicked (`todo!()`): treat as "not attempted".
+        // An unexpected decoder panic: keep the bulk sweep running.
         Err(_) => (true, String::from("<unimplemented>")),
     }
 }
 
-/// Replace the panic hook with a no-op so that the flood of `todo!()` panics
-/// raised during a corpus sweep does not print thousands of backtraces. Call
-/// once at the start of a bulk run. Idempotent enough for test use.
+/// Replace the panic hook with a no-op while a corpus sweep isolates individual
+/// decode calls. Call once at the start of a bulk run.
 pub fn silence_panics() {
     std::panic::set_hook(Box::new(|_info| {}));
 }

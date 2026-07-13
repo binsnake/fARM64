@@ -9,7 +9,7 @@
 use crate::decode::bits::{adv_simd_expand_imm, decode_bit_masks, vfp_expand_imm};
 
 /// `EncodeBitMasks` — the inverse of
-/// [`decode_bit_masks`](crate::decode::bits::decode_bit_masks).
+/// [`decode_bit_masks`].
 ///
 /// Given a logical-immediate `value` and the GP `datasize` (32 or 64), find the
 /// `(N, immr, imms)` triple that the bit-mask decoder would expand back into
@@ -121,10 +121,10 @@ fn encode_element(elem: u64, esize: u32) -> Option<(u32, u32)> {
         return None;
     }
     let count = elem.count_ones(); // = S + 1
-    // To recover R: ROR(Ones(count), R) == elem. Ones(count) is `count` ones in
-    // the low bits. Find the rotation R such that rotating those ones right by R
-    // (within esize) yields `elem`. R is the rotation amount; equivalently the
-    // run of ones in `elem` starts at bit position `esize - R` (mod esize).
+                                   // To recover R: ROR(Ones(count), R) == elem. Ones(count) is `count` ones in
+                                   // the low bits. Find the rotation R such that rotating those ones right by R
+                                   // (within esize) yields `elem`. R is the rotation amount; equivalently the
+                                   // run of ones in `elem` starts at bit position `esize - R` (mod esize).
     let ones = mask(count);
     let mut r = 0u32;
     while r < esize {
@@ -177,7 +177,7 @@ fn pack_n_imms(len: u32, s: u32) -> (u32, u32) {
 // Inverse VFP / AdvSIMD floating-point immediate.
 // ---------------------------------------------------------------------------
 
-/// Inverse of [`vfp_expand_imm`](crate::decode::bits::vfp_expand_imm): find the
+/// Inverse of [`vfp_expand_imm`]: find the
 /// 8-bit `imm8` whose expansion at element width `n` (16/32/64) equals the value
 /// represented by the `f32` the decoder stored.
 ///
@@ -242,7 +242,7 @@ fn f16_bits_to_f32_enc(h: u16) -> f32 {
 // Inverse AdvSIMD modified immediate (64-bit MOVI forms).
 // ---------------------------------------------------------------------------
 
-/// Inverse of [`adv_simd_expand_imm`](crate::decode::bits::adv_simd_expand_imm)
+/// Inverse of [`adv_simd_expand_imm`]
 /// for the 64-bit per-byte MOVI form (`cmode == 0b1110`, `op == 1`): given the
 /// expanded 64-bit `value` (each byte either `0x00` or `0xff`), recover the
 /// 8-bit `imm8` whose bit `i` selects byte `i`. Returns `None` if any byte is

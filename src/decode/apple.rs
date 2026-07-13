@@ -2,7 +2,7 @@
 //!
 //! These are **not** part of the Arm architecture and are **not** decoded by
 //! LLVM. They live in the reserved `op0 == 0b0000` encoding region (dispatched
-//! here from [`crate::decode::decode_reserved`], which has already split off the
+//! here from `crate::decode::decode_reserved`, which has already split off the
 //! permanently-undefined `UDF` space and the SME `word<31> == 1` space). The
 //! encodings are reverse-engineered from public Apple-silicon research:
 //!
@@ -15,6 +15,10 @@
 //! * **Apple GXF** — Guarded Execution Feature. `GEXIT` (`0x0020_1400`) and
 //!   `GENTER #imm5` (`0x0020_1420 | imm5`) enter/exit Apple's lateral "guarded"
 //!   exception levels. They share the AMX base word but set `word<10>`.
+//!   Encoding reference:
+//!   <https://asahilinux.org/docs/hw/cpu/apple-instructions/>. Background on
+//!   GXF and a `GENTER #0` use:
+//!   <https://blog.svenpeter.dev/posts/m1_sprr_gxf/>.
 //!
 //! Both families are gated by a runtime [`Feature`] ([`Feature::AppleAmx`] /
 //! [`Feature::Gxf`]); with neither enabled the word is left invalid, exactly as

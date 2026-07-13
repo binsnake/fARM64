@@ -98,9 +98,7 @@ pub(crate) fn sfp(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
 #[inline]
 pub(crate) fn lane(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
     match insn.op(n) {
-        Operand::Reg {
-            lane: Some(l), ..
-        } => Ok(l as u32),
+        Operand::Reg { lane: Some(l), .. } => Ok(l as u32),
         _ => Err(EncodeError::InvalidOperand),
     }
 }
@@ -130,9 +128,7 @@ pub(crate) fn simm(insn: &Instruction, n: usize) -> Result<i64, EncodeError> {
 #[inline]
 pub(crate) fn esize(insn: &Instruction, n: usize) -> Result<u32, EncodeError> {
     match insn.op(n) {
-        Operand::Reg {
-            arr: Some(a), ..
-        } => arr_size(a),
+        Operand::Reg { arr: Some(a), .. } => arr_size(a),
         _ => Err(EncodeError::InvalidOperand),
     }
 }
@@ -209,7 +205,10 @@ pub(crate) fn enc_left_shift(a: VA, amount: u32) -> Result<(u32, u32), EncodeErr
 /// an INC/DEC/CNT element-count form, starting at operand `start`. The decoder
 /// elides the pattern when it is `all` (0x1f) and the multiplier is 1, and
 /// elides the multiplier when it is 1. `imm4` is the raw field (`mul - 1`).
-pub(crate) fn read_pattern_mul(insn: &Instruction, start: usize) -> Result<(u32, u32), EncodeError> {
+pub(crate) fn read_pattern_mul(
+    insn: &Instruction,
+    start: usize,
+) -> Result<(u32, u32), EncodeError> {
     let mut pattern = 0x1fu32; // default `all`
     let mut mul = 1u32;
     let mut i = start;

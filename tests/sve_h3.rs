@@ -38,16 +38,35 @@ fn norm(s: &str) -> String {
 /// Decode, assert disasm == `expected`, and prove a bit-exact encode round-trip.
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
 fn without(fs: FeatureSet, f: Feature) -> FeatureSet {
     let bit = f as u32;
-    FeatureSet { features0: fs.features0 & !(1u64 << bit), features1: fs.features1 & !(1u64 << bit) }
+    FeatureSet {
+        features0: fs.features0 & !(1u64 << bit),
+        features1: fs.features1 & !(1u64 << bit),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -71,10 +90,19 @@ fn quadword_single_no_longer_ld1rq() {
     assert_eq!(insn.mnemonic().name(), "ld1w");
     assert!(text(0xA51E22EA).contains(".q"));
     // A genuine LD1RQW (different bit-20) still decodes as ld1rqw.
-    assert_eq!(decode(0xA5043695, 0, FeatureSet::ALL).mnemonic().name(), "ld1rqw");
+    assert_eq!(
+        decode(0xA5043695, 0, FeatureSet::ALL).mnemonic().name(),
+        "ld1rqw"
+    );
     // Structured LD3Q / LD4Q still decode (b21==1 guard).
-    assert_eq!(decode(0xA5218000, 0, FeatureSet::ALL).mnemonic().name(), "ld3q");
-    assert_eq!(decode(0xA5A18000, 0, FeatureSet::ALL).mnemonic().name(), "ld4q");
+    assert_eq!(
+        decode(0xA5218000, 0, FeatureSet::ALL).mnemonic().name(),
+        "ld3q"
+    );
+    assert_eq!(
+        decode(0xA5A18000, 0, FeatureSet::ALL).mnemonic().name(),
+        "ld4q"
+    );
 }
 
 #[test]
@@ -115,7 +143,7 @@ fn bf16_feature_gated() {
     assert!(decode(0x653C1046, 0, no_b16).is_invalid()); // bfmla
     assert!(decode(0x65000000, 0, no_b16).is_invalid()); // bfadd
     assert!(decode(0x64232434, 0, no_b16).is_invalid()); // bfclamp
-    // FCLAMP (FEAT_SVE2p1) is unaffected by dropping SVE_B16B16.
+                                                         // FCLAMP (FEAT_SVE2p1) is unaffected by dropping SVE_B16B16.
     assert!(!decode(0x64EB2507, 0, no_b16).is_invalid());
 }
 
@@ -134,7 +162,10 @@ fn psel_examples() {
 #[test]
 fn psel_not_dup_overdecode() {
     // The slot is PSEL, never a predicate DUP.
-    assert_eq!(decode(0x25FC7463, 0, FeatureSet::ALL).mnemonic().name(), "psel");
+    assert_eq!(
+        decode(0x25FC7463, 0, FeatureSet::ALL).mnemonic().name(),
+        "psel"
+    );
     // The all-zero `tsz` (no element marker) is reserved.
     assert!(decode(0x25204000, 0, FeatureSet::ALL).is_invalid());
     // `tsz == 10000` (index bit set, no element marker) is reserved.
@@ -220,7 +251,10 @@ fn frint_zeroing_examples() {
 #[test]
 fn frint_zeroing_not_scvtf() {
     // The size != 00 slot is scvtf/ucvtf, not frint32/64 (the over-decode guard).
-    assert_ne!(decode(0x645CD7FB, 0, FeatureSet::ALL).mnemonic().name(), "frint32z");
+    assert_ne!(
+        decode(0x645CD7FB, 0, FeatureSet::ALL).mnemonic().name(),
+        "frint32z"
+    );
 }
 
 #[test]
@@ -236,9 +270,15 @@ fn lastp_firstp_examples() {
 #[test]
 fn lastp_firstp_not_incdec() {
     // The shared INC/DEC-by-predicate-count slot must yield lastp/firstp.
-    assert_eq!(decode(0x2521817D, 0, FeatureSet::ALL).mnemonic().name(), "firstp");
+    assert_eq!(
+        decode(0x2521817D, 0, FeatureSet::ALL).mnemonic().name(),
+        "firstp"
+    );
     // A genuine UQINCP (op field 01001, not 00001) still decodes as uqincp.
-    assert_eq!(decode(0x25298C00, 0, FeatureSet::ALL).mnemonic().name(), "uqincp");
+    assert_eq!(
+        decode(0x25298C00, 0, FeatureSet::ALL).mnemonic().name(),
+        "uqincp"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -256,8 +296,19 @@ fn rt_stable(word: u32) {
         Err(_) => return,
     };
     let insn2 = decode(enc, 0, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{:08X} mnemonic drift -> {:08X}", word, enc);
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{:08X} mnemonic drift -> {:08X}",
+        word,
+        enc
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
 }
 
 #[test]

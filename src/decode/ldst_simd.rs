@@ -14,7 +14,8 @@
 //! `[Xn]` (no offset), `[Xn], #imm` (post-index by the structure's byte size,
 //! selected by `Rm == 0b11111`), and `[Xn], Xm` (post-index by register).
 //!
-//! All forms here are base-ISA Advanced SIMD ([`Feature::Base`]); none are gated.
+//! All forms here are base-ISA Advanced SIMD
+//! ([`Feature::Base`](crate::features::Feature::Base)); none are gated.
 
 use crate::decode::bits::{bit, bits};
 use crate::enums::VectorArrangement;
@@ -194,13 +195,69 @@ fn decode_multiple(word: u32, out: &mut Instruction) {
     // `.1d` arrangement), which is reserved (only `.2d`, Q==1, is allocated).
     let load = l == 1;
     let (code, mnem, nregs, multi_struct) = match opcode {
-        0b0000 => mk_mult(load, 4, Mnemonic::Ld4, Mnemonic::St4, Code::Ld4Multiple, Code::St4Multiple, true),
-        0b0010 => mk_mult(load, 4, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple, false),
-        0b0100 => mk_mult(load, 3, Mnemonic::Ld3, Mnemonic::St3, Code::Ld3Multiple, Code::St3Multiple, true),
-        0b0110 => mk_mult(load, 3, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple, false),
-        0b0111 => mk_mult(load, 1, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple, false),
-        0b1000 => mk_mult(load, 2, Mnemonic::Ld2, Mnemonic::St2, Code::Ld2Multiple, Code::St2Multiple, true),
-        0b1010 => mk_mult(load, 2, Mnemonic::Ld1, Mnemonic::St1, Code::Ld1Multiple, Code::St1Multiple, false),
+        0b0000 => mk_mult(
+            load,
+            4,
+            Mnemonic::Ld4,
+            Mnemonic::St4,
+            Code::Ld4Multiple,
+            Code::St4Multiple,
+            true,
+        ),
+        0b0010 => mk_mult(
+            load,
+            4,
+            Mnemonic::Ld1,
+            Mnemonic::St1,
+            Code::Ld1Multiple,
+            Code::St1Multiple,
+            false,
+        ),
+        0b0100 => mk_mult(
+            load,
+            3,
+            Mnemonic::Ld3,
+            Mnemonic::St3,
+            Code::Ld3Multiple,
+            Code::St3Multiple,
+            true,
+        ),
+        0b0110 => mk_mult(
+            load,
+            3,
+            Mnemonic::Ld1,
+            Mnemonic::St1,
+            Code::Ld1Multiple,
+            Code::St1Multiple,
+            false,
+        ),
+        0b0111 => mk_mult(
+            load,
+            1,
+            Mnemonic::Ld1,
+            Mnemonic::St1,
+            Code::Ld1Multiple,
+            Code::St1Multiple,
+            false,
+        ),
+        0b1000 => mk_mult(
+            load,
+            2,
+            Mnemonic::Ld2,
+            Mnemonic::St2,
+            Code::Ld2Multiple,
+            Code::St2Multiple,
+            true,
+        ),
+        0b1010 => mk_mult(
+            load,
+            2,
+            Mnemonic::Ld1,
+            Mnemonic::St1,
+            Code::Ld1Multiple,
+            Code::St1Multiple,
+            false,
+        ),
         _ => return, // unallocated opcode
     };
 

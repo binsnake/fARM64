@@ -41,10 +41,23 @@ fn rt(word: u32) {
     assert!(!insn.is_invalid(), "{word:08X} decoded Invalid");
     let enc = encode(&insn)
         .unwrap_or_else(|e| panic!("{word:08X} ({}) encode {e:?}", insn.mnemonic().name()));
-    assert_eq!(enc, word, "{word:08X} ({}) re-encoded {enc:08X}", insn.mnemonic().name());
+    assert_eq!(
+        enc,
+        word,
+        "{word:08X} ({}) re-encoded {enc:08X}",
+        insn.mnemonic().name()
+    );
     let insn2 = decode(enc, ADDR, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{word:08X} mnemonic drift");
-    assert_eq!(insn.op_count(), insn2.op_count(), "{word:08X} op-count drift");
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{word:08X} mnemonic drift"
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{word:08X} op-count drift"
+    );
 }
 
 #[test]
@@ -75,7 +88,7 @@ fn amx_rendering() {
     assert_dis(0x0020_1280, "matint  x0"); // op 20
     assert_dis(0x0020_12a0, "matfp   x0"); // op 21
     assert_dis(0x0020_12c0, "genlut  x0"); // op 22
-    // Register 31 renders as xzr.
+                                           // Register 31 renders as xzr.
     assert_dis(0x0020_101f, "ldx     xzr");
 }
 
@@ -142,7 +155,10 @@ fn reserved_forms_stay_invalid() {
     // op 23..=31 are unallocated even with AMX enabled.
     for op in 23u32..=31 {
         let w = 0x0020_1000 | (op << 5);
-        assert!(decode(w, ADDR, FeatureSet::ALL).is_invalid(), "op {op} should be invalid ({w:#x})");
+        assert!(
+            decode(w, ADDR, FeatureSet::ALL).is_invalid(),
+            "op {op} should be invalid ({w:#x})"
+        );
     }
     // op 17 with an operand other than 0/1 is not architected.
     assert!(decode(0x0020_1222, ADDR, FeatureSet::ALL).is_invalid());
@@ -151,6 +167,6 @@ fn reserved_forms_stay_invalid() {
     assert!(decode(0x0020_1401, ADDR, FeatureSet::ALL).is_invalid());
     assert!(decode(0x0020_1440, ADDR, FeatureSet::ALL).is_invalid()); // sub 2
     assert!(decode(0x0020_1460, ADDR, FeatureSet::ALL).is_invalid()); // sub 3
-    // bit<11> set leaves the Apple cluster entirely (0x0020_1800+).
+                                                                      // bit<11> set leaves the Apple cluster entirely (0x0020_1800+).
     assert!(decode(0x0020_1800, ADDR, FeatureSet::ALL).is_invalid());
 }

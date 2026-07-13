@@ -12,6 +12,12 @@ use crate::features::Feature;
 /// Why a decode did not yield a valid instruction (or [`DecodeError::None`] on
 /// success).
 ///
+/// [`crate::Decoder`] currently emits only [`DecodeError::None`],
+/// [`DecodeError::Unmatched`], and [`DecodeError::EndOfInstruction`]. The other
+/// variants form public status vocabulary for integrations and future
+/// finer-grained decode diagnostics; in particular, a word rejected by a
+/// runtime feature gate currently reports [`DecodeError::Unmatched`].
+///
 /// | Variant | status |
 /// |-|-|
 /// | [`DecodeError::None`] | `0` |
@@ -39,7 +45,7 @@ pub enum DecodeError {
     /// The encoding is explicitly UNDEFINED. (`DECODE_STATUS_UNDEFINED`)
     Undefined,
     /// Reached the end of the input before a full 4-byte instruction word was
-    /// available, or a `HINT`-style sentinel meaning the instruction ended.
+    /// available.
     EndOfInstruction,
     /// Descended past valid checks ("SEE encoding higher up").
     Lost,
@@ -49,8 +55,10 @@ pub enum DecodeError {
     AssertFailed,
     /// Operand construction failed.
     ErrorOperands,
-    /// A required architecture extension was not enabled in the
-    /// [`crate::FeatureSet`]; carries the missing [`Feature`].
+    /// Reserved diagnostic indicating that a required architecture extension
+    /// was not enabled in the [`crate::FeatureSet`]; carries the missing
+    /// [`Feature`]. The current decoder collapses this case to
+    /// [`DecodeError::Unmatched`].
     FeatureRequired(Feature),
 }
 

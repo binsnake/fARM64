@@ -3,8 +3,9 @@
 //!
 //! The `no_std` core path ([`instruction_info`]) returns an [`InstructionInfo`]
 //! whose register/memory access lists live in **fixed-capacity inline arrays**
-//! (no allocation). An [`InstructionInfoFactory`] that allocates once and
-//! refills is available under `feature = "alloc"`.
+//! (no allocation). A reusable [`InstructionInfoFactory`] cache is available
+//! under `feature = "alloc"`; the current factory also stores its value inline
+//! and does not itself allocate.
 //!
 //! ## Access model
 //!
@@ -22,7 +23,7 @@
 //!   register is [`OpAccess::Read`].
 //! * **Data-processing**: the destination (slot 0) is [`OpAccess::Write`] and the
 //!   remaining register operands are [`OpAccess::Read`]; an
-//!   [`accumulates_into_dest`] mnemonic (multiply-accumulate, bitfield insert,
+//!   `accumulates_into_dest` mnemonic (multiply-accumulate, bitfield insert,
 //!   SME ZA outer-product, ...) makes slot 0 [`OpAccess::ReadWrite`].
 //! * **Compare/test with no destination** (`CMP`/`TST`/`FCMP`/...): every
 //!   register operand is [`OpAccess::Read`].
@@ -218,10 +219,22 @@ fn mnemonic_reads_flags(m: Mnemonic) -> bool {
     use Mnemonic::*;
     matches!(
         m,
-        Adc | Adcs | Sbc | Sbcs | Ngc | Ngcs
-            | Csel | Csinc | Csinv | Csneg
-            | Cinc | Cinv | Cneg | Cset | Csetm
-            | Ccmp | Ccmn
+        Adc | Adcs
+            | Sbc
+            | Sbcs
+            | Ngc
+            | Ngcs
+            | Csel
+            | Csinc
+            | Csinv
+            | Csneg
+            | Cinc
+            | Cinv
+            | Cneg
+            | Cset
+            | Csetm
+            | Ccmp
+            | Ccmn
             | Fcsel
     )
 }
@@ -261,12 +274,29 @@ fn classify_mem(m: Mnemonic, has_mem_operand: bool) -> MemKind {
     // Compare-and-swap: Rs read-write, Rt read, memory read-write.
     if matches!(
         m,
-        Cas | Casa | Casl | Casal
-            | Casb | Casab | Caslb | Casalb
-            | Cash | Casah | Caslh | Casalh
-            | Casp | Caspa | Caspl | Caspal
-            | Cast | Casat | Caslt | Casalt
-            | Caspt | Caspat | Casplt | Caspalt
+        Cas | Casa
+            | Casl
+            | Casal
+            | Casb
+            | Casab
+            | Caslb
+            | Casalb
+            | Cash
+            | Casah
+            | Caslh
+            | Casalh
+            | Casp
+            | Caspa
+            | Caspl
+            | Caspal
+            | Cast
+            | Casat
+            | Caslt
+            | Casalt
+            | Caspt
+            | Caspat
+            | Casplt
+            | Caspalt
     ) {
         return MemKind::CompareSwap;
     }
@@ -313,18 +343,74 @@ fn classify_mem(m: Mnemonic, has_mem_operand: bool) -> MemKind {
     // ST<op> atomic aliases (value read, memory read-write, no result reg).
     if matches!(
         m,
-        Stadd | Staddl | Staddb | Staddlb | Staddh | Staddlh
-            | Stclr | Stclrl | Stclrb | Stclrlb | Stclrh | Stclrlh
-            | Steor | Steorl | Steorb | Steorlb | Steorh | Steorlh
-            | Stset | Stsetl | Stsetb | Stsetlb | Stseth | Stsetlh
-            | Stsmax | Stsmaxl | Stsmaxb | Stsmaxlb | Stsmaxh | Stsmaxlh
-            | Stsmin | Stsminl | Stsminb | Stsminlb | Stsminh | Stsminlh
-            | Stumax | Stumaxl | Stumaxb | Stumaxlb | Stumaxh | Stumaxlh
-            | Stumin | Stuminl | Stuminb | Stuminlb | Stuminh | Stuminlh
-            | Stfadd | Stfaddl | Stfmax | Stfmaxl | Stfmin | Stfminl
-            | Stfmaxnm | Stfmaxnml | Stfminnm | Stfminnml
-            | Stbfadd | Stbfaddl | Stbfmax | Stbfmaxl | Stbfmin | Stbfminl
-            | Stbfmaxnm | Stbfmaxnml | Stbfminnm | Stbfminnml
+        Stadd
+            | Staddl
+            | Staddb
+            | Staddlb
+            | Staddh
+            | Staddlh
+            | Stclr
+            | Stclrl
+            | Stclrb
+            | Stclrlb
+            | Stclrh
+            | Stclrlh
+            | Steor
+            | Steorl
+            | Steorb
+            | Steorlb
+            | Steorh
+            | Steorlh
+            | Stset
+            | Stsetl
+            | Stsetb
+            | Stsetlb
+            | Stseth
+            | Stsetlh
+            | Stsmax
+            | Stsmaxl
+            | Stsmaxb
+            | Stsmaxlb
+            | Stsmaxh
+            | Stsmaxlh
+            | Stsmin
+            | Stsminl
+            | Stsminb
+            | Stsminlb
+            | Stsminh
+            | Stsminlh
+            | Stumax
+            | Stumaxl
+            | Stumaxb
+            | Stumaxlb
+            | Stumaxh
+            | Stumaxlh
+            | Stumin
+            | Stuminl
+            | Stuminb
+            | Stuminlb
+            | Stuminh
+            | Stuminlh
+            | Stfadd
+            | Stfaddl
+            | Stfmax
+            | Stfmaxl
+            | Stfmin
+            | Stfminl
+            | Stfmaxnm
+            | Stfmaxnml
+            | Stfminnm
+            | Stfminnml
+            | Stbfadd
+            | Stbfaddl
+            | Stbfmax
+            | Stbfmaxl
+            | Stbfmin
+            | Stbfminl
+            | Stbfmaxnm
+            | Stbfmaxnml
+            | Stbfminnm
+            | Stbfminnml
     ) {
         return MemKind::AtomicStore;
     }
@@ -373,19 +459,59 @@ fn classify_mem(m: Mnemonic, has_mem_operand: bool) -> MemKind {
     // Plain stores (incl. store-release / pair / structure / SVE / SME).
     if matches!(
         m,
-        Str | Strb | Strh | Stur | Sturb | Sturh
-            | Stp | Stnp
-            | Sttr | Sttrb | Sttrh
-            | Stlr | Stlrb | Stlrh | Stllr | Stllrb | Stllrh
-            | Stlur | Stlurb | Stlurh
-            | Stgp | Stz2g | Stg | Stzg | St2g
+        Str | Strb
+            | Strh
+            | Stur
+            | Sturb
+            | Sturh
+            | Stp
+            | Stnp
+            | Sttr
+            | Sttrb
+            | Sttrh
+            | Stlr
+            | Stlrb
+            | Stlrh
+            | Stllr
+            | Stllrb
+            | Stllrh
+            | Stlur
+            | Stlurb
+            | Stlurh
+            | Stgp
+            | Stz2g
+            | Stg
+            | Stzg
+            | St2g
             | St64b
-            | St1 | St2 | St3 | St4
-            | St1b | St1h | St1w | St1d | St1q
-            | St2b | St2h | St2w | St2d | St2q
-            | St3b | St3h | St3w | St3d | St3q
-            | St4b | St4h | St4w | St4d | St4q
-            | Stnt1b | Stnt1h | Stnt1w | Stnt1d
+            | St1
+            | St2
+            | St3
+            | St4
+            | St1b
+            | St1h
+            | St1w
+            | St1d
+            | St1q
+            | St2b
+            | St2h
+            | St2w
+            | St2d
+            | St2q
+            | St3b
+            | St3h
+            | St3w
+            | St3d
+            | St3q
+            | St4b
+            | St4h
+            | St4w
+            | St4d
+            | St4q
+            | Stnt1b
+            | Stnt1h
+            | Stnt1w
+            | Stnt1d
     ) {
         return MemKind::Store;
     }
@@ -525,9 +651,7 @@ fn add_memory_operand(b: &mut InfoBuilder, op: &Operand, mem_access: OpAccess) {
             b.add_reg(base, base_access);
             b.add_mem(base, Register::None, imm, mem_access);
         }
-        Operand::MemExt {
-            base, index, ..
-        } => {
+        Operand::MemExt { base, index, .. } => {
             b.add_reg(base, OpAccess::Read);
             b.add_reg(index, OpAccess::Read);
             b.add_mem(base, index, 0, mem_access);
@@ -701,12 +825,7 @@ fn classify_memory_form(
 /// Slot 0 (the destination) is written, or read-modified for the accumulate /
 /// insert / predicate-result families; the remaining register operands are read.
 /// Compare/test forms read every operand.
-fn classify_dataproc_form(
-    b: &mut InfoBuilder,
-    insn: &Instruction,
-    m: Mnemonic,
-    op_count: usize,
-) {
+fn classify_dataproc_form(b: &mut InfoBuilder, insn: &Instruction, m: Mnemonic, op_count: usize) {
     let compare = is_compare_no_dest(m);
     let accum = accumulates_into_dest(m);
 
@@ -737,12 +856,12 @@ fn classify_dataproc_form(
     }
 }
 
-/// An allocate-once / refill info factory mirroring iced (heap-backed),
-/// available under `feature = "alloc"`.
+/// A reusable info cache mirroring iced's factory-shaped API, available under
+/// `feature = "alloc"`.
 ///
-/// Unlike the inline [`instruction_info`] path, the factory can grow its
-/// internal buffers for hypothetical wide forms and hands back a borrowed
-/// [`InstructionInfo`] view each call without reallocating in steady state.
+/// Each call replaces one inline cached [`InstructionInfo`] and returns a
+/// borrow of it. The current implementation has no heap-backed buffers and
+/// performs no allocation.
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 #[derive(Debug, Default)]

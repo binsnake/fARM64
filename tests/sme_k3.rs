@@ -47,17 +47,36 @@ fn without(fs: FeatureSet, feat: Feature) -> FeatureSet {
 #[track_caller]
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
 /// Assert a word is rejected (reserved / UNDEFINED).
 #[track_caller]
 fn reserved(word: u32) {
-    assert!(decode(word, 0, FeatureSet::ALL).is_invalid(), "{word:08X} should be reserved (Invalid)");
+    assert!(
+        decode(word, 0, FeatureSet::ALL).is_invalid(),
+        "{word:08X} should be reserved (Invalid)"
+    );
 }
 
 // ===========================================================================
@@ -94,7 +113,7 @@ fn addha_addva_reserved_zada_high_bits() {
     reserved(0xC0900008); // word<3>
     reserved(0xC0900010); // word<4>
     reserved(0xC0900007); // word<2:0> == 7 (only 0..3 legal)
-    // `.D` (word<22> == 1): ZAda is `word<2:0>`; `word<4:3>` are RES0.
+                          // `.D` (word<22> == 1): ZAda is `word<2:0>`; `word<4:3>` are RES0.
     reserved(0xC0D00008); // word<3>
     reserved(0xC0D00010); // word<4>
     reserved(0xC0D00018); // word<4:3>
@@ -141,18 +160,48 @@ fn addha_addva_bit23_slot_reserved() {
 #[test]
 fn fp_minmax_multi_multi_examples() {
     // The task example and its siblings (vgx2, .s).
-    check(0xC1A0B126, "fmaxnm { z6.s, z7.s }, { z6.s, z7.s }, { z0.s, z1.s }");
-    check(0xC1A0B100, "fmax { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }");
-    check(0xC1A0B101, "fmin { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }");
-    check(0xC1A0B120, "fmaxnm { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }");
-    check(0xC1A0B121, "fminnm { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }");
+    check(
+        0xC1A0B126,
+        "fmaxnm { z6.s, z7.s }, { z6.s, z7.s }, { z0.s, z1.s }",
+    );
+    check(
+        0xC1A0B100,
+        "fmax { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }",
+    );
+    check(
+        0xC1A0B101,
+        "fmin { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }",
+    );
+    check(
+        0xC1A0B120,
+        "fmaxnm { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }",
+    );
+    check(
+        0xC1A0B121,
+        "fminnm { z0.s, z1.s }, { z0.s, z1.s }, { z0.s, z1.s }",
+    );
     // Element sizes .h and .d.
-    check(0xC160B120, "fmaxnm { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }");
-    check(0xC1E0B121, "fminnm { z0.d, z1.d }, { z0.d, z1.d }, { z0.d, z1.d }");
+    check(
+        0xC160B120,
+        "fmaxnm { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }",
+    );
+    check(
+        0xC1E0B121,
+        "fminnm { z0.d, z1.d }, { z0.d, z1.d }, { z0.d, z1.d }",
+    );
     // vgx4 (the destination/first-source share the group, rendered as a range).
-    check(0xC1A0B920, "fmaxnm { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }");
-    check(0xC1A4B924, "fmaxnm { z4.s - z7.s }, { z4.s - z7.s }, { z4.s - z7.s }");
-    check(0xC1A0B928, "fmaxnm { z8.s - z11.s }, { z8.s - z11.s }, { z0.s - z3.s }");
+    check(
+        0xC1A0B920,
+        "fmaxnm { z0.s - z3.s }, { z0.s - z3.s }, { z0.s - z3.s }",
+    );
+    check(
+        0xC1A4B924,
+        "fmaxnm { z4.s - z7.s }, { z4.s - z7.s }, { z4.s - z7.s }",
+    );
+    check(
+        0xC1A0B928,
+        "fmaxnm { z8.s - z11.s }, { z8.s - z11.s }, { z0.s - z3.s }",
+    );
 }
 
 #[test]
@@ -160,11 +209,14 @@ fn fp_minmax_reserved() {
     // `.b` (size 00) is the BFloat16 BFMAX/BFMIN neighbour (FEAT_SME_B16B16),
     // now implemented by the Q multi×multi decoder — it decodes as `bfmax`, so the
     // FP family here correctly does not claim size 00.
-    check(0xC120B100, "bfmax { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }");
+    check(
+        0xC120B100,
+        "bfmax { z0.h, z1.h }, { z0.h, z1.h }, { z0.h, z1.h }",
+    );
     // vgx4 with an odd group base bit set (`word<1>`/`word<17>` RES0).
     reserved(0xC1A0B922); // word<1> set -> base not a multiple of 4
     reserved(0xC1A2B920); // word<17> set -> Zm base not a multiple of 4
-    // word<9:6> opcode marker must be 0100; a different value is not this family.
+                          // word<9:6> opcode marker must be 0100; a different value is not this family.
     reserved(0xC1A0B1A0); // word<7> set
 }
 
@@ -203,16 +255,37 @@ fn fmul_multi_single_reserved() {
 
 #[test]
 fn luti6_examples() {
-    check(0xC132FDE3, "luti6 { z3.h, z7.h, z11.h, z15.h }, { z15.h, z16.h }, { z18, z19 }[0]");
-    check(0xC120FC00, "luti6 { z0.h, z4.h, z8.h, z12.h }, { z0.h, z1.h }, { z0, z1 }[0]");
+    check(
+        0xC132FDE3,
+        "luti6 { z3.h, z7.h, z11.h, z15.h }, { z15.h, z16.h }, { z18, z19 }[0]",
+    );
+    check(
+        0xC120FC00,
+        "luti6 { z0.h, z4.h, z8.h, z12.h }, { z0.h, z1.h }, { z0, z1 }[0]",
+    );
     // Destination base packs word<4> (high) and word<1:0> (low): bases 0..3, 16..19.
-    check(0xC120FC03, "luti6 { z3.h, z7.h, z11.h, z15.h }, { z0.h, z1.h }, { z0, z1 }[0]");
-    check(0xC130FC10, "luti6 { z16.h, z20.h, z24.h, z28.h }, { z0.h, z1.h }, { z16, z17 }[0]");
+    check(
+        0xC120FC03,
+        "luti6 { z3.h, z7.h, z11.h, z15.h }, { z0.h, z1.h }, { z0, z1 }[0]",
+    );
+    check(
+        0xC130FC10,
+        "luti6 { z16.h, z20.h, z24.h, z28.h }, { z0.h, z1.h }, { z16, z17 }[0]",
+    );
     // Index = word<22>.
-    check(0xC160FC00, "luti6 { z0.h, z4.h, z8.h, z12.h }, { z0.h, z1.h }, { z0, z1 }[1]");
+    check(
+        0xC160FC00,
+        "luti6 { z0.h, z4.h, z8.h, z12.h }, { z0.h, z1.h }, { z0, z1 }[1]",
+    );
     // Zn (consecutive pair) wraps; table base is a free 5-bit field.
-    check(0xC120FFC0, "luti6 { z0.h, z4.h, z8.h, z12.h }, { z30.h, z31.h }, { z0, z1 }[0]");
-    check(0xC121FC00, "luti6 { z0.h, z4.h, z8.h, z12.h }, { z0.h, z1.h }, { z1, z2 }[0]");
+    check(
+        0xC120FFC0,
+        "luti6 { z0.h, z4.h, z8.h, z12.h }, { z30.h, z31.h }, { z0, z1 }[0]",
+    );
+    check(
+        0xC121FC00,
+        "luti6 { z0.h, z4.h, z8.h, z12.h }, { z0.h, z1.h }, { z1, z2 }[0]",
+    );
 }
 
 #[test]
@@ -247,7 +320,7 @@ fn luti6_reserved() {
     reserved(0xC120FC08); // base 8 (word<3>)
     reserved(0xC120FC14); // base 20 (word<4>+word<2>)
     reserved(0xC120FC18); // base 24 (word<4>+word<3>)
-    // word<23> RES0 (only the single-bit index word<22> is allocated).
+                          // word<23> RES0 (only the single-bit index word<22> is allocated).
     reserved(0xC1A0FC00); // word<23> set
 }
 
@@ -259,15 +332,27 @@ fn luti6_reserved() {
 fn feature_gating() {
     // The FP min/max + FMUL multi-vector forms require FEAT_SME2.
     let no_sme2 = without(FeatureSet::ALL, Feature::Sme2);
-    assert!(decode(0xC1A0B126, 0, no_sme2).is_invalid(), "fmaxnm needs SME2");
-    assert!(decode(0xC1F8E8C6, 0, no_sme2).is_invalid(), "fmul needs SME2");
+    assert!(
+        decode(0xC1A0B126, 0, no_sme2).is_invalid(),
+        "fmaxnm needs SME2"
+    );
+    assert!(
+        decode(0xC1F8E8C6, 0, no_sme2).is_invalid(),
+        "fmul needs SME2"
+    );
 
     // LUTI6 requires FEAT_LUT (and is reached only with SME2 routing on).
     let no_lut = without(FeatureSet::ALL, Feature::Lut);
-    assert!(decode(0xC132FDE3, 0, no_lut).is_invalid(), "luti6 needs LUT");
+    assert!(
+        decode(0xC132FDE3, 0, no_lut).is_invalid(),
+        "luti6 needs LUT"
+    );
 
     // The whole SME structural gate: without FEAT_SME nothing in the region
     // decodes (ADDHA included).
     let no_sme = without(FeatureSet::ALL, Feature::Sme);
-    assert!(decode(0xC0909662, 0, no_sme).is_invalid(), "addha needs SME");
+    assert!(
+        decode(0xC0909662, 0, no_sme).is_invalid(),
+        "addha needs SME"
+    );
 }

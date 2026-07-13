@@ -261,7 +261,11 @@ fn decode_addsub_shifted(word: u32, out: &mut Instruction) {
 
     // SUBS/ADDS Rd==ZR -> CMP/CMN Rn, Rm{, shift #amt}.
     if flag_setting && rd == 31 {
-        out.set_mnemonic(if op == 1 { Mnemonic::Cmp } else { Mnemonic::Cmn });
+        out.set_mnemonic(if op == 1 {
+            Mnemonic::Cmp
+        } else {
+            Mnemonic::Cmn
+        });
         out.push_operand(reg(false, w, rn));
         out.push_operand(reg_shifted(w, rm, st, imm6));
         return;
@@ -269,7 +273,11 @@ fn decode_addsub_shifted(word: u32, out: &mut Instruction) {
 
     // SUB/SUBS Rn==ZR -> NEG/NEGS Rd, Rm{, shift #amt}.
     if op == 1 && rn == 31 {
-        out.set_mnemonic(if flag_setting { Mnemonic::Negs } else { Mnemonic::Neg });
+        out.set_mnemonic(if flag_setting {
+            Mnemonic::Negs
+        } else {
+            Mnemonic::Neg
+        });
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg_shifted(w, rm, st, imm6));
         return;
@@ -353,7 +361,11 @@ fn decode_addsub_extended(word: u32, out: &mut Instruction) {
     let rm_op = build_extended_rm(rm, rm_w, ext, imm3, use_lsl);
 
     if is_cmp {
-        out.set_mnemonic(if op == 1 { Mnemonic::Cmp } else { Mnemonic::Cmn });
+        out.set_mnemonic(if op == 1 {
+            Mnemonic::Cmp
+        } else {
+            Mnemonic::Cmn
+        });
         // Rn is SP-capable.
         out.push_operand(reg(true, w, rn));
         out.push_operand(rm_op);
@@ -452,7 +464,11 @@ fn decode_addsub_carry(word: u32, out: &mut Instruction) {
 
     // SBC/SBCS Rn==ZR -> NGC/NGCS Rd, Rm.
     if op == 1 && rn == 31 {
-        out.set_mnemonic(if s == 1 { Mnemonic::Ngcs } else { Mnemonic::Ngc });
+        out.set_mnemonic(if s == 1 {
+            Mnemonic::Ngcs
+        } else {
+            Mnemonic::Ngc
+        });
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rm));
         return;
@@ -627,7 +643,11 @@ fn decode_cond_select(word: u32, out: &mut Instruction) {
 
     // CSET/CSETM: CSINC/CSINV with Rm==Rn==ZR.
     if (is_csinc || is_csinv) && rm == 31 && rn == 31 && cond_ok {
-        out.set_mnemonic(if is_csinc { Mnemonic::Cset } else { Mnemonic::Csetm });
+        out.set_mnemonic(if is_csinc {
+            Mnemonic::Cset
+        } else {
+            Mnemonic::Csetm
+        });
         out.push_operand(reg(false, w, rd));
         out.push_operand(Operand::Cond(c.invert()));
         return;
@@ -714,7 +734,11 @@ fn decode_dp_3source(word: u32, out: &mut Instruction) {
             let is_msub = o0 == 1;
             // MUL/MNEG alias: Ra==ZR.
             if ra == 31 {
-                out.set_mnemonic(if is_msub { Mnemonic::Mneg } else { Mnemonic::Mul });
+                out.set_mnemonic(if is_msub {
+                    Mnemonic::Mneg
+                } else {
+                    Mnemonic::Mul
+                });
                 out.push_operand(reg(false, w, rd));
                 out.push_operand(reg(false, w, rn));
                 out.push_operand(reg(false, w, rm));
@@ -910,7 +934,7 @@ fn decode_dp_2source(word: u32, features: FeatureSet, out: &mut Instruction) {
 fn decode_crc32(sf: u32, opcode: u32, rd: u32, rn: u32, rm: u32, out: &mut Instruction) {
     let c = bit(opcode, 2); // 0 = CRC32, 1 = CRC32C
     let sz = opcode & 0b11; // 00/01/10/11 -> B/H/W/X
-    // The X size is 64-bit (sf must be 1); B/H/W are 32-bit (sf must be 0).
+                            // The X size is 64-bit (sf must be 1); B/H/W are 32-bit (sf must be 0).
     if sz == 0b11 {
         if sf != 1 {
             return;
@@ -1129,7 +1153,10 @@ mod tests {
         let mut buf = [0u8; 128];
         let mut sink = BufSink::new(&mut buf);
         FmtFormatter::new().format(&insn, &mut sink);
-        assert!(!sink.overflowed(), "BufSink overflowed rendering {expected:?}");
+        assert!(
+            !sink.overflowed(),
+            "BufSink overflowed rendering {expected:?}"
+        );
         assert_eq!(sink.as_str(), expected, "word={word:#010x}");
     }
 

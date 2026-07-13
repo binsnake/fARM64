@@ -54,17 +54,36 @@ fn norm(s: &str) -> String {
 #[track_caller]
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
 /// Assert a word is rejected (reserved / UNDEFINED).
 #[track_caller]
 fn reserved(word: u32) {
-    assert!(decode(word, 0, FeatureSet::ALL).is_invalid(), "{word:08X} should be reserved (Invalid)");
+    assert!(
+        decode(word, 0, FeatureSet::ALL).is_invalid(),
+        "{word:08X} should be reserved (Invalid)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -98,8 +117,8 @@ fn valid_forms_still_decode_and_roundtrip() {
     check(0x5E561F50, "fmulx h16, h26, h22"); // scalar FP16 FMULX
     check(0x5E562750, "fcmeq h16, h26, h22"); // scalar FP16 FCMEQ
     check(0x7ED62750, "fcmgt h16, h26, h22"); // scalar FP16 FCMGT
-    // The real scalar `fmaxnm h` lives in the FP-data-processing class and must
-    // keep decoding (it is *not* in the `0x5E`/`0x7E` scalar-three-same class).
+                                              // The real scalar `fmaxnm h` lives in the FP-data-processing class and must
+                                              // keep decoding (it is *not* in the `0x5E`/`0x7E` scalar-three-same class).
     check(0x1EF66B50, "fmaxnm h16, h26, h22");
 }
 
@@ -188,7 +207,7 @@ fn fcmla_by_element_reserved() {
         for m in [0u32, 1] {
             for rot in 0u32..4 {
                 let op = (rot << 1) | 1; // opcode<15:12> = 0:rot:1
-                // Q == 0 (`word<30>` left 0); H == 1 (`word<11>`) is reserved.
+                                         // Q == 0 (`word<30>` left 0); H == 1 (`word<11>`) is reserved.
                 let w = (1 << 29) // U
                     | (0b01111 << 24)
                     | (0b01 << 22) // size == .h
@@ -268,7 +287,10 @@ fn scalar_three_same_fp_reserved_opcodes() {
                     | (26 << 5)
                     | 16;
                 if valid.contains(&(u, a, op)) {
-                    assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{w:08X} should be a valid scalar FP16 op");
+                    assert!(
+                        !decode(w, 0, FeatureSet::ALL).is_invalid(),
+                        "{w:08X} should be a valid scalar FP16 op"
+                    );
                 } else {
                     reserved(w);
                 }
@@ -327,7 +349,10 @@ fn fp16_feature_gating() {
     use fARM64::features::{Feature, FeatureSet};
     // Build `FeatureSet::ALL` with the FP16 bit cleared.
     let mask = !(1u64 << (Feature::Fp16 as u32));
-    let no_fp16 = FeatureSet { features0: FeatureSet::ALL.features0 & mask, features1: FeatureSet::ALL.features1 & mask };
+    let no_fp16 = FeatureSet {
+        features0: FeatureSet::ALL.features0 & mask,
+        features1: FeatureSet::ALL.features1 & mask,
+    };
     // A valid FP16 scalar three-same op is gated off without FEAT_FP16.
     assert!(decode(0x5E561F50, 0, no_fp16).is_invalid());
     // A valid FP16 vector three-same op likewise.

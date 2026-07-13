@@ -33,12 +33,35 @@ use fARM64::{encode, Feature, FeatureSet};
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
-    assert_eq!(enc, word, "{:08X} ({}) re-encoded to {:08X}", word, insn.mnemonic().name(), enc);
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
+    assert_eq!(
+        enc,
+        word,
+        "{:08X} ({}) re-encoded to {:08X}",
+        word,
+        insn.mnemonic().name(),
+        enc
+    );
     let insn2 = decode(enc, 0, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{:08X} mnemonic drift", word);
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{:08X} mnemonic drift",
+        word
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
 }
 
 fn is_invalid(word: u32) -> bool {
@@ -65,8 +88,16 @@ fn rcw_pair_size_reserved() {
         (0x9931102D, 0x1931102D),       // ldclrp    x13, x17, [x1]
         (0x9931302D, 0x1931302D),       // ldsetp    x13, x17, [x1]
     ] {
-        assert!(is_invalid(bad), "{:08X} RCW-pair size==10 should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical RCW-pair should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} RCW-pair size==10 should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical RCW-pair should decode",
+            good
+        );
         assert_roundtrip(good);
     }
 }
@@ -96,8 +127,16 @@ fn sve_dup_imm_reserved() {
         (0x25BAD880, 0x25B8D880),       // (<17>=1 bad)
         (0x25BED880, 0x25B8D880),       // (<18:17>=11 bad)
     ] {
-        assert!(is_invalid(bad), "{:08X} DUP-imm <18:17>!=00 should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical DUP-imm should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} DUP-imm <18:17>!=00 should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical DUP-imm should decode",
+            good
+        );
         assert_eq!(mnem(good), "mov");
         assert_roundtrip(good);
     }
@@ -115,8 +154,16 @@ fn sve_arith_imm_b_shift_reserved() {
         (0x2520E415, 0x2520C415),       // add z21.b, z21.b, #imm
         (0x2527E415, 0x2527C415),       // uqsub z21.b
     ] {
-        assert!(is_invalid(bad), "{:08X} arith-imm .b+shift should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical .b no-shift arith-imm should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} arith-imm .b+shift should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical .b no-shift arith-imm should decode",
+            good
+        );
         assert_roundtrip(good);
     }
 }
@@ -129,7 +176,11 @@ fn sve_arith_imm_shift_other_sizes_preserved() {
         0x25A1E415,    // sub z21.s, z21.s, #0x2000
         0x25E1E415,    // sub z21.d, z21.d, #0x2000
     ] {
-        assert!(!is_invalid(w), "{:08X} shifted .h/.s/.d arith-imm should decode", w);
+        assert!(
+            !is_invalid(w),
+            "{:08X} shifted .h/.s/.d arith-imm should decode",
+            w
+        );
         assert_roundtrip(w);
     }
 }
@@ -145,8 +196,16 @@ fn sve_movprfx_reserved() {
         (0x0421BFA0, 0x0420BFA0),       // (<16>=1 bad)
         (0x043FBFA0, 0x0420BFA0),       // (<20:16>=11111 bad)
     ] {
-        assert!(is_invalid(bad), "{:08X} MOVPRFX <20:16>!=0 should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical MOVPRFX should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} MOVPRFX <20:16>!=0 should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical MOVPRFX should decode",
+            good
+        );
         assert_eq!(mnem(good), "movprfx");
         assert_roundtrip(good);
     }
@@ -165,8 +224,16 @@ fn fp16_two_reg_misc_sz_reserved() {
         (0x2E39AA68, 0x2E79AA68),       // fcvtnu v8.4h, v19.4h
         (0x0EB8FA68, 0x0EF8FA68),       // fabs   v8.4h, v19.4h
     ] {
-        assert!(is_invalid(bad), "{:08X} FP16-misc <22>==0 should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical FP16-misc should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} FP16-misc <22>==0 should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical FP16-misc should decode",
+            good
+        );
         assert_roundtrip(good);
     }
 }
@@ -183,7 +250,11 @@ fn fp16_two_reg_misc_no_fp16_opcodes_reserved() {
         0x0EF9CA68,    // urecpe   (a=1, op 11100)
         0x2EF9CA68,    // ursqrte  (a=1, op 11100)
     ] {
-        assert!(is_invalid(bad), "{:08X} FP16-misc with no FP16 form should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} FP16-misc with no FP16 form should be Invalid",
+            bad
+        );
     }
 }
 
@@ -214,8 +285,16 @@ fn sve_pmov_to_vector_bit9_reserved() {
         (0x05ED3AF7u32, 0x05ED38F7u32), // pmov z23[6], p7.d  (<9>=1 bad)
         (0x056D3A65, 0x056D3865),       // pmov z5[2], p3.s   (<9>=1 bad)
     ] {
-        assert!(is_invalid(bad), "{:08X} PMOV-to-vector <9>=1 should be Invalid", bad);
-        assert!(!is_invalid(good), "{:08X} canonical PMOV should decode", good);
+        assert!(
+            is_invalid(bad),
+            "{:08X} PMOV-to-vector <9>=1 should be Invalid",
+            bad
+        );
+        assert!(
+            !is_invalid(good),
+            "{:08X} canonical PMOV should decode",
+            good
+        );
         assert_eq!(mnem(good), "pmov");
         assert_roundtrip(good);
     }
@@ -248,7 +327,11 @@ fn ls64_rt_reserved() {
         0xF83F90B8,    // st64b   Rt=24
         0xF83AB0B8,    // st64bv  Rt=24
     ] {
-        assert!(is_invalid(bad), "{:08X} LS64 Rt invalid should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} LS64 Rt invalid should be Invalid",
+            bad
+        );
     }
 }
 
@@ -271,6 +354,10 @@ fn ls64_gated_by_feature() {
     // Without FEAT_LS64 the 64-byte ops are not admitted (and are not LSE).
     let no_ls64 = FeatureSet::BASE.with(Feature::Lse);
     for &w in &[0xF83AA0A0u32, 0xF83FD0A0, 0xF83F90A0, 0xF83AB0A0] {
-        assert!(decode(w, 0, no_ls64).is_invalid(), "{:08X} must be gated by FEAT_LS64", w);
+        assert!(
+            decode(w, 0, no_ls64).is_invalid(),
+            "{:08X} must be gated by FEAT_LS64",
+            w
+        );
     }
 }

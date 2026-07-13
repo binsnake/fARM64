@@ -160,7 +160,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zdn = z(insn, 0)?;
             let zm = z(insn, 2)?;
             let zk = z(insn, 3)?;
-            base04(1, 0b001) | fld(opc, 22) | fld(0b00111, 11) | fld(o2, 10) | fld(zm, 16) | fld(zk, 5)
+            base04(1, 0b001)
+                | fld(opc, 22)
+                | fld(0b00111, 11)
+                | fld(o2, 10)
+                | fld(zm, 16)
+                | fld(zk, 5)
                 | zdn
         }
         // ---- SVE2 XAR (0x04, <15:10>=001101) ----
@@ -247,7 +252,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let rn = g(insn, 2)?;
-            fld(0b00000101, 24) | fld(size, 22) | fld(1, 21) | fld(0b01000, 16) | fld(0b101, 13)
+            fld(0b00000101, 24)
+                | fld(size, 22)
+                | fld(1, 21)
+                | fld(0b01000, 16)
+                | fld(0b101, 13)
                 | fld(pg, 10)
                 | fld(rn, 5)
                 | zd
@@ -257,7 +266,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let vn = sfp(insn, 2)?;
-            fld(0b00000101, 24) | fld(size, 22) | fld(1, 21) | fld(0b00000, 16) | fld(0b100, 13)
+            fld(0b00000101, 24)
+                | fld(size, 22)
+                | fld(1, 21)
+                | fld(0b00000, 16)
+                | fld(0b100, 13)
                 | fld(pg, 10)
                 | fld(vn, 5)
                 | zd
@@ -269,8 +282,16 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zn = z(insn, 2)?;
             // `<15:13>` is 100 for the merging (`/m`) form, 101 for the
             // FEAT_SVE2p1 zeroing (`/z`) form.
-            let sel = if matches!(pred_qual(insn, 1), Some(PredQual::Zeroing)) { 0b101 } else { 0b100 };
-            fld(0b00000101, 24) | fld(size, 22) | fld(1, 21) | fld(0b00111, 16) | fld(sel, 13)
+            let sel = if matches!(pred_qual(insn, 1), Some(PredQual::Zeroing)) {
+                0b101
+            } else {
+                0b100
+            };
+            fld(0b00000101, 24)
+                | fld(size, 22)
+                | fld(1, 21)
+                | fld(0b00111, 16)
+                | fld(sel, 13)
                 | fld(pg, 10)
                 | fld(zn, 5)
                 | zd
@@ -320,7 +341,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         }
         // SME streaming analogues: word<11>=1 (the `0b110` in the bits<12:10> slot).
         SveAddsvl | SveAddspl => {
-            let op22 = if matches!(code, SveAddsvl) { 0b00 } else { 0b01 };
+            let op22 = if matches!(code, SveAddsvl) {
+                0b00
+            } else {
+                0b01
+            };
             let rd = reg(insn, 0)?;
             let rn = reg(insn, 1)?;
             let imm6 = (simm(insn, 2)? as u32) & 0x3f;
@@ -383,7 +408,10 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
             // 0x04 reductions slot: <15:13>=001, <20:16>=1000M.
-            base04(0, 0b001) | fld(size, 22) | fld(0b10000 | u32::from(merging), 16) | fld(pg, 10)
+            base04(0, 0b001)
+                | fld(size, 22)
+                | fld(0b10000 | u32::from(merging), 16)
+                | fld(pg, 10)
                 | fld(zn, 5)
                 | zd
         }
@@ -398,7 +426,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let rd = g(insn, 0)?;
             let pg = p(insn, 1)?;
             let pn = p(insn, 2)?;
-            fld(0b00100101, 24) | fld(size, 22) | fld(0b10, 20) | fld(0b10, 14) | fld(pg, 10)
+            fld(0b00100101, 24)
+                | fld(size, 22)
+                | fld(0b10, 20)
+                | fld(0b10, 14)
+                | fld(pg, 10)
                 | fld(pn, 5)
                 | rd
         }
@@ -409,7 +441,9 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let (pn, a) = match insn.op(1) {
                 // CNTP's predicate-as-counter uses the full 4-bit PN field
                 // (`pn0`..`pn15`), unlike the WHILE forms (`pn8`..`pn15`).
-                Operand::PredCounter { reg, arr: Some(a), .. } => (reg.number() as u32, a),
+                Operand::PredCounter {
+                    reg, arr: Some(a), ..
+                } => (reg.number() as u32, a),
                 _ => return Err(EncodeError::InvalidOperand),
             };
             if pn > 15 {
@@ -421,7 +455,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 Operand::VlMul(4) => 1,
                 _ => return Err(EncodeError::InvalidOperand),
             };
-            fld(0b00100101, 24) | fld(size, 22) | fld(1, 21) | fld(0b100, 13) | fld(vl, 10)
+            fld(0b00100101, 24)
+                | fld(size, 22)
+                | fld(1, 21)
+                | fld(0b100, 13)
+                | fld(vl, 10)
                 | fld(1, 9)
                 | fld(pn, 5)
                 | rd
@@ -438,7 +476,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         }
         // ---- ADDPT/SUBPT predicated (FEAT_CPA, 0x04, <15:13>=000, .d only) ----
         SveAddptPred | SveSubptPred => {
-            let opc = if matches!(code, SveAddptPred) { 0b00100 } else { 0b00101 };
+            let opc = if matches!(code, SveAddptPred) {
+                0b00100
+            } else {
+                0b00101
+            };
             let (zdn, pg, zm) = read_pred_binary(insn)?;
             base04(0, 0b000) | fld(0b11, 22) | fld(opc, 16) | fld(pg, 10) | fld(zm, 5) | zdn
         }
@@ -447,12 +489,20 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
-            let op = if matches!(code, SveAddptUnpred) { 0b010 } else { 0b011 };
+            let op = if matches!(code, SveAddptUnpred) {
+                0b010
+            } else {
+                0b011
+            };
             base04(1, 0b000) | fld(0b11, 22) | fld(op, 10) | fld(zm, 16) | fld(zn, 5) | zd
         }
         // ---- reductions (0x04, <15:13>=001) ----
         SveSaddv | SveUaddv => {
-            let opc = if matches!(code, SveSaddv) { 0b00000 } else { 0b00001 };
+            let opc = if matches!(code, SveSaddv) {
+                0b00000
+            } else {
+                0b00001
+            };
             let size = esize(insn, 2)?;
             let dd = sfp(insn, 0)?;
             let pg = p(insn, 1)?;
@@ -476,7 +526,8 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             base04(0, 0b001) | fld(size, 22) | fld(opc, 16) | fld(pg, 10) | fld(zn, 5) | dd
         }
         // ---- SVE2.1 quadword reductions to a NEON `V` register (0x04) ----
-        SveAddqv | SveSmaxqv | SveUmaxqv | SveSminqv | SveUminqv | SveOrqv | SveEorqv | SveAndqv => {
+        SveAddqv | SveSmaxqv | SveUmaxqv | SveSminqv | SveUminqv | SveOrqv | SveEorqv
+        | SveAndqv => {
             let opc = match code {
                 SveAddqv => 0b00101,
                 SveSmaxqv => 0b01100,
@@ -499,7 +550,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            fld(0b00000101, 24) | fld(size, 22) | fld(1, 21) | fld(0b10001, 16) | fld(0b100, 13)
+            fld(0b00000101, 24)
+                | fld(size, 22)
+                | fld(1, 21)
+                | fld(0b10001, 16)
+                | fld(0b100, 13)
                 | fld(pg, 10)
                 | fld(zn, 5)
                 | zd
@@ -513,7 +568,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             if tsz > 0x1f {
                 return Err(EncodeError::InvalidImmediate);
             }
-            fld(0b00000101, 24) | fld(1, 21) | fld(tsz, 16) | fld(0b001, 13) | fld(0b001, 10)
+            fld(0b00000101, 24)
+                | fld(1, 21)
+                | fld(tsz, 16)
+                | fld(0b001, 13)
+                | fld(0b001, 10)
                 | fld(zn, 5)
                 | zd
         }
@@ -521,7 +580,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let zm = z(insn, 2)?;
             let imm4 = (imm(insn, 3)? as u32) & 0xf;
-            fld(0b00000101, 24) | fld(0b01, 22) | fld(1, 21) | fld(imm4, 16) | fld(0b001, 13)
+            fld(0b00000101, 24)
+                | fld(0b01, 22)
+                | fld(1, 21)
+                | fld(imm4, 16)
+                | fld(0b001, 13)
                 | fld(0b001, 10)
                 | fld(zm, 5)
                 | zd
@@ -532,7 +595,9 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let s9_5 = reg(insn, 1)?;
             // The predicate carries the arrangement; the vector carries the lane.
             let (dbit, a, lane) = match insn.op(0) {
-                Operand::Reg { reg, arr: Some(a), .. } if reg.class() == RegClass::Predicate => {
+                Operand::Reg {
+                    reg, arr: Some(a), ..
+                } if reg.class() == RegClass::Predicate => {
                     (0u32, a, pmov_lane(insn, 1)) // P <- Z
                 }
                 _ => {
@@ -560,7 +625,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         }
         // ---- MLA / MLS / MAD / MSB (0x04) ----
         SveMlaZpzzz | SveMlsZpzzz => {
-            let sel = if matches!(code, SveMlsZpzzz) { 0b011 } else { 0b010 };
+            let sel = if matches!(code, SveMlsZpzzz) {
+                0b011
+            } else {
+                0b010
+            };
             let size = esize(insn, 0)?;
             let zda = z(insn, 0)?;
             let pg = p(insn, 1)?;
@@ -569,7 +638,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             base04(0, sel) | fld(size, 22) | fld(zm, 16) | fld(pg, 10) | fld(zn, 5) | zda
         }
         SveMadZpzzz | SveMsbZpzzz => {
-            let sel = if matches!(code, SveMsbZpzzz) { 0b111 } else { 0b110 };
+            let sel = if matches!(code, SveMsbZpzzz) {
+                0b111
+            } else {
+                0b110
+            };
             let size = esize(insn, 0)?;
             let zdn = z(insn, 0)?;
             let pg = p(insn, 1)?;
@@ -832,7 +905,11 @@ fn enc_sve_bitmask(value: u64) -> Result<u32, EncodeError> {
 /// 64-bit container, matching the decoder's `decode_bit_masks(.., 64)` value.
 fn replicate_element(val: u64, a: VA) -> Result<u64, EncodeError> {
     let (_, esz) = esize_of(a)?;
-    let masked = if esz >= 64 { val } else { val & ((1u64 << esz) - 1) };
+    let masked = if esz >= 64 {
+        val
+    } else {
+        val & ((1u64 << esz) - 1)
+    };
     let mut acc = 0u64;
     let mut shift = 0u32;
     while shift < 64 {
@@ -864,7 +941,12 @@ fn enc_dup_idx(insn: &Instruction) -> Result<u32, EncodeError> {
     let imm2 = (tsz >> 5) & 3;
     let tszlo = tsz & 0x1f;
     // Fixed: <21>=1, <15:13>=001, <12:10>=000.
-    Ok(fld(0b00000101, 24) | fld(imm2, 22) | fld(1, 21) | fld(tszlo, 16) | fld(0b001, 13) | fld(zn, 5)
+    Ok(fld(0b00000101, 24)
+        | fld(imm2, 22)
+        | fld(1, 21)
+        | fld(tszlo, 16)
+        | fld(0b001, 13)
+        | fld(zn, 5)
         | zd)
 }
 
@@ -904,7 +986,10 @@ fn enc_adr_vec(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
     let zd = z(insn, 0)?;
     let (zn, zm, amount) = match insn.op(1) {
         Operand::SveMem {
-            base, offset, amount, ..
+            base,
+            offset,
+            amount,
+            ..
         } => (base.number() as u32, offset.number() as u32, amount as u32),
         _ => return Err(EncodeError::InvalidOperand),
     };
@@ -925,7 +1010,12 @@ fn enc_adr_vec(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
         }
         _ => return Err(EncodeError::InvalidOperand),
     };
-    Ok(base04(1, 0b101) | fld(opc, 22) | fld(0b1010, 12) | fld(zm, 16) | fld(amount, 10) | fld(zn, 5)
+    Ok(base04(1, 0b101)
+        | fld(opc, 22)
+        | fld(0b1010, 12)
+        | fld(zm, 16)
+        | fld(amount, 10)
+        | fld(zn, 5)
         | zd)
 }
 
@@ -963,7 +1053,11 @@ fn enc_cnt_incdec_scalar(insn: &Instruction, _code: Code) -> Result<u32, EncodeE
     if let Some(size) = cnt_size(m) {
         let rd = g(insn, 0)?;
         let (pattern, imm4) = read_pattern_mul(insn, 1)?;
-        return Ok(base04(1, 0b111) | fld(size, 22) | fld(imm4, 16) | fld(0b000, 10) | fld(pattern, 5)
+        return Ok(base04(1, 0b111)
+            | fld(size, 22)
+            | fld(imm4, 16)
+            | fld(0b000, 10)
+            | fld(pattern, 5)
             | rd);
     }
     // INC/DEC scalar (unsaturated, X form).
@@ -971,7 +1065,11 @@ fn enc_cnt_incdec_scalar(insn: &Instruction, _code: Code) -> Result<u32, EncodeE
         let rd = g(insn, 0)?;
         let (pattern, imm4) = read_pattern_mul(insn, 1)?;
         let op = if dec { 0b001 } else { 0b000 };
-        return Ok(base04(1, 0b111) | fld(size, 22) | fld(1, 20) | fld(imm4, 16) | fld(op, 10)
+        return Ok(base04(1, 0b111)
+            | fld(size, 22)
+            | fld(1, 20)
+            | fld(imm4, 16)
+            | fld(op, 10)
             | fld(pattern, 5)
             | rd);
     }
@@ -983,7 +1081,9 @@ fn enc_cnt_incdec_scalar(insn: &Instruction, _code: Code) -> Result<u32, EncodeE
     let (sf, tail_start) = if unsigned == 0 {
         // operand 1 is Wdn for _sx form, otherwise pattern/mul.
         match insn.op(1) {
-            Operand::Reg { reg, .. } if reg.class() == crate::register::RegClass::Gp => (0u32, 2usize),
+            Operand::Reg { reg, .. } if reg.class() == crate::register::RegClass::Gp => {
+                (0u32, 2usize)
+            }
             _ => (1u32, 1usize),
         }
     } else {
@@ -1114,7 +1214,10 @@ fn enc_shift_pred_imm(insn: &Instruction, code: Code) -> Result<u32, EncodeError
     let m = insn.mnemonic();
     let a = arr_of(insn, 0)?;
     let amount = imm(insn, 3)? as u32;
-    let left = matches!(m, Mnemonic::Lsl | Mnemonic::Sqshl | Mnemonic::Uqshl | Mnemonic::Sqshlu);
+    let left = matches!(
+        m,
+        Mnemonic::Lsl | Mnemonic::Sqshl | Mnemonic::Uqshl | Mnemonic::Sqshlu
+    );
     let (tsz, imm3) = if left {
         enc_left_shift(a, amount)?
     } else {
@@ -1140,7 +1243,11 @@ fn enc_shift_pred_imm(insn: &Instruction, code: Code) -> Result<u32, EncodeError
     let zdn = z(insn, 0)?;
     let pg = p(insn, 1)?;
     // tszh=<23:22>, tszl=<9:8>, imm3=<7:5>.
-    Ok(base04(0, 0b100) | fld(tsz >> 2, 22) | fld(opc, 16) | fld(pg, 10) | fld(tsz & 3, 8)
+    Ok(base04(0, 0b100)
+        | fld(tsz >> 2, 22)
+        | fld(opc, 16)
+        | fld(pg, 10)
+        | fld(tsz & 3, 8)
         | fld(imm3, 5)
         | zdn)
 }
@@ -1153,7 +1260,10 @@ fn enc_cmp_imm(insn: &Instruction) -> Result<u32, EncodeError> {
     let pg = p(insn, 1)?;
     let zn = z(insn, 2)?;
     // Unsigned-immediate compares (0x24, <21>=1): imm7 unsigned.
-    if matches!(m, Mnemonic::Cmphs | Mnemonic::Cmphi | Mnemonic::Cmplo | Mnemonic::Cmpls) {
+    if matches!(
+        m,
+        Mnemonic::Cmphs | Mnemonic::Cmphi | Mnemonic::Cmplo | Mnemonic::Cmpls
+    ) {
         let imm7 = (imm(insn, 3)? as u32) & 0x7f;
         let (b13, ne) = match m {
             Mnemonic::Cmphs => (0, 0),
@@ -1161,7 +1271,11 @@ fn enc_cmp_imm(insn: &Instruction) -> Result<u32, EncodeError> {
             Mnemonic::Cmplo => (1, 0),
             _ => (1, 1),
         };
-        return Ok(fld(0b00100100, 24) | fld(size, 22) | fld(1, 21) | fld(imm7, 14) | fld(b13, 13)
+        return Ok(fld(0b00100100, 24)
+            | fld(size, 22)
+            | fld(1, 21)
+            | fld(imm7, 14)
+            | fld(b13, 13)
             | fld(pg, 10)
             | fld(zn, 5)
             | fld(ne, 4)
@@ -1180,7 +1294,12 @@ fn enc_cmp_imm(insn: &Instruction) -> Result<u32, EncodeError> {
     };
     // <15:13>: op<15>, then <14>=0, <13>=lt. sel = (op<<2)|(0<<1)|lt -> bits 15:13.
     let sel = fld(op, 15) | fld(lt, 13);
-    Ok(fld(0b00100101, 24) | fld(size, 22) | fld(imm5, 16) | sel | fld(pg, 10) | fld(zn, 5)
+    Ok(fld(0b00100101, 24)
+        | fld(size, 22)
+        | fld(imm5, 16)
+        | sel
+        | fld(pg, 10)
+        | fld(zn, 5)
         | fld(ne, 4)
         | pd)
 }
@@ -1213,7 +1332,12 @@ fn enc_cmp_vec(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
         (Mnemonic::Cmpls, true) => (1, 1, 1, 1),
         _ => return Err(EncodeError::InvalidOperand),
     };
-    Ok(fld(0b00100100, 24) | fld(size, 22) | fld(zm, 16) | fld(op, 15) | fld(b14, 14) | fld(b13, 13)
+    Ok(fld(0b00100100, 24)
+        | fld(size, 22)
+        | fld(zm, 16)
+        | fld(op, 15)
+        | fld(b14, 14)
+        | fld(b13, 13)
         | fld(pg, 10)
         | fld(zn, 5)
         | fld(ne, 4)

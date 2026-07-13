@@ -2,7 +2,7 @@
 //!
 //! SME instructions live in the **reserved** top-level group
 //! (`op0 = word<28:25> = 0b0000`) with `word<31> == 1`; they are dispatched here
-//! from [`crate::decode::decode_reserved`] (only when the `sme` cargo feature is
+//! from `crate::decode::decode_reserved` (only when the `sme` cargo feature is
 //! compiled in and the runtime [`Feature::Sme`] is accepted). The single
 //! exception is `SMSTART`/`SMSTOP`, which are `MSR (immediate)` PSTATE encodings
 //! and are handled in [`crate::decode::branch_sys`].
@@ -28,7 +28,7 @@ use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::Code;
 use crate::operand::{Operand, PredQual, SliceIndicator, SveMemMode};
-use crate::register::{gp_register, Register, RegWidth};
+use crate::register::{gp_register, RegWidth, Register};
 
 pub(crate) mod sme2;
 pub(crate) mod sme_lut;
@@ -40,19 +40,61 @@ pub(crate) mod sme_zero_movt;
 // ---------------------------------------------------------------------------
 
 const Z: [Register; 32] = [
-    Register::Z0, Register::Z1, Register::Z2, Register::Z3, Register::Z4, Register::Z5, Register::Z6, Register::Z7,
-    Register::Z8, Register::Z9, Register::Z10, Register::Z11, Register::Z12, Register::Z13, Register::Z14, Register::Z15,
-    Register::Z16, Register::Z17, Register::Z18, Register::Z19, Register::Z20, Register::Z21, Register::Z22, Register::Z23,
-    Register::Z24, Register::Z25, Register::Z26, Register::Z27, Register::Z28, Register::Z29, Register::Z30, Register::Z31,
+    Register::Z0,
+    Register::Z1,
+    Register::Z2,
+    Register::Z3,
+    Register::Z4,
+    Register::Z5,
+    Register::Z6,
+    Register::Z7,
+    Register::Z8,
+    Register::Z9,
+    Register::Z10,
+    Register::Z11,
+    Register::Z12,
+    Register::Z13,
+    Register::Z14,
+    Register::Z15,
+    Register::Z16,
+    Register::Z17,
+    Register::Z18,
+    Register::Z19,
+    Register::Z20,
+    Register::Z21,
+    Register::Z22,
+    Register::Z23,
+    Register::Z24,
+    Register::Z25,
+    Register::Z26,
+    Register::Z27,
+    Register::Z28,
+    Register::Z29,
+    Register::Z30,
+    Register::Z31,
 ];
 const P: [Register; 16] = [
-    Register::P0, Register::P1, Register::P2, Register::P3, Register::P4, Register::P5, Register::P6, Register::P7,
-    Register::P8, Register::P9, Register::P10, Register::P11, Register::P12, Register::P13, Register::P14, Register::P15,
+    Register::P0,
+    Register::P1,
+    Register::P2,
+    Register::P3,
+    Register::P4,
+    Register::P5,
+    Register::P6,
+    Register::P7,
+    Register::P8,
+    Register::P9,
+    Register::P10,
+    Register::P11,
+    Register::P12,
+    Register::P13,
+    Register::P14,
+    Register::P15,
 ];
 
 /// Decode a single SME instruction `word` at `ip` into `out`.
 ///
-/// Called from [`crate::decode::decode_reserved`] under `#[cfg(feature = "sme")]`
+/// Called from `crate::decode::decode_reserved` under `#[cfg(feature = "sme")]`
 /// once the reserved group has selected a `word<31> == 1` encoding. Runtime-gated
 /// on [`Feature::Sme`]; dispatches on `word<31:29>` to the family decoders. Total
 /// and panic-free for all inputs.
@@ -242,13 +284,25 @@ fn decode_mopa_fp(word: u32, features: FeatureSet, out: &mut Instruction) {
         match (sz, b21, b3) {
             // FP32: ZAda.S, Zn.S, Zm.S.
             (0b10, 0, 0) => Some((
-                if s == 0 { Code::SmeFmopaS } else { Code::SmeFmopsS },
-                VA::Ss, VA::Ss, Feature::Sme,
+                if s == 0 {
+                    Code::SmeFmopaS
+                } else {
+                    Code::SmeFmopsS
+                },
+                VA::Ss,
+                VA::Ss,
+                Feature::Sme,
             )),
             // b16b16 BMOPA/BMOPS: ZAda.S, Zn.S, Zm.S.
             (0b10, 0, 1) => Some((
-                if s == 0 { Code::SmeBmopaS } else { Code::SmeBmopsS },
-                VA::Ss, VA::Ss, Feature::SmeB16b16,
+                if s == 0 {
+                    Code::SmeBmopaS
+                } else {
+                    Code::SmeBmopsS
+                },
+                VA::Ss,
+                VA::Ss,
+                Feature::SmeB16b16,
             )),
             // FP8 → FP32 (FMOPA only, no subtract): ZAda.S, Zn.B, Zm.B.
             (0b10, 1, 0) if s == 0 => Some((Code::SmeFmopaB, VA::Ss, VA::Sb, Feature::SmeF8f32)),
@@ -256,8 +310,14 @@ fn decode_mopa_fp(word: u32, features: FeatureSet, out: &mut Instruction) {
             (0b10, 1, 1) if s == 0 => Some((Code::SmeFmopaBh, VA::Sh, VA::Sb, Feature::SmeF8f16)),
             // FP64: ZAda.D, Zn.D, Zm.D.
             (0b11, 0, 0) => Some((
-                if s == 0 { Code::SmeFmopaD } else { Code::SmeFmopsD },
-                VA::Sd, VA::Sd, Feature::Sme,
+                if s == 0 {
+                    Code::SmeFmopaD
+                } else {
+                    Code::SmeFmopsD
+                },
+                VA::Sd,
+                VA::Sd,
+                Feature::Sme,
             )),
             _ => None,
         }
@@ -266,20 +326,44 @@ fn decode_mopa_fp(word: u32, features: FeatureSet, out: &mut Instruction) {
         // BF16→FP32 / FP16→FP16 / FP16→FP32 / BF16→BF16.
         match (sz, b21, b3) {
             (0b10, 0, 0) => Some((
-                if s == 0 { Code::SmeBfmopa } else { Code::SmeBfmops },
-                VA::Ss, VA::Sh, Feature::Sme,
+                if s == 0 {
+                    Code::SmeBfmopa
+                } else {
+                    Code::SmeBfmops
+                },
+                VA::Ss,
+                VA::Sh,
+                Feature::Sme,
             )),
             (0b10, 0, 1) => Some((
-                if s == 0 { Code::SmeFmopaHh } else { Code::SmeFmopsHh },
-                VA::Sh, VA::Sh, Feature::SmeF16f16,
+                if s == 0 {
+                    Code::SmeFmopaHh
+                } else {
+                    Code::SmeFmopsHh
+                },
+                VA::Sh,
+                VA::Sh,
+                Feature::SmeF16f16,
             )),
             (0b10, 1, 0) => Some((
-                if s == 0 { Code::SmeFmopaH } else { Code::SmeFmopsH },
-                VA::Ss, VA::Sh, Feature::Sme,
+                if s == 0 {
+                    Code::SmeFmopaH
+                } else {
+                    Code::SmeFmopsH
+                },
+                VA::Ss,
+                VA::Sh,
+                Feature::Sme,
             )),
             (0b10, 1, 1) => Some((
-                if s == 0 { Code::SmeBfmopaH } else { Code::SmeBfmopsH },
-                VA::Sh, VA::Sh, Feature::SmeB16b16,
+                if s == 0 {
+                    Code::SmeBfmopaH
+                } else {
+                    Code::SmeBfmopsH
+                },
+                VA::Sh,
+                VA::Sh,
+                Feature::SmeB16b16,
             )),
             _ => None,
         }
@@ -587,10 +671,7 @@ fn decode_mova_add(word: u32, features: FeatureSet, out: &mut Instruction) {
     // word<16> == 0` (FEAT_SME2). Route them first; their shells never overlap
     // the base MOVA / ADDHA / ADDVA encodings (which have word<18:17> == 00 with
     // word<21:20> selecting the family).
-    if features.has(Feature::Lut)
-        && bit(word, 23) == 1
-        && bit(word, 21) == 0
-        && bit(word, 19) == 1
+    if features.has(Feature::Lut) && bit(word, 23) == 1 && bit(word, 21) == 0 && bit(word, 19) == 1
     {
         // word<20> is the LUTI strided/consecutive selector (free here); word<21>
         // must be 0 and word<19> == 1 pins the LUTI ZT0 family.
@@ -670,7 +751,11 @@ fn decode_addha_addva(word: u32, out: &mut Instruction) {
     }
     let zada = bits(word, 0, zada_width);
 
-    out.set(if v == 0 { Code::SmeAddha } else { Code::SmeAddva });
+    out.set(if v == 0 {
+        Code::SmeAddha
+    } else {
+        Code::SmeAddva
+    });
     out.push_operand(zreg(zada, arr));
     out.push_operand(preg_m(pn));
     out.push_operand(preg_m(pm));
@@ -928,7 +1013,11 @@ fn decode_ldr_str_za(word: u32, out: &mut Instruction) {
         mode: SveMemMode::ScalarImmMulVl,
     };
 
-    out.set(if is_store { Code::SmeStrZa } else { Code::SmeLdrZa });
+    out.set(if is_store {
+        Code::SmeStrZa
+    } else {
+        Code::SmeLdrZa
+    });
     out.push_operand(select);
     out.push_operand(mem);
 }
@@ -1011,13 +1100,22 @@ mod tests {
         // LD1*/ST1* ZA-array vector: tile always 0, `/z` for loads, bare for
         // stores, index scaled by the element size (elided for byte).
         check(0xE011E5A3, "ld1b    z0v.b[w15, #0x3], p1/z, [x13, x17]");
-        check(0xE059A9C2, "ld1h    z0v.h[w13, #0x2], p2/z, [x14, x25, lsl #0x1]");
-        check(0xE0D76421, "ld1d    z0h.d[w15, #0x1], p1/z, [x1, x23, lsl #0x3]");
+        check(
+            0xE059A9C2,
+            "ld1h    z0v.h[w13, #0x2], p2/z, [x14, x25, lsl #0x1]",
+        );
+        check(
+            0xE0D76421,
+            "ld1d    z0h.d[w15, #0x1], p1/z, [x1, x23, lsl #0x3]",
+        );
         check(0xE1DE4A4D, "ld1q    z0h.q[w14], p2/z, [x18, x30, lsl #0x4]");
         check(0xE024806B, "st1b    z0v.b[w12, #0xb], p0, [x3, x4]");
         check(0xE1F50B6D, "st1q    z0h.q[w12], p2, [x27, x21, lsl #0x4]");
         // SP base resolves to `sp`.
-        check(0xE0B24FE7, "st1w    z0h.s[w14, #0x3], p3, [sp, x18, lsl #0x2]");
+        check(
+            0xE0B24FE7,
+            "st1w    z0h.s[w14, #0x3], p3, [sp, x18, lsl #0x2]",
+        );
     }
 
     #[test]
@@ -1044,9 +1142,18 @@ mod tests {
     #[test]
     fn sme2_multivector_alu() {
         // SEL (predicate-as-counter): vgx2 comma-list, vgx4 range, plus sizes.
-        check(0xC1208452, "sel     { z18.b, z19.b }, pn9, { z2.b, z3.b }, { z0.b, z1.b }");
-        check(0xC1258010, "sel     { z16.b - z19.b }, pn8, { z0.b - z3.b }, { z4.b - z7.b }");
-        check(0xC1608452, "sel     { z18.h, z19.h }, pn9, { z2.h, z3.h }, { z0.h, z1.h }");
+        check(
+            0xC1208452,
+            "sel     { z18.b, z19.b }, pn9, { z2.b, z3.b }, { z0.b, z1.b }",
+        );
+        check(
+            0xC1258010,
+            "sel     { z16.b - z19.b }, pn8, { z0.b - z3.b }, { z4.b - z7.b }",
+        );
+        check(
+            0xC1608452,
+            "sel     { z18.h, z19.h }, pn9, { z2.h, z3.h }, { z0.h, z1.h }",
+        );
         // S/U/F/BF clamp.
         check(0xC120C40F, "uclamp  { z14.b, z15.b }, z0.b, z0.b");
         check(0xC1A0CC0D, "uclamp  { z12.s - z15.s }, z0.s, z0.s");
@@ -1067,32 +1174,74 @@ mod tests {
     #[test]
     fn sme2_multivector_mem() {
         // Contiguous multi-vector loads/stores with a predicate-as-counter.
-        check(0xA0004014, "ld1w    { z20.s, z21.s }, pn8/z, [x0, x0, lsl #0x2]");
-        check(0xA000E814, "ld1d    { z20.d - z23.d }, pn10/z, [x0, x0, lsl #0x3]");
+        check(
+            0xA0004014,
+            "ld1w    { z20.s, z21.s }, pn8/z, [x0, x0, lsl #0x2]",
+        );
+        check(
+            0xA000E814,
+            "ld1d    { z20.d - z23.d }, pn10/z, [x0, x0, lsl #0x3]",
+        );
         check(0xA0000000, "ld1b    { z0.b, z1.b }, pn8/z, [x0, x0]");
-        check(0xA0414000, "ld1w    { z0.s, z1.s }, pn8/z, [x0, #0x2, mul vl]");
-        check(0xA041E000, "ld1d    { z0.d - z3.d }, pn8/z, [x0, #0x4, mul vl]");
-        check(0xA0480000, "ld1b    { z0.b, z1.b }, pn8/z, [x0, #-16, mul vl]");
+        check(
+            0xA0414000,
+            "ld1w    { z0.s, z1.s }, pn8/z, [x0, #0x2, mul vl]",
+        );
+        check(
+            0xA041E000,
+            "ld1d    { z0.d - z3.d }, pn8/z, [x0, #0x4, mul vl]",
+        );
+        check(
+            0xA0480000,
+            "ld1b    { z0.b, z1.b }, pn8/z, [x0, #-16, mul vl]",
+        );
         check(0xA0404000, "ld1w    { z0.s, z1.s }, pn8/z, [x0]");
-        check(0xA0004015, "ldnt1w  { z20.s, z21.s }, pn8/z, [x0, x0, lsl #0x2]");
+        check(
+            0xA0004015,
+            "ldnt1w  { z20.s, z21.s }, pn8/z, [x0, x0, lsl #0x2]",
+        );
         check(0xA0200001, "stnt1b  { z0.b, z1.b }, pn8, [x0, x0]");
-        check(0xA0204014, "st1w    { z20.s, z21.s }, pn8, [x0, x0, lsl #0x2]");
+        check(
+            0xA0204014,
+            "st1w    { z20.s, z21.s }, pn8, [x0, x0, lsl #0x2]",
+        );
     }
 
     #[test]
     fn sme2_multivector_strided() {
         // word<24> == 1: the strided (non-consecutive) register lists. 2-register
         // groups step by 8 (`z16, z24`); 4-register groups step by 4.
-        check(0xA1206710, "st1d    { z16.d, z24.d }, pn9, [x24, x0, lsl #0x3]");
-        check(0xA1204983, "st1w    { z3.s, z11.s }, pn10, [x12, x0, lsl #0x2]");
-        check(0xA1004DB1, "ld1w    { z17.s, z25.s }, pn11/z, [x13, x0, lsl #0x2]");
-        check(0xA120A541, "st1h    { z1.h, z5.h, z9.h, z13.h }, pn9, [x10, x0, lsl #0x1]");
+        check(
+            0xA1206710,
+            "st1d    { z16.d, z24.d }, pn9, [x24, x0, lsl #0x3]",
+        );
+        check(
+            0xA1204983,
+            "st1w    { z3.s, z11.s }, pn10, [x12, x0, lsl #0x2]",
+        );
+        check(
+            0xA1004DB1,
+            "ld1w    { z17.s, z25.s }, pn11/z, [x13, x0, lsl #0x2]",
+        );
+        check(
+            0xA120A541,
+            "st1h    { z1.h, z5.h, z9.h, z13.h }, pn9, [x10, x0, lsl #0x1]",
+        );
         // Strided nontemporal (NT = word<3>), and the byte form (no LSL shown).
-        check(0xA1206718, "stnt1d  { z16.d, z24.d }, pn9, [x24, x0, lsl #0x3]");
-        check(0xA1004000, "ld1w    { z0.s, z8.s }, pn8/z, [x0, x0, lsl #0x2]");
+        check(
+            0xA1206718,
+            "stnt1d  { z16.d, z24.d }, pn9, [x24, x0, lsl #0x3]",
+        );
+        check(
+            0xA1004000,
+            "ld1w    { z0.s, z8.s }, pn8/z, [x0, x0, lsl #0x2]",
+        );
         // Strided scalar+immediate (`MUL VL`): the offset is `imm4 * count`.
         check(0xA1606710, "st1d    { z16.d, z24.d }, pn9, [x24]");
-        check(0xA1414000, "ld1w    { z0.s, z8.s }, pn8/z, [x0, #0x2, mul vl]");
+        check(
+            0xA1414000,
+            "ld1w    { z0.s, z8.s }, pn8/z, [x0, #0x2, mul vl]",
+        );
         // vgx4 strided leaves word<2> reserved (must be zero) -> Invalid.
         let bytes = 0xA120E714u32.to_le_bytes();
         let mut dec = Decoder::new(&bytes, 0x1000, DecoderOptions::default());

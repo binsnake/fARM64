@@ -1,34 +1,41 @@
-fARM64 — Acknowledgments
+fARM64 — provenance notes
 Copyright 2026 The fARM64 authors.
 
-fARM64 is an ORIGINAL implementation of an AArch64 (A64) disassembler. All decode
-behaviour is hand-written from the ARM Architecture Reference Manual (the "ARM
-ARM"), which is the normative reference for this project. The fARM64 source code
-is original work, licensed under your choice of MIT OR Apache-2.0 (see LICENSE-MIT
-and LICENSE-APACHE). Nothing in this file imposes any additional obligation on
-users of fARM64.
+fARM64 is licensed under the MIT License in LICENSE. This file is informational
+and does not add conditions to that license.
 
-This file is a courtesy acknowledgment, not a required-attribution notice.
+Arm architectural instructions
+------------------------------
+The decoder and encoder are implemented from the publicly documented Arm
+Architecture Reference Manual. During development, output is also compared with
+independent tools and data, including LLVM, GNU binutils, and Vector 35's
+`arch-arm64` test corpus. Those comparison inputs are local development
+references and are excluded from the published crate.
 
-Cross-checking oracle (development only)
-----------------------------------------
-During development, fARM64's output is differentially compared against several
-independent oracles: LLVM (llvm-mc / llvm-objdump), GNU binutils (objdump), and a
-third-party AArch64 test corpus from Vector 35's "arch-arm64" project:
+The `arch-arm64` project identifies its test material as:
 
     arch-arm64
     Copyright 2020-2024 Vector 35 Inc.
-    Licensed under the Apache License, Version 2.0.
+    Apache License, Version 2.0
+    https://github.com/Vector35/arch-arm64
 
-    A copy of the Apache License, Version 2.0 may be obtained at:
-    http://www.apache.org/licenses/LICENSE-2.0
+Apple implementation-defined instructions
+-----------------------------------------
+fARM64 includes separately runtime-gated support for Apple implementation-
+defined instruction families. Apple AMX operation names and encodings reference
+the public `corsix/amx` reverse-engineering project:
 
-That corpus is used ONLY as one development cross-check among several. It is read
-locally, never shipped with fARM64, and is not authoritative: where it diverges
-from the ARM ARM, fARM64 follows the spec and records the intentional divergence.
-fARM64 is NOT a derivative work of arch-arm64; no fARM64 decode logic is ported,
-transpiled, or otherwise copied from it.
+    https://github.com/corsix/amx
 
-Any vendored reference material under refs/ retains its own original license and
-copyright (see, e.g., refs/arch-arm64-master/LICENSE) and is present for local
-cross-checking only.
+Apple GXF (`GENTER`/`GEXIT`) encodings reference Asahi Linux's public Apple
+Proprietary Instructions documentation; background on GXF is provided by Sven
+Peter's “Apple Silicon Hardware Secrets: SPRR and Guarded Exception Levels
+(GXF)”:
+
+    https://asahilinux.org/docs/hw/cpu/apple-instructions/
+    https://blog.svenpeter.dev/posts/m1_sprr_gxf/
+
+These families are not Arm architectural extensions and are disabled by
+`FeatureSet::BASE`; callers must explicitly
+enable `Feature::AppleAmx` or `Feature::Gxf` (or use `FeatureSet::ALL`). Their
+encodings are pinned by focused decode, encode, gating, and reserved-form tests.

@@ -115,18 +115,33 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let vd = sfp(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b001, 13) | fld(pg, 10) | fld(zn, 5) | vd
+            base65(0)
+                | fld(size, 22)
+                | fld(opc, 16)
+                | fld(0b001, 13)
+                | fld(pg, 10)
+                | fld(zn, 5)
+                | vd
         }
         SveFadda => {
             let size = esize(insn, 3)?;
             let vd = sfp(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 3)?;
-            base65(0) | fld(size, 22) | fld(0b11000, 16) | fld(0b001, 13) | fld(pg, 10) | fld(zn, 5)
+            base65(0)
+                | fld(size, 22)
+                | fld(0b11000, 16)
+                | fld(0b001, 13)
+                | fld(pg, 10)
+                | fld(zn, 5)
                 | vd
         }
         SveFrecpe | SveFrsqrte => {
-            let opc = if matches!(code, SveFrecpe) { 0b01110 } else { 0b01111 };
+            let opc = if matches!(code, SveFrecpe) {
+                0b01110
+            } else {
+                0b01111
+            };
             let size = esize(insn, 0)?;
             let zd = z(insn, 0)?;
             let zn = z(insn, 1)?;
@@ -146,7 +161,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let pd = p(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            base65(0) | fld(size, 22) | fld(1, 20) | fld(op, 16) | fld(0b001, 13) | fld(pg, 10)
+            base65(0)
+                | fld(size, 22)
+                | fld(1, 20)
+                | fld(op, 16)
+                | fld(0b001, 13)
+                | fld(pg, 10)
                 | fld(zn, 5)
                 | fld(b4, 4)
                 | pd
@@ -174,16 +194,32 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zdn = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zm = z(insn, 3)?;
-            base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zm, 5) | zdn
+            base65(0)
+                | fld(size, 22)
+                | fld(opc, 16)
+                | fld(0b100, 13)
+                | fld(pg, 10)
+                | fld(zm, 5)
+                | zdn
         }
         // i3: predicated FAMAX (`<20:16>=01110`) / FAMIN (`01111`) (FEAT_FAMINMAX).
         SveFamax | SveFamin => {
-            let opc = if matches!(code, SveFamax) { 0b01110 } else { 0b01111 };
+            let opc = if matches!(code, SveFamax) {
+                0b01110
+            } else {
+                0b01111
+            };
             let size = esize(insn, 0)?;
             let zdn = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zm = z(insn, 3)?;
-            base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zm, 5) | zdn
+            base65(0)
+                | fld(size, 22)
+                | fld(opc, 16)
+                | fld(0b100, 13)
+                | fld(pg, 10)
+                | fld(zm, 5)
+                | zdn
         }
         // ---- 0x65 predicated immediate ----
         SveFaddZpzi | SveFsubZpzi | SveFmulZpzi | SveFsubrZpzi | SveFmaxnmZpzi | SveFminnmZpzi
@@ -192,7 +228,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let size = esize(insn, 0)?;
             let zdn = z(insn, 0)?;
             let pg = p(insn, 1)?;
-            base65(0) | fld(size, 22) | fld(0b11, 19) | fld(opc3, 16) | fld(0b100, 13) | fld(pg, 10)
+            base65(0)
+                | fld(size, 22)
+                | fld(0b11, 19)
+                | fld(opc3, 16)
+                | fld(0b100, 13)
+                | fld(pg, 10)
                 | fld(i1, 5)
                 | zdn
         }
@@ -201,7 +242,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zdn = z(insn, 0)?;
             let zm = z(insn, 2)?;
             let imm3 = super::imm(insn, 3)? as u32 & 7;
-            base65(0) | fld(size, 22) | fld(0b10, 19) | fld(imm3, 16) | fld(0b100000, 10) | fld(zm, 5)
+            base65(0)
+                | fld(size, 22)
+                | fld(0b10, 19)
+                | fld(imm3, 16)
+                | fld(0b100000, 10)
+                | fld(zm, 5)
                 | zdn
         }
         // ---- 0x65 predicated unary (rint / recpx / sqrt) ----
@@ -222,7 +268,13 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            base65(0) | fld(size, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10) | fld(zn, 5) | zd
+            base65(0)
+                | fld(size, 22)
+                | fld(opc, 16)
+                | fld(0b101, 13)
+                | fld(pg, 10)
+                | fld(zn, 5)
+                | zd
         }
         // i3: FRINT32/64 Z/X merging (`/m`, FEAT_SVE2p2): `<23:22>=00`,
         // `<20:16>=10 is64 is_d is_x`, `<15:13>=101`. Element from `.s`/`.d`.
@@ -242,7 +294,13 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            base65(0) | fld(0b00, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10) | fld(zn, 5) | zd
+            base65(0)
+                | fld(0b00, 22)
+                | fld(opc, 16)
+                | fld(0b101, 13)
+                | fld(pg, 10)
+                | fld(zn, 5)
+                | zd
         }
         // ---- 0x65 FLOGB ----
         SveFlogbZpz => {
@@ -251,7 +309,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            base65(0) | fld(0b00, 22) | fld(0b011, 19) | fld(sz, 17) | fld(0b101, 13) | fld(pg, 10)
+            base65(0)
+                | fld(0b00, 22)
+                | fld(0b011, 19)
+                | fld(sz, 17)
+                | fld(0b101, 13)
+                | fld(pg, 10)
                 | fld(zn, 5)
                 | zd
         }
@@ -261,12 +324,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         }
         // ---- 0x64 SVE2.1 predicated unary, zeroing (/z) ----
         SveFrintnZ | SveFrintpZ | SveFrintmZ | SveFrintzZ | SveFrintaZ | SveFrintxZ
-        | SveFrintiZ | SveFrecpxZ | SveFsqrtZ
-        | SveFcvtZ | SveFcvtxZ | SveScvtfZ | SveUcvtfZ | SveFcvtzsZ | SveFcvtzuZ | SveBfcvtZ
-        | SveFlogbZ
-        | SveFrint32zZ | SveFrint32xZ | SveFrint64zZ | SveFrint64xZ => enc_64_pred_unary_z(insn, code)?,
+        | SveFrintiZ | SveFrecpxZ | SveFsqrtZ | SveFcvtZ | SveFcvtxZ | SveScvtfZ | SveUcvtfZ
+        | SveFcvtzsZ | SveFcvtzuZ | SveBfcvtZ | SveFlogbZ | SveFrint32zZ | SveFrint32xZ
+        | SveFrint64zZ | SveFrint64xZ => enc_64_pred_unary_z(insn, code)?,
         // ---- 0x65 vector compare ----
-        SveFcmgeZz | SveFcmgtZz | SveFcmeqZz | SveFcmneZz | SveFcmuoZz | SveFacgeZz | SveFacgtZz => {
+        SveFcmgeZz | SveFcmgtZz | SveFcmeqZz | SveFcmneZz | SveFcmuoZz | SveFacgeZz
+        | SveFacgtZz => {
             let (sel, b4) = match code {
                 SveFcmgeZz => (0b010, 0),
                 SveFcmgtZz => (0b010, 1),
@@ -281,7 +344,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
             let zm = z(insn, 3)?;
-            base65(0) | fld(size, 22) | fld(zm, 16) | fld(sel, 13) | fld(pg, 10) | fld(zn, 5)
+            base65(0)
+                | fld(size, 22)
+                | fld(zm, 16)
+                | fld(sel, 13)
+                | fld(pg, 10)
+                | fld(zn, 5)
                 | fld(b4, 4)
                 | pd
         }
@@ -335,7 +403,13 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 270 => 1,
                 _ => return Err(EncodeError::InvalidImmediate),
             };
-            base64(0) | fld(size, 22) | fld(rot, 16) | fld(0b100, 13) | fld(pg, 10) | fld(zm, 5) | zdn
+            base64(0)
+                | fld(size, 22)
+                | fld(rot, 16)
+                | fld(0b100, 13)
+                | fld(pg, 10)
+                | fld(zm, 5)
+                | zdn
         }
         // ---- 0x64 pairwise ----
         SveFaddpZpzz | SveFmaxnmpZpzz | SveFminnmpZpzz | SveFmaxpZpzz | SveFminpZpzz => {
@@ -350,7 +424,12 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zdn = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zm = z(insn, 3)?;
-            base64(0) | fld(size, 22) | fld(0b10, 19) | fld(opc, 16) | fld(0b100, 13) | fld(pg, 10)
+            base64(0)
+                | fld(size, 22)
+                | fld(0b10, 19)
+                | fld(opc, 16)
+                | fld(0b100, 13)
+                | fld(pg, 10)
                 | fld(zm, 5)
                 | zdn
         }
@@ -399,15 +478,19 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
             let idx = lane(insn, 2)?;
-            base64(1) | fld(0b01, 22) | fld(idx & 3, 19) | fld(zm & 7, 16) | fld(0b0100, 12)
+            base64(1)
+                | fld(0b01, 22)
+                | fld(idx & 3, 19)
+                | fld(zm & 7, 16)
+                | fld(0b0100, 12)
                 | fld(zn, 5)
                 | zda
         }
         // ---- 0x64 bf16 / half multiply-add-long ----
-        SveBfmlalb | SveBfmlalt | SveFmlalb | SveFmlalt | SveFmlslb | SveFmlslt
-        | SveBfmlslb | SveBfmlslt => enc_64_mlal_vec(insn, code)?,
-        SveBfmlalbIdx | SveBfmlaltIdx | SveFmlalbIdx | SveFmlaltIdx | SveFmlslbIdx | SveFmlsltIdx
-        | SveBfmlslbIdx | SveBfmlsltIdx => enc_64_mlal_idx(insn, code)?,
+        SveBfmlalb | SveBfmlalt | SveFmlalb | SveFmlalt | SveFmlslb | SveFmlslt | SveBfmlslb
+        | SveBfmlslt => enc_64_mlal_vec(insn, code)?,
+        SveBfmlalbIdx | SveBfmlaltIdx | SveFmlalbIdx | SveFmlaltIdx | SveFmlslbIdx
+        | SveFmlsltIdx | SveBfmlslbIdx | SveBfmlsltIdx => enc_64_mlal_idx(insn, code)?,
         // ---- FP8 widening MLAL z-form, indexed (FEAT_SSVE_FP8FMA) ----
         // FMLALB/T (to .h): <15:12>=0101, T=<23>; index ih(<20:19>):il(<11:10>).
         SveFmlalbFp8Idx | SveFmlaltFp8Idx => {
@@ -415,7 +498,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
             let idx = lane(insn, 2)?;
-            let t = if matches!(code, SveFmlaltFp8Idx) { 1 } else { 0 };
+            let t = if matches!(code, SveFmlaltFp8Idx) {
+                1
+            } else {
+                0
+            };
             base64(1)
                 | fld(t, 23)
                 | fld((idx >> 2) & 3, 19)
@@ -481,8 +568,8 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             base65(0) | fld(zm, 16) | fld(opc, 10) | fld(zn, 5) | zd
         }
         // Predicated binary `<Zdn>.H, <Pg>/M, <Zdn>.H, <Zm>.H`.
-        SveBfaddZpzz | SveBfsubZpzz | SveBfmulZpzz | SveBfmaxnmZpzz | SveBfminnmZpzz | SveBfmaxZpzz
-        | SveBfminZpzz | SveBfscale => {
+        SveBfaddZpzz | SveBfsubZpzz | SveBfmulZpzz | SveBfmaxnmZpzz | SveBfminnmZpzz
+        | SveBfmaxZpzz | SveBfminZpzz | SveBfscale => {
             let opc = match code {
                 SveBfaddZpzz => 0b00000,
                 SveBfsubZpzz => 0b00001,
@@ -502,8 +589,8 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         // ---- P: SVE2.2 FP8 / int convert cluster (0x65 `<15:13>=001`) ----
         // FP8 -> FP16/BF16 widen (single -> single), `Zd.h, Zn.b`, size==00,
         // <20:16>=01000 (no -lt) / 01001 (-lt), <12:10>=1.<11:10> selector.
-        SveF1cvt | SveF2cvt | SveBf1cvt | SveBf2cvt
-        | SveF1cvtlt | SveF2cvtlt | SveBf1cvtlt | SveBf2cvtlt => {
+        SveF1cvt | SveF2cvt | SveBf1cvt | SveBf2cvt | SveF1cvtlt | SveF2cvtlt | SveBf1cvtlt
+        | SveBf2cvtlt => {
             let zd = z(insn, 0)?;
             let zn = z(insn, 1)?;
             let (opc, var) = match code {
@@ -516,7 +603,13 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 SveBf1cvtlt => (0b01001, 0b10),
                 _ => (0b01001, 0b11),
             };
-            base65(0) | fld(opc, 16) | fld(0b001, 13) | fld(0b1, 12) | fld(var, 10) | fld(zn, 5) | zd
+            base65(0)
+                | fld(opc, 16)
+                | fld(0b001, 13)
+                | fld(0b1, 12)
+                | fld(var, 10)
+                | fld(zn, 5)
+                | zd
         }
         // FP16/FP32 -> FP8 narrow from a consecutive 2-register source group,
         // `Zd.b, { Zn.<T>, Zn+1.<T> }`, size==00, <20:16>=01010,
@@ -585,12 +678,22 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
                 return Err(EncodeError::InvalidOperand);
             }
             let sign = if matches!(code, SveFcvtzsn) { 0 } else { 1 };
-            base65(0) | fld(size, 22) | fld(0b01101, 16) | fld(0b001, 13) | fld(0b10, 11)
-                | fld(sign, 10) | fld(zn, 5) | zd
+            base65(0)
+                | fld(size, 22)
+                | fld(0b01101, 16)
+                | fld(0b001, 13)
+                | fld(0b10, 11)
+                | fld(sign, 10)
+                | fld(zn, 5)
+                | zd
         }
         // Predicated multiply-add `<Zda>.H, <Pg>/M, <Zn>.H, <Zm>.H`.
         SveBfmlaZpzzz | SveBfmlsZpzzz => {
-            let op = if matches!(code, SveBfmlsZpzzz) { 0b001 } else { 0b000 };
+            let op = if matches!(code, SveBfmlsZpzzz) {
+                0b001
+            } else {
+                0b000
+            };
             let zda = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
@@ -621,19 +724,32 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zda = z(insn, 0)?;
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
-            base64(1) | fld(b23, 23) | fld(b22, 22) | fld(zm, 16) | fld(0b1000, 12) | fld(b10, 10)
+            base64(1)
+                | fld(b23, 23)
+                | fld(b22, 22)
+                | fld(zm, 16)
+                | fld(0b1000, 12)
+                | fld(b10, 10)
                 | fld(zn, 5)
                 | zda
         }
         SveFdotShIdx | SveFdotSbIdx => {
             // index = i2<20:19>, Zm = <18:16> (z0..z7), `<11>==0`. `.s<-.b` sets
             // (b22,b10)=(1,1); `.s<-.h` sets (0,0).
-            let (b22, b10) = if matches!(code, SveFdotSbIdx) { (1, 1) } else { (0, 0) };
+            let (b22, b10) = if matches!(code, SveFdotSbIdx) {
+                (1, 1)
+            } else {
+                (0, 0)
+            };
             let zda = z(insn, 0)?;
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
             let idx = lane(insn, 2)?;
-            base64(1) | fld(b22, 22) | fld(idx & 3, 19) | fld(zm & 7, 16) | fld(0b0100, 12)
+            base64(1)
+                | fld(b22, 22)
+                | fld(idx & 3, 19)
+                | fld(zm & 7, 16)
+                | fld(0b0100, 12)
                 | fld(b10, 10)
                 | fld(zn, 5)
                 | zda
@@ -644,7 +760,10 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
             let idx = lane(insn, 2)?;
-            base64(1) | fld((idx >> 1) & 1, 19) | fld(zm & 7, 16) | fld(0b0100, 12)
+            base64(1)
+                | fld((idx >> 1) & 1, 19)
+                | fld(zm & 7, 16)
+                | fld(0b0100, 12)
                 | fld(idx & 1, 11)
                 | fld(1, 10)
                 | fld(zn, 5)
@@ -656,7 +775,13 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zda = z(insn, 0)?;
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
-            base64(1) | fld(1, 23) | fld(zm, 16) | fld(0b100, 13) | fld(t, 12) | fld(1, 11) | fld(zn, 5)
+            base64(1)
+                | fld(1, 23)
+                | fld(zm, 16)
+                | fld(0b100, 13)
+                | fld(t, 12)
+                | fld(1, 11)
+                | fld(zn, 5)
                 | zda
         }
         SveFmlallbbFp8 | SveFmlallbtFp8 | SveFmlalltbFp8 | SveFmlallttFp8 => {
@@ -686,7 +811,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
         }
         // ---- 0x04 FABS / FNEG ----
         SveFabsZpz | SveFnegZpz => {
-            let opc = if matches!(code, SveFabsZpz) { 0b11100 } else { 0b11101 };
+            let opc = if matches!(code, SveFabsZpz) {
+                0b11100
+            } else {
+                0b11101
+            };
             // `<20>` selects merging (`/m`) vs FEAT_SVE2p1 zeroing (`/z`).
             let opc = if matches!(pred_qual(insn, 1), Some(PredQual::Zeroing)) {
                 opc & 0b0_1111
@@ -697,7 +826,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            fld(0b00000100, 24) | fld(size, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10)
+            fld(0b00000100, 24)
+                | fld(size, 22)
+                | fld(opc, 16)
+                | fld(0b101, 13)
+                | fld(pg, 10)
                 | fld(zn, 5)
                 | zd
         }
@@ -714,7 +847,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let vd = reg(insn, 0)?; // destination `Vd`
             let pg = p(insn, 1)?;
             let zn = z(insn, 2)?;
-            fld(0b01100100, 24) | fld(size, 22) | fld(opc, 16) | fld(0b101, 13) | fld(pg, 10)
+            fld(0b01100100, 24)
+                | fld(size, 22)
+                | fld(opc, 16)
+                | fld(0b101, 13)
+                | fld(pg, 10)
                 | fld(zn, 5)
                 | vd
         }
@@ -723,7 +860,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let size = esize(insn, 0)?;
             let zd = z(insn, 0)?;
             let zn = z(insn, 1)?;
-            fld(0b00000100, 24) | fld(size, 22) | fld(1, 21) | fld(0b00000, 16) | fld(0b101110, 10)
+            fld(0b00000100, 24)
+                | fld(size, 22)
+                | fld(1, 21)
+                | fld(0b00000, 16)
+                | fld(0b101110, 10)
                 | fld(zn, 5)
                 | zd
         }
@@ -732,7 +873,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let zn = z(insn, 1)?;
             let zm = z(insn, 2)?;
-            fld(0b00000100, 24) | fld(size, 22) | fld(1, 21) | fld(zm, 16) | fld(0b101100, 10)
+            fld(0b00000100, 24)
+                | fld(size, 22)
+                | fld(1, 21)
+                | fld(zm, 16)
+                | fld(0b101100, 10)
                 | fld(zn, 5)
                 | zd
         }
@@ -742,7 +887,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let zd = z(insn, 0)?;
             let pg = p(insn, 1)?;
             let imm8 = fp_imm8(insn, 2, size)?;
-            fld(0b00000101, 24) | fld(size, 22) | fld(0b01, 20) | fld(pg, 16) | fld(0b110, 13)
+            fld(0b00000101, 24)
+                | fld(size, 22)
+                | fld(0b01, 20)
+                | fld(pg, 16)
+                | fld(0b110, 13)
                 | fld(imm8, 5)
                 | zd
         }
@@ -751,7 +900,11 @@ pub(super) fn enc(insn: &Instruction, code: Code) -> Result<Option<u32>, EncodeE
             let size = esize(insn, 0)?;
             let zd = z(insn, 0)?;
             let imm8 = fp_imm8(insn, 1, size)?;
-            fld(0b00100101, 24) | fld(size, 22) | fld(0b111001, 16) | fld(0b110, 13) | fld(imm8, 5)
+            fld(0b00100101, 24)
+                | fld(size, 22)
+                | fld(0b111001, 16)
+                | fld(0b110, 13)
+                | fld(imm8, 5)
                 | zd
         }
         _ => return Ok(None),
@@ -1105,10 +1258,7 @@ fn enc_64_fmul_idx(insn: &Instruction) -> Result<u32, EncodeError> {
 fn fp_idx_layout(a: VA, idx: u32, zm: u32) -> Result<(u32, u32), EncodeError> {
     match a {
         // .h: size=0x (we set <23:22>=00), Zm<18:16>, idx=i3h:i3l=<22>:<20:19>.
-        VA::Sh => Ok((
-            fld((idx >> 2) & 1, 22),
-            fld(idx & 3, 19) | fld(zm & 7, 16),
-        )),
+        VA::Sh => Ok((fld((idx >> 2) & 1, 22), fld(idx & 3, 19) | fld(zm & 7, 16))),
         VA::Ss => Ok((fld(0b10, 22), fld(idx & 3, 19) | fld(zm & 7, 16))),
         VA::Sd => Ok((fld(0b11, 22), fld(idx & 1, 20) | fld(zm & 0xf, 16))),
         _ => Err(EncodeError::InvalidOperand),
@@ -1139,7 +1289,13 @@ fn enc_64_mlal_vec(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
     let zn = z(insn, 1)?;
     let zm = z(insn, 2)?;
     // Fixed <23>=1; o2 at <22>; <15:14>=10, <13>=op, <12:11>=00, T=<10>.
-    Ok(base64(1) | fld(1, 23) | fld(o2, 22) | fld(zm, 16) | fld(0b10, 14) | fld(op, 13) | fld(t, 10)
+    Ok(base64(1)
+        | fld(1, 23)
+        | fld(o2, 22)
+        | fld(zm, 16)
+        | fld(0b10, 14)
+        | fld(op, 13)
+        | fld(t, 10)
         | fld(zn, 5)
         | zda)
 }
@@ -1153,7 +1309,12 @@ fn enc_64_mlal_idx(insn: &Instruction, code: Code) -> Result<u32, EncodeError> {
     let idx = lane(insn, 2)?;
     let i3h = (idx >> 1) & 3;
     let i3l = idx & 1;
-    Ok(base64(1) | fld(1, 23) | fld(o2, 22) | fld(i3h, 19) | fld(zm & 7, 16) | fld(0b01, 14)
+    Ok(base64(1)
+        | fld(1, 23)
+        | fld(o2, 22)
+        | fld(i3h, 19)
+        | fld(zm & 7, 16)
+        | fld(0b01, 14)
         | fld(op, 13)
         | fld(i3l, 11)
         | fld(t, 10)

@@ -1,20 +1,21 @@
-//! Optional GNU / objdump-style formatter dialect (`feature = "fmt-gnu"`).
+//! Optional GNU-formatter compatibility adapter (`feature = "fmt-gnu"`).
 //!
-//! Same [`Formatter`] trait, alternate rendering policy. Pure `no_std`, zero
-//! alloc — like [`super::FmtFormatter`] it writes through the
-//! [`FormatterOutput`] sink.
+//! This type currently delegates to [`super::FmtFormatter`] and therefore emits
+//! the same Arm UAL text. Keeping a distinct type provides an API boundary for
+//! future GNU/objdump-specific rendering policy. It is pure `no_std` and
+//! zero-alloc, writing through the [`FormatterOutput`] sink.
 
 use super::{FmtFormatter, Formatter, FormatterOptions, FormatterOutput};
 use crate::instruction::Instruction;
 
-/// A GNU/objdump-flavoured formatter.
+/// A GNU compatibility formatter that currently emits Arm UAL text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GnuFormatter {
     opts: FormatterOptions,
 }
 
 impl GnuFormatter {
-    /// A GNU-dialect formatter with default options.
+    /// A compatibility formatter with default UAL options.
     #[inline]
     pub fn new() -> Self {
         GnuFormatter {
@@ -22,7 +23,7 @@ impl GnuFormatter {
         }
     }
 
-    /// A GNU-dialect formatter with explicit options.
+    /// A compatibility formatter with explicit UAL options.
     #[inline]
     pub fn with_options(opts: FormatterOptions) -> Self {
         GnuFormatter { opts }
@@ -37,11 +38,8 @@ impl Default for GnuFormatter {
 }
 
 impl Formatter for GnuFormatter {
-    // The GNU/objdump dialect currently shares the UAL rendering engine; it is a
-    // thin wrapper around [`FmtFormatter`] carrying its own options so the two
-    // dialects can diverge later (e.g. objdump's lower-case hex with no padding)
-    // without touching call sites. Delegating keeps a single operand-dispatch
-    // path and avoids a second `todo!()`-shaped stub.
+    // Keep a separate options value and API type while sharing the UAL rendering
+    // engine. GNU-specific policy can be introduced without changing callers.
     #[inline]
     fn format(&self, insn: &Instruction, out: &mut dyn FormatterOutput) {
         FmtFormatter::with_options(self.opts).format(insn, out);

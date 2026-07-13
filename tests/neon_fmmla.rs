@@ -13,8 +13,22 @@ use fARM64::{encode, Feature, FeatureSet};
 fn rt(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
-    let enc = encode(&insn).unwrap_or_else(|e| panic!("{:08X} ({}) encode err {:?}", word, insn.mnemonic().name(), e));
-    assert_eq!(enc, word, "{:08X} ({}) re-encoded {:08X}", word, insn.mnemonic().name(), enc);
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode err {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
+    assert_eq!(
+        enc,
+        word,
+        "{:08X} ({}) re-encoded {:08X}",
+        word,
+        insn.mnemonic().name(),
+        enc
+    );
 }
 
 #[test]
@@ -39,18 +53,34 @@ fn unallocated_slots_are_invalid() {
     // (u,size) combos NOT in {(0,01),(0,11),(1,00),(1,01),(1,10)} are UNDEFINED.
     // Base word: lo=111011, Q=1, Rm=2, Rn=1, Rd=0.
     let mk = |u: u32, size: u32, q: u32| {
-        (q << 30) | (u << 29) | (0b0_1110 << 24) | (size << 22) | (2 << 16) | (0b111011 << 10) | (1 << 5)
+        (q << 30)
+            | (u << 29)
+            | (0b0_1110 << 24)
+            | (size << 22)
+            | (2 << 16)
+            | (0b111011 << 10)
+            | (1 << 5)
     };
     let undef = [(0u32, 0b00u32), (0, 0b10), (1, 0b11)];
     for (u, size) in undef {
         let w = mk(u, size, 1);
-        assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} (u={},size={:02b}) should be Invalid", w, u, size);
+        assert!(
+            decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} (u={},size={:02b}) should be Invalid",
+            w,
+            u,
+            size
+        );
     }
     // Q==0 is UNDEFINED for every (u,size).
     for u in 0..2 {
         for size in 0..4 {
             let w = mk(u, size, 0);
-            assert!(decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} Q=0 should be Invalid", w);
+            assert!(
+                decode(w, 0, FeatureSet::ALL).is_invalid(),
+                "{:08X} Q=0 should be Invalid",
+                w
+            );
         }
     }
 }
@@ -66,8 +96,21 @@ fn feature_gated() {
     ];
     for &(w, feat) in cases {
         let bit = feat as u32;
-        let without = FeatureSet { features0: FeatureSet::ALL.features0 & !(1u64 << bit), features1: FeatureSet::ALL.features1 & !(1u64 << bit) };
-        assert!(decode(w, 0, without).is_invalid(), "{:08X} should require {:?}", w, feat);
-        assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode with {:?}", w, feat);
+        let without = FeatureSet {
+            features0: FeatureSet::ALL.features0 & !(1u64 << bit),
+            features1: FeatureSet::ALL.features1 & !(1u64 << bit),
+        };
+        assert!(
+            decode(w, 0, without).is_invalid(),
+            "{:08X} should require {:?}",
+            w,
+            feat
+        );
+        assert!(
+            !decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} should decode with {:?}",
+            w,
+            feat
+        );
     }
 }

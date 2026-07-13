@@ -31,22 +31,67 @@ use crate::operand::Operand;
 use crate::register::Register;
 
 const Z: [Register; 32] = [
-    Register::Z0, Register::Z1, Register::Z2, Register::Z3, Register::Z4, Register::Z5, Register::Z6, Register::Z7,
-    Register::Z8, Register::Z9, Register::Z10, Register::Z11, Register::Z12, Register::Z13, Register::Z14, Register::Z15,
-    Register::Z16, Register::Z17, Register::Z18, Register::Z19, Register::Z20, Register::Z21, Register::Z22, Register::Z23,
-    Register::Z24, Register::Z25, Register::Z26, Register::Z27, Register::Z28, Register::Z29, Register::Z30, Register::Z31,
+    Register::Z0,
+    Register::Z1,
+    Register::Z2,
+    Register::Z3,
+    Register::Z4,
+    Register::Z5,
+    Register::Z6,
+    Register::Z7,
+    Register::Z8,
+    Register::Z9,
+    Register::Z10,
+    Register::Z11,
+    Register::Z12,
+    Register::Z13,
+    Register::Z14,
+    Register::Z15,
+    Register::Z16,
+    Register::Z17,
+    Register::Z18,
+    Register::Z19,
+    Register::Z20,
+    Register::Z21,
+    Register::Z22,
+    Register::Z23,
+    Register::Z24,
+    Register::Z25,
+    Register::Z26,
+    Register::Z27,
+    Register::Z28,
+    Register::Z29,
+    Register::Z30,
+    Register::Z31,
 ];
 
 /// A scalable `Z{n}` operand with arrangement `a` (the destination).
 #[inline]
 fn zreg(n: u32, a: VA) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: Some(a), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A single-register Z list `{Z{n}.<T>}` (one table register).
 #[inline]
 fn zlist1(n: u32, a: VA) -> Operand {
-    Operand::MultiReg { regs: [Z[(n & 0x1f) as usize], Register::None, Register::None, Register::None], count: 1, arr: Some(a), lane: None }
+    Operand::MultiReg {
+        regs: [
+            Z[(n & 0x1f) as usize],
+            Register::None,
+            Register::None,
+            Register::None,
+        ],
+        count: 1,
+        arr: Some(a),
+        lane: None,
+    }
 }
 
 /// A two-register Z list `{Z{n}.<T>, Z{n+1}.<T>}` (two table registers).
@@ -54,14 +99,26 @@ fn zlist1(n: u32, a: VA) -> Operand {
 fn zlist2(n: u32, a: VA) -> Operand {
     let n0 = (n & 0x1f) as usize;
     let n1 = ((n + 1) & 0x1f) as usize;
-    Operand::MultiReg { regs: [Z[n0], Z[n1], Register::None, Register::None], count: 2, arr: Some(a), lane: None }
+    Operand::MultiReg {
+        regs: [Z[n0], Z[n1], Register::None, Register::None],
+        count: 2,
+        arr: Some(a),
+        lane: None,
+    }
 }
 
 /// The vector-element selector `Z{m}[index]` (no arrangement suffix; the lane
 /// index renders as `[index]`).
 #[inline]
 fn zidx(m: u32, index: u32) -> Operand {
-    Operand::Reg { reg: Z[(m & 0x1f) as usize], arr: None, lane: Some(index as u8), shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(m & 0x1f) as usize],
+        arr: None,
+        lane: Some(index as u8),
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// Decode an SVE `LUTI2`/`LUTI4` (FEAT_LUT) lookup-table read into `out`.
@@ -209,7 +266,10 @@ mod tests {
         let insn = dec.decode();
         assert!(!insn.is_invalid(), "decoded Invalid: word={word:#010x}");
         let enc = insn.encode().expect("encode failed");
-        assert_eq!(enc, word, "round-trip mismatch: word={word:#010x} got={enc:#010x}");
+        assert_eq!(
+            enc, word,
+            "round-trip mismatch: word={word:#010x} got={enc:#010x}"
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # fARM64
 
-**fARM64** is a pure-Rust, `#![no_std]`, zero-heap **AArch64 (A64) disassembler *and* encoder**. It decodes 64-bit ARM machine code into a rich, `Copy` value-type `Instruction`, renders it through a pluggable `Formatter`, and can re-encode an `Instruction` back into its 32-bit word. The public API is deliberately iced-x86-shaped (a borrowing `Decoder`, a value-type `Instruction`, typed `OpKind`/`Operand` accessors, a token-emitting `Formatter`). The decode path is an **original, hand-written recursive decode tree built directly from the ARM Architecture Reference Manual** (the "ARM ARM") — not a port or transpile of any other decoder. "Correct" is defined as *matching the ARM ARM*: 100% of the Binary Ninja golden corpus decodes (99.75% text parity, with the residual being documented Binary Ninja rendering bugs rather than fARM64 errors), the extension surface is validated differentially against LLVM 21 (`llvm-mc`), and the encoder round-trips every supported encoding 100% semantically.
+**fARM64** is a pure-Rust, `#![no_std]`, zero-heap **AArch64 (A64) disassembler *and* semantic encoder**. It decodes 64-bit Arm machine code into a rich, `Copy` value-type `Instruction`, renders it through a pluggable `Formatter`, and can re-encode an `Instruction` to a 32-bit word. The public API is deliberately iced-x86-shaped (a borrowing `Decoder`, a value-type `Instruction`, typed `OpKind`/`Operand` accessors, and a token-emitting `Formatter`). The Arm architectural decode tree is hand-written from the Arm Architecture Reference Manual (the "Arm ARM"); tests also cross-check independent toolchains and corpora. Apple AMX and GXF are implementation-defined exceptions whose encodings come from public reverse-engineering references and are explicitly runtime-gated.
 
 ---
 
@@ -12,8 +12,8 @@
 - **Ergonomic iteration.** `Decoder` is an `Iterator` (both `for insn in &mut dec` and consuming `for insn in dec`), plus a `decode_into` fast path for tight loops.
 - **Broad ISA coverage.** Full base A64 plus Advanced SIMD / FP, SVE / SVE2, SME / SME2, the crypto extensions, and a long tail of recent additions: MOPS, CSSC, RCPC3, D128, THE, LSE128, SVE2p1, CMPBR, CPA, and more.
 - **Encoder included.** `Instruction::encode()` reconstructs the 32-bit word from instruction *semantics* (never from the stored raw word), proving the decode is invertible.
-- **Pluggable formatting.** Default ARM UAL `FmtFormatter`, an optional GNU/objdump dialect behind `fmt-gnu`, a token-classifying `FormatterOutput` sink, and a `SymbolResolver` hook.
-- **Two independent feature layers.** Cargo features control what is *compiled in*; a runtime `FeatureSet` controls what is *accepted at decode time*.
+- **Pluggable formatting.** Default Arm UAL `FmtFormatter`, an optional `GnuFormatter` compatibility adapter behind `fmt-gnu`, a token-classifying `FormatterOutput` sink, and a `SymbolResolver` hook. `GnuFormatter` currently emits the same UAL text as `FmtFormatter`.
+- **Two feature layers.** Cargo features compile optional implementation modules; a runtime `FeatureSet` controls which architectural and implementation-defined encodings the decoder accepts.
 
 ---
 
@@ -23,21 +23,24 @@
 |-|-|
 | `x86_64-*`, `aarch64-*` (hosted) | development and `std` testing |
 | `wasm32-unknown-unknown` | default features (`no_std`, no `alloc`) |
-| `aarch64-unknown-none` | bare-metal, no-CRT; build with `-Zbuild-std=core` |
+| `aarch64-unknown-none` | bare-metal, no-CRT; checked with `--no-default-features` |
 | any target providing `core` | the default tier is `core`-only |
 
 ## Feature matrix
 
-Cargo features decide what is **compiled**; the runtime `FeatureSet` decides what is **accepted** at decode time. The two are independent layers.
+Cargo features decide which optional implementation modules are **compiled**; the runtime `FeatureSet` decides which encodings are **accepted** at decode time. They are independent layers, but not every runtime extension has a matching Cargo feature.
 
 | Cargo feature | Tier | Effect |
 |-|-|-|
 | *(none / default)* | A | `no_std`, **no `alloc`**, freestanding. Decoder + `FmtFormatter` + all enums + encoder. Always builds. |
-| `alloc` | B | Adds `String`/`Vec` conveniences (`format_to_string`, the allocate-once `InstructionInfoFactory`, a token-collecting `String` sink). |
+| `alloc` | B | Adds `String`/`Vec` conveniences (`format_to_string`, a reusable cached `InstructionInfoFactory`, and a token-collecting `String` sink). |
 | `std` | C | Implies `alloc`; adds `std::error::Error` for `DecodeError`/`EncodeError` and std-only test helpers. |
-| `fmt-gnu` | A | Optional GNU/objdump formatter dialect (`GnuFormatter`). Pure `no_std`. |
-| `fp16` `bf16` `lse` `pauth` `mte` `sme` `sve` `crypto` | A | Compile-in per-extension table slices and enum variants. |
-| `full` | A | All per-extension features at once. |
+| `fmt-gnu` | A | Adds `GnuFormatter`, currently a UAL-equivalent compatibility adapter. Pure `no_std`. |
+| `sve` | A | Compiles the SVE/SVE2 decoder and encoder modules. |
+| `sme` | A | Compiles the SME/SME2 decoder and encoder modules. |
+| `crypto` | A | Compiles the Advanced SIMD crypto decoder. Its public enum variants and encoder support remain present without this feature. |
+| `full` | A | Enables `sve`, `sme`, and `crypto`. |
+| `no-alloc-audit` | test | Enables allocation-counting tests for the zero-heap core path; not intended as a downstream capability. |
 
 The default build links neither `alloc` nor `std`. `std` implies `alloc`. The runtime `FeatureSet` (`FeatureSet::ALL`, `FeatureSet::BASE`, `.with(Feature::Sve)`, `.has(..)`) is orthogonal to all of the above.
 
@@ -54,10 +57,10 @@ fARM64 = "0.0.1"
 Opt into more as needed:
 
 ```toml
-# Owned-String conveniences (format_to_string, info factory).
+# Owned-string conveniences and the cached info factory.
 fARM64 = { version = "0.0.1", features = ["alloc"] }
 
-# Everything: std + every architecture extension + the GNU dialect.
+# All optional implementation modules plus std and the GNU adapter.
 fARM64 = { version = "0.0.1", features = ["std", "full", "fmt-gnu"] }
 ```
 
@@ -310,7 +313,7 @@ fn main() {
 }
 ```
 
-A GNU/objdump dialect (`GnuFormatter`) is available behind `feature = "fmt-gnu"`.
+`GnuFormatter` is available behind `feature = "fmt-gnu"`. It is a compatibility adapter that currently delegates to the UAL renderer, so its output is identical to `FmtFormatter`; the separate type leaves room for GNU-specific policy later without changing call sites.
 
 ### A token sink (`FormatterOutput` + `TokenKind`)
 
@@ -416,15 +419,15 @@ Because the encoder rebuilds from the canonical `Code`, the guarantee is a **sem
 
 There are two independent layers:
 
-1. **Cargo features** decide what is **compiled into the binary**. A base-only wasm build can omit the SVE/SME tables entirely (smaller code) by not enabling `sve`/`sme`.
-2. **The runtime `FeatureSet`** decides what the decoder will **accept** at decode time. Even with everything compiled in, you can refuse encodings outside a chosen extension set.
+1. **Cargo features** decide which optional implementation modules are **compiled into the binary**. Omitting `sve` or `sme` leaves those large decoder/encoder modules out; `crypto` gates the Advanced SIMD crypto decoder. Public enums are not compiled out, and features such as FP16, BF16, LSE, PAuth, and MTE have no Cargo gate.
+2. **The runtime `FeatureSet`** decides what the decoder will **accept** at decode time. It is the fine-grained architectural gate and includes many extensions that are always compiled, as well as Apple AMX/GXF. An enabled runtime feature cannot restore an implementation module omitted by Cargo.
 
 ```rust
 use fARM64::{Decoder, DecoderOptions, FeatureSet};
 
 fn main() {
     // Restrict the decoder to the base ISA only: an SVE/SME/extension word will
-    // be rejected (decoded as Code::Invalid) even though its tables are compiled in.
+    // be rejected (decoded as Code::Invalid) even when its implementation is compiled in.
     let options = DecoderOptions { features: FeatureSet::BASE };
 
     let code = [0x20, 0x04, 0x00, 0x11]; // a base-ISA ADD: still accepted
@@ -446,13 +449,13 @@ The default build is `#![no_std]` with **no `alloc`**: it links neither an alloc
 
 ## Validation and testing
 
-fARM64 is validated against multiple independent oracles. The big sweeps are `#[ignore]`d (report-only) and run explicitly:
+fARM64 is validated with focused unit/integration tests plus optional differential sweeps. Large corpus-dependent sweeps are `#[ignore]`d and require a locally supplied corpus that is not included in the published crate:
 
-- **Binary Ninja golden corpus** — `tests/golden.rs`. Decodes the full corpus and compares rendered text; 100% decode, 99.75% text parity (residual = documented Binary Ninja rendering bugs).
+- **Binary Ninja corpus comparison** — `tests/golden.rs`. Decodes a locally supplied corpus and compares rendered text.
   ```
   cargo test --features "std full" --test golden -- --ignored --nocapture
   ```
-- **LLVM 21 differential** — `tests/llvm_diff.rs`. A discovery sweep that diffs fARM64 against `llvm-mc` (needs LLVM 21 installed).
+- **LLVM differential** — `tests/llvm_diff.rs`. A discovery sweep that compares fARM64 with an installed `llvm-mc`.
   ```
   cargo test --features "std full" --test llvm_diff -- --ignored --nocapture
   ```
@@ -465,7 +468,7 @@ fARM64 is validated against multiple independent oracles. The big sweeps are `#[
   cargo run --example disasm 11000420 d503201f
   ```
 
-The fast (non-ignored) unit and integration tests run with a plain `cargo test --features "std full"`. The documented spec-vs-Binary-Ninja divergences (where fARM64 follows the ARM ARM and Binary Ninja does not) are recorded in `docs/VALIDATION.md`.
+The fast (non-ignored) unit and integration tests run with `cargo test --features "std full"`. See `docs/VALIDATION.md` for the reproducible validation procedure and the distinction between required tests and optional local-oracle sweeps.
 
 ---
 
@@ -494,14 +497,10 @@ Design and reference docs: [`docs/DESIGN.md`](docs/DESIGN.md), [`docs/API.md`](d
 
 ---
 
-## Status and coverage
+## Status
 
-- 100% of the Binary Ninja golden corpus decoded; 99.75% text parity (residual = documented Binary Ninja rendering bugs).
-- Encoder round-trips 100% semantically over the implemented groups.
-- Extension surface validated differentially against LLVM 21 (`llvm-mc`).
-- ~308 tests (fast unit/integration plus the report-only corpus sweeps).
-- Version `0.0.1`; the `Code`/`Mnemonic`/`Register`/`Feature` enums are `#[non_exhaustive]` with an append-only discriminant policy, so new ARM revisions add variants without breaking downstream `match`es.
+Version `0.0.1` is the initial crates.io release. The checked-in test suite is the release gate; optional corpus and LLVM sweeps provide additional local cross-checking but are not packaged and no fixed coverage percentage is promised. The `Code`/`Mnemonic`/`Register`/`Feature` enums are `#[non_exhaustive]` with an append-only discriminant policy.
 
 ## License
 
-Licensed under either of **MIT** or **Apache-2.0**, at your option. Original work derived from the publicly documented ARM ARM instruction encodings; it is not a derivative of any other disassembler. See `NOTICE` for details.
+Licensed under the **MIT License**; see `LICENSE`. Arm architectural instruction handling is based on the publicly documented Arm ARM. Apple AMX naming and encodings reference the public [`corsix/amx`](https://github.com/corsix/amx) reverse-engineering project; GXF encodings reference Asahi Linux's [Apple Proprietary Instructions](https://asahilinux.org/docs/hw/cpu/apple-instructions/) documentation and are isolated behind `Feature::Gxf`. See `NOTICE` for provenance details.

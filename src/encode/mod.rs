@@ -11,9 +11,9 @@
 //! never panics. Anything it cannot (yet) encode returns [`EncodeError`].
 //!
 //! Dispatch is on [`Instruction::code`] — the canonical encoding identity —
-//! routed to a per-group encoder. Only [`dp_imm`] is implemented so far; the
-//! other groups are compiling stubs that return [`EncodeError::Unsupported`]
-//! and are filled in by later work.
+//! and routes to the matching group encoder. A code or semantic operand shape
+//! that a group does not support returns [`EncodeError::Unsupported`] or a more
+//! specific validation error.
 
 pub mod bits;
 

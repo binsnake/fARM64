@@ -42,10 +42,26 @@ fn norm(s: &str) -> String {
 /// a bit-for-bit encoder round-trip.
 fn check(word: u32, ip: u64, expected: &str) {
     let insn = decode(word, ip, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word, ip)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word, ip)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
@@ -99,14 +115,34 @@ fn bcond_vs_bccond_bit4_boundary() {
         let base = 0x5400_0000u32 | cond;
         let b = decode(base, 0, FeatureSet::ALL); // o0 == 0
         let bc = decode(base | (1 << 4), 0, FeatureSet::ALL); // o0 == 1
-        assert!(!b.is_invalid() && !bc.is_invalid(), "cond {:#x} should both decode", cond);
+        assert!(
+            !b.is_invalid() && !bc.is_invalid(),
+            "cond {:#x} should both decode",
+            cond
+        );
         let bt = format_to_string(&FmtFormatter::new(), &b);
         let bct = format_to_string(&FmtFormatter::new(), &bc);
-        assert!(bt.starts_with("b."), "bit4==0 should be b.<cond>, got `{}`", bt);
-        assert!(bct.starts_with("bc."), "bit4==1 should be bc.<cond>, got `{}`", bct);
+        assert!(
+            bt.starts_with("b."),
+            "bit4==0 should be b.<cond>, got `{}`",
+            bt
+        );
+        assert!(
+            bct.starts_with("bc."),
+            "bit4==1 should be bc.<cond>, got `{}`",
+            bct
+        );
         // Same condition suffix, different mnemonic stem.
-        let bsuf = bt.split_whitespace().next().unwrap().trim_start_matches("b.");
-        let bcsuf = bct.split_whitespace().next().unwrap().trim_start_matches("bc.");
+        let bsuf = bt
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .trim_start_matches("b.");
+        let bcsuf = bct
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .trim_start_matches("bc.");
         assert_eq!(bsuf, bcsuf, "cond {:#x}: condition suffix must match", cond);
     }
 }
@@ -121,7 +157,12 @@ fn bc_cond_roundtrip_with_offsets() {
             let imm19 = ((off >> 2) as u32) & 0x7_FFFF;
             let w = 0x5400_0010u32 | (imm19 << 5) | cond;
             let insn = decode(w, ip, FeatureSet::ALL);
-            assert_eq!(insn.code(), fARM64::Code::BcCond, "{:08X} should be BcCond", w);
+            assert_eq!(
+                insn.code(),
+                fARM64::Code::BcCond,
+                "{:08X} should be BcCond",
+                w
+            );
             let enc = encode(&insn).expect("BcCond encode");
             assert_eq!(enc, w, "{:08X} round-trip", w);
         }
@@ -160,8 +201,14 @@ fn sppc_imm16_roundtrip_sweep() {
                 let insn = decode(w, ip, FeatureSet::ALL);
                 assert!(!insn.is_invalid(), "{:08X} should decode", w);
                 // Target must be the backward offset.
-                let enc = encode(&insn)
-                    .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", w, insn.mnemonic().name(), e));
+                let enc = encode(&insn).unwrap_or_else(|e| {
+                    panic!(
+                        "{:08X} ({}) encode error {:?}",
+                        w,
+                        insn.mnemonic().name(),
+                        e
+                    )
+                });
                 assert_eq!(enc, w, "{:08X} round-trip produced {:08X}", w, enc);
             }
         }
@@ -175,14 +222,32 @@ fn sppc_imm16_roundtrip_sweep() {
 #[test]
 fn sppc_reserved_neighbours_invalid() {
     // RET*SPPC: word<23:22> must be 00.
-    assert!(decode(0x5500_001F | (1 << 22), 0, FeatureSet::ALL).is_invalid(), "RET word<22>==1");
-    assert!(decode(0x5500_001F | (1 << 23), 0, FeatureSet::ALL).is_invalid(), "RET word<23>==1");
+    assert!(
+        decode(0x5500_001F | (1 << 22), 0, FeatureSet::ALL).is_invalid(),
+        "RET word<22>==1"
+    );
+    assert!(
+        decode(0x5500_001F | (1 << 23), 0, FeatureSet::ALL).is_invalid(),
+        "RET word<23>==1"
+    );
     // RET*SPPC: word<4:0> must be 11111.
-    assert!(decode(0x5500_001E, 0, FeatureSet::ALL).is_invalid(), "RET Rd!=31 (0x...1e)");
-    assert!(decode(0x5500_000F, 0, FeatureSet::ALL).is_invalid(), "RET Rd!=31 (0x...0f)");
+    assert!(
+        decode(0x5500_001E, 0, FeatureSet::ALL).is_invalid(),
+        "RET Rd!=31 (0x...1e)"
+    );
+    assert!(
+        decode(0x5500_000F, 0, FeatureSet::ALL).is_invalid(),
+        "RET Rd!=31 (0x...0f)"
+    );
     // AUTI*SPPC: word<4:0> must be 11111; word<22>==1 leaves the mask.
-    assert!(decode(0xF380_001E, 0, FeatureSet::ALL).is_invalid(), "AUTI Rd!=31");
-    assert!(decode(0xF3C0_001F, 0, FeatureSet::ALL).is_invalid(), "AUTI word<22>==1");
+    assert!(
+        decode(0xF380_001E, 0, FeatureSet::ALL).is_invalid(),
+        "AUTI Rd!=31"
+    );
+    assert!(
+        decode(0xF3C0_001F, 0, FeatureSet::ALL).is_invalid(),
+        "AUTI word<22>==1"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -194,23 +259,46 @@ fn hbc_feature_gated() {
     let no_hbc = without(FeatureSet::ALL, Feature::Hbc);
     // BC.cond (bit4==1) requires FEAT_HBC.
     let bc = 0x5400_0010u32;
-    assert!(decode(bc, 0, no_hbc).is_invalid(), "BC.cond should require FEAT_HBC");
-    assert!(!decode(bc, 0, FeatureSet::ALL).is_invalid(), "BC.cond should decode with FEAT_HBC");
+    assert!(
+        decode(bc, 0, no_hbc).is_invalid(),
+        "BC.cond should require FEAT_HBC"
+    );
+    assert!(
+        !decode(bc, 0, FeatureSet::ALL).is_invalid(),
+        "BC.cond should decode with FEAT_HBC"
+    );
     // B.cond (bit4==0) is base ISA — never gated.
     let b = 0x5400_0000u32;
-    assert!(!decode(b, 0, no_hbc).is_invalid(), "B.cond must stay base ISA (no FEAT_HBC)");
+    assert!(
+        !decode(b, 0, no_hbc).is_invalid(),
+        "B.cond must stay base ISA (no FEAT_HBC)"
+    );
 }
 
 #[test]
 fn pauth_lr_feature_gated() {
     let no_plr = without(FeatureSet::ALL, Feature::PauthLr);
     for &w in &[0x5500_001Fu32, 0x5520_001F, 0xF380_001F, 0xF3A0_001F] {
-        assert!(decode(w, 0, no_plr).is_invalid(), "{:08X} should require FEAT_PAuth_LR", w);
-        assert!(!decode(w, 0, FeatureSet::ALL).is_invalid(), "{:08X} should decode with FEAT_PAuth_LR", w);
+        assert!(
+            decode(w, 0, no_plr).is_invalid(),
+            "{:08X} should require FEAT_PAuth_LR",
+            w
+        );
+        assert!(
+            !decode(w, 0, FeatureSet::ALL).is_invalid(),
+            "{:08X} should decode with FEAT_PAuth_LR",
+            w
+        );
     }
     // Disabling FEAT_PAuth_LR must not perturb the neighbouring B.cond / EXTR
     // encodings that share these dispatch paths.
-    assert!(!decode(0x5400_0000, 0, no_plr).is_invalid(), "b.eq must stay valid");
+    assert!(
+        !decode(0x5400_0000, 0, no_plr).is_invalid(),
+        "b.eq must stay valid"
+    );
     // EXTR x0, x1, x2, #0 (1001_0011_110... ) shares the dp-imm Extract slot.
-    assert!(!decode(0x93C20020, 0, no_plr).is_invalid(), "extr must stay valid");
+    assert!(
+        !decode(0x93C20020, 0, no_plr).is_invalid(),
+        "extr must stay valid"
+    );
 }

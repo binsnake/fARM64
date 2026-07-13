@@ -21,15 +21,16 @@ use crate::INSN_LEN;
 /// extensions are accepted), not how it is rendered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DecoderOptions {
-    /// Architecture extensions to accept. Defaults to [`FeatureSet::ALL`] so
-    /// every encoding decodes out of the box.
+    /// Architecture extensions to accept. Defaults to [`FeatureSet::ALL`],
+    /// enabling every runtime gate for implementation modules compiled into the
+    /// current build.
     pub features: FeatureSet,
 }
 
 impl DecoderOptions {
     /// The "no special options" preset, mirroring iced-x86's
     /// [`DecoderOptions::NONE`]. Equivalent to [`DecoderOptions::default`]: it
-    /// accepts every architecture extension ([`FeatureSet::ALL`]).
+    /// enables every runtime feature bit ([`FeatureSet::ALL`]).
     ///
     /// Unlike iced-x86 there is **no invalid-instruction toggle** to set here:
     /// fARM64 always surfaces an unrecognized or genuinely-undefined word as an
@@ -88,7 +89,11 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    /// Fallible constructor for symmetry; validates option/feature consistency.
+    /// Fallible-shaped compatibility constructor.
+    ///
+    /// Every current [`DecoderOptions`] value is valid, so this is equivalent
+    /// to `Ok(Decoder::new(data, ip, options))`. The `Result` shape is retained
+    /// for API symmetry and leaves room for future option validation.
     #[inline]
     pub fn try_new(
         data: &'a [u8],
@@ -121,7 +126,11 @@ impl<'a> Decoder<'a> {
     /// default, and does not advance.
     pub fn decode_into(&mut self, out: &mut Instruction) {
         // Bounds check: need a full 4-byte word at the cursor.
-        let Some(window) = self.data.get(self.pos..self.pos + INSN_LEN) else {
+        let Some(window) = self
+            .data
+            .get(self.pos..)
+            .and_then(|remaining| remaining.get(..INSN_LEN))
+        else {
             *out = Instruction::default();
             self.last_error = DecodeError::EndOfInstruction;
             return;
@@ -158,7 +167,9 @@ impl<'a> Decoder<'a> {
     /// `true` if at least one full instruction (4 bytes) remains.
     #[inline]
     pub fn can_decode(&self) -> bool {
-        self.pos + INSN_LEN <= self.data.len()
+        self.data
+            .get(self.pos..)
+            .is_some_and(|remaining| remaining.len() >= INSN_LEN)
     }
 
     /// Current byte cursor within the slice.
@@ -171,8 +182,11 @@ impl<'a> Decoder<'a> {
     /// relative to the original base.
     #[inline]
     pub fn set_position(&mut self, pos: usize) {
-        let delta = pos as i64 - self.pos as i64;
-        self.ip = self.ip.wrapping_add(delta as u64);
+        if pos >= self.pos {
+            self.ip = self.ip.wrapping_add((pos - self.pos) as u64);
+        } else {
+            self.ip = self.ip.wrapping_sub((self.pos - pos) as u64);
+        }
         self.pos = pos;
     }
 
@@ -188,7 +202,14 @@ impl<'a> Decoder<'a> {
         self.ip = ip;
     }
 
-    /// Status of the most recent decode ([`DecodeError::None`] on success).
+    /// Status of the most recent decode.
+    ///
+    /// The current decoder emits [`DecodeError::None`] on success,
+    /// [`DecodeError::Unmatched`] when a full word remains invalid (including a
+    /// word rejected by runtime feature gates), and
+    /// [`DecodeError::EndOfInstruction`] when fewer than four input bytes
+    /// remain. The other public error variants are reserved for finer-grained
+    /// diagnostics.
     #[inline]
     pub fn last_error(&self) -> DecodeError {
         self.last_error
@@ -293,5 +314,27 @@ mod tests {
         assert_eq!(via_out.mnemonic(), Mnemonic::Nop);
         // The cursor advanced exactly one word.
         assert_eq!(a.position(), INSN_LEN);
+    }
+
+    #[test]
+    fn extreme_position_is_panic_free_and_reversible() {
+        let bytes = 0xD503_201Fu32.to_le_bytes(); // nop
+        let base = 0x1000u64;
+        let mut dec = Decoder::new(&bytes, base, DecoderOptions::NONE);
+
+        dec.set_position(usize::MAX);
+        assert_eq!(dec.position(), usize::MAX);
+        assert_eq!(dec.ip(), base.wrapping_add(usize::MAX as u64));
+        assert!(!dec.can_decode());
+
+        let insn = dec.decode();
+        assert!(insn.is_invalid());
+        assert_eq!(dec.last_error(), DecodeError::EndOfInstruction);
+        assert_eq!(dec.position(), usize::MAX);
+
+        dec.set_position(0);
+        assert_eq!(dec.ip(), base);
+        assert!(dec.can_decode());
+        assert_eq!(dec.decode().mnemonic(), Mnemonic::Nop);
     }
 }

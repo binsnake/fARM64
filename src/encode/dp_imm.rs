@@ -42,8 +42,9 @@ pub fn encode(insn: &Instruction) -> R {
         AddgImm | SubgImm => enc_addsub_tags(insn),
         SmaxImm32 | SmaxImm64 | SminImm32 | SminImm64 | UmaxImm32 | UmaxImm64 | UminImm32
         | UminImm64 => enc_minmax_imm(insn),
-        AndImm32 | AndImm64 | OrrImm32 | OrrImm64 | EorImm32 | EorImm64 | AndsImm32
-        | AndsImm64 => enc_logical_imm(insn),
+        AndImm32 | AndImm64 | OrrImm32 | OrrImm64 | EorImm32 | EorImm64 | AndsImm32 | AndsImm64 => {
+            enc_logical_imm(insn)
+        }
         Movn32 | Movn64 | Movz32 | Movz64 | Movk32 | Movk64 => enc_move_wide(insn),
         Sbfm32 | Sbfm64 | Bfm32 | Bfm64 | Ubfm32 | Ubfm64 => enc_bitfield(insn),
         Extr32 | Extr64 => enc_extract(insn),
@@ -238,7 +239,11 @@ fn imm_shifted(insn: &Instruction, n: usize) -> Result<(u32, u32), EncodeError> 
 
 /// `ADDG`/`SUBG`. Operands: [Rd, Rn, #(uimm6<<4 already), #uimm4].
 fn enc_addsub_tags(insn: &Instruction) -> R {
-    let op = if insn.code() == Code::SubgImm { 1u32 } else { 0 };
+    let op = if insn.code() == Code::SubgImm {
+        1u32
+    } else {
+        0
+    };
     let rd = reg_num(insn, 0)?;
     let rn = reg_num(insn, 1)?;
     let uimm6_scaled = imm_u(insn, 2)?;
@@ -249,13 +254,8 @@ fn enc_addsub_tags(insn: &Instruction) -> R {
     let uimm6 = (uimm6_scaled >> 4) as u32;
     let uimm4 = uimm4 as u32;
     // sf=1, S=0, op2=0 fixed. Base pattern: 1 op 0 100011 0 uimm6 00 uimm4 Rn Rd
-    let word = (1 << 31)
-        | (op << 30)
-        | (0b100011 << 23)
-        | (uimm6 << 16)
-        | (uimm4 << 10)
-        | (rn << 5)
-        | rd;
+    let word =
+        (1 << 31) | (op << 30) | (0b100011 << 23) | (uimm6 << 16) | (uimm4 << 10) | (rn << 5) | rd;
     Ok(word)
 }
 
@@ -297,13 +297,8 @@ fn enc_minmax_imm(insn: &Instruction) -> R {
 
     // sf 0 0 100011 1 00 opc imm8 Rn Rd. Fixed: op(30)=0, S(29)=0,
     // word<28:23>=100011, word<22>=1, word<21:20>=00.
-    let word = (sf << 31)
-        | (0b100011 << 23)
-        | (1 << 22)
-        | (opc << 18)
-        | (imm8 << 10)
-        | (rn << 5)
-        | rd;
+    let word =
+        (sf << 31) | (0b100011 << 23) | (1 << 22) | (opc << 18) | (imm8 << 10) | (rn << 5) | rd;
     Ok(word)
 }
 
@@ -346,7 +341,11 @@ fn enc_logical_imm(insn: &Instruction) -> R {
         }
     };
 
-    let value = if datasize == 32 { value & 0xffff_ffff } else { value };
+    let value = if datasize == 32 {
+        value & 0xffff_ffff
+    } else {
+        value
+    };
     let (n, immr, imms) = encode_bit_masks(value, datasize).ok_or(EncodeError::InvalidImmediate)?;
 
     let word = (sf << 31)
@@ -391,7 +390,11 @@ fn enc_move_wide(insn: &Instruction) -> R {
         // (MOVZ) or NOT(imm16 << hw*16) (MOVN), per the original opc.
         Operand::ImmSigned(_) | Operand::ImmUnsigned(_) => {
             let raw = imm_u(insn, 1)?;
-            let raw = if datasize == 32 { raw & 0xffff_ffff } else { raw };
+            let raw = if datasize == 32 {
+                raw & 0xffff_ffff
+            } else {
+                raw
+            };
             match opc {
                 0b10 => factor_movz(raw, datasize)?,
                 0b00 => factor_movn(raw, datasize)?,
@@ -409,12 +412,7 @@ fn enc_move_wide(insn: &Instruction) -> R {
         return Err(EncodeError::InvalidImmediate);
     }
 
-    let word = (sf << 31)
-        | (opc << 29)
-        | (0b100101 << 23)
-        | (hw << 21)
-        | (imm16 << 5)
-        | rd;
+    let word = (sf << 31) | (opc << 29) | (0b100101 << 23) | (hw << 21) | (imm16 << 5) | rd;
     Ok(word)
 }
 
@@ -616,13 +614,8 @@ fn enc_extract(insn: &Instruction) -> R {
         return Err(EncodeError::InvalidImmediate);
     }
     // 00100111 sf=.. N0 0 Rm imms Rn Rd ; base group 100111, op21=00, o0=0.
-    let word = (sf << 31)
-        | (0b00100111 << 23)
-        | (n << 22)
-        | (rm << 16)
-        | (imms << 10)
-        | (rn << 5)
-        | rd;
+    let word =
+        (sf << 31) | (0b00100111 << 23) | (n << 22) | (rm << 16) | (imms << 10) | (rn << 5) | rd;
     Ok(word)
 }
 
@@ -640,7 +633,8 @@ mod tests {
             .encode()
             .unwrap_or_else(|e| panic!("encode of {word:#010x} ({:?}) failed: {e:?}", insn.code()));
         assert_eq!(
-            got, word,
+            got,
+            word,
             "round-trip mismatch for {word:#010x}: re-encoded {got:#010x} (code={:?}, mnem={:?})",
             insn.code(),
             insn.mnemonic()

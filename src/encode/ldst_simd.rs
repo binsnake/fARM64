@@ -385,7 +385,8 @@ mod tests {
             .encode()
             .unwrap_or_else(|e| panic!("encode of {word:#010x} ({:?}) failed: {e:?}", insn.code()));
         assert_eq!(
-            got, word,
+            got,
+            word,
             "round-trip mismatch for {word:#010x}: re-encoded {got:#010x} (code={:?}, mnem={:?})",
             insn.code(),
             insn.mnemonic()
@@ -401,13 +402,13 @@ mod tests {
         rt(0x4CDFA129); // ld1 {v9.16b, v10.16b}, [x9], #0x20
         rt(0x0CDF22DE); // ld1 {v30.8b, v31.8b, v0.8b, v1.8b}, [x22], #0x20
         rt(0x4C000080); // st4 {v0.16b..v3.16b}, [x4]
-        // Single structure.
+                        // Single structure.
         rt(0x4D9F1CBC); // st1 {v28.b}[15], [x5], #0x1
         rt(0x4DCD8712); // ld1 {v18.d}[1], [x24], x13
         rt(0x0DD7A0B2); // ld3 {v18.s, v19.s, v20.s}[0], [x5], x23
         rt(0x0D80A4C5); // st3 {v5.d, v6.d, v7.d}[0], [x6], x0
         rt(0x0DBFB139); // st4 {v25.s..v28.s}[1], [x9], #0x10
-        // Replicate.
+                        // Replicate.
         rt(0x0DDFC4A5); // ld1r {v5.4h}, [x5], #0x2
         rt(0x0DFFE507); // ld4r {v7.4h..v10.4h}, [x8], #0x8
         rt(0x4DF8EED7); // ld4r {v23.2d..v26.2d}, [x22], x24

@@ -43,17 +43,38 @@ fn norm(s: &str) -> String {
 /// bit-exact encoder round-trip.
 fn check(word: u32, expected: &str) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(!insn.is_invalid(), "{:08X} decoded Invalid (want `{}`)", word, expected);
-    assert_eq!(norm(&text(word)), norm(expected), "{:08X} disasm mismatch", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
+    assert!(
+        !insn.is_invalid(),
+        "{:08X} decoded Invalid (want `{}`)",
+        word,
+        expected
+    );
+    assert_eq!(
+        norm(&text(word)),
+        norm(expected),
+        "{:08X} disasm mismatch",
+        word
+    );
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
     assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
 }
 
 /// Assert `word` decodes Invalid (a reserved/UNDEFINED encoding).
 fn invalid(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
-    assert!(insn.is_invalid(), "{:08X} should be Invalid but decoded `{}`", word, text(word));
+    assert!(
+        insn.is_invalid(),
+        "{:08X} should be Invalid but decoded `{}`",
+        word,
+        text(word)
+    );
 }
 
 /// `FeatureSet::ALL` minus one feature bit (both words).
@@ -134,7 +155,7 @@ fn ldst_multiple_1d_multistruct_reserved() {
     invalid(0x0C000CA7); // st4 {...1d}
     invalid(0x0C004CA7); // st3 {...1d}
     invalid(0x0C008CA7); // st2 {...1d}
-    // LD2/LD3/LD4 .1d likewise.
+                         // LD2/LD3/LD4 .1d likewise.
     invalid(0x0C400CA7); // ld4 {...1d}
     invalid(0x0C404CA7); // ld3 {...1d}
     invalid(0x0C408CA7); // ld2 {...1d}
@@ -165,7 +186,7 @@ fn ldst_single_no_offset_rm_must_be_zero() {
 fn ldst_single_s_and_d_size_high_bit_reserved() {
     // `.s` element: size==00 valid; size==10 reserved (size<1> must be 0).
     invalid(0x0D0088A7); // st1 {v7.s}, size=10
-    // `.d` element: size==01 valid; size==11 reserved.
+                         // `.d` element: size==01 valid; size==11 reserved.
     invalid(0x0D008CA7); // st1 {v7.d}, size=11
 }
 
@@ -174,7 +195,7 @@ fn ldst_replicate_s_bit_reserved() {
     // LD*R require S (word<12>) == 0. A valid LD3R and its S==1 sibling.
     check(0x0D40E4A7, "ld3r {v7.4h, v8.4h, v9.4h}, [x5]");
     invalid(0x0D40F4A7); // same but S==1
-    // The task example `0DF7DDCE` (LD2R, S==1) is UNDEFINED.
+                         // The task example `0DF7DDCE` (LD2R, S==1) is UNDEFINED.
     invalid(0x0DF7DDCE);
 }
 
@@ -259,8 +280,8 @@ fn rprfm_roundtrip_sweep() {
                     | rt;
                 let insn = decode(word, 0, FeatureSet::ALL);
                 assert!(!insn.is_invalid(), "{:08X} RPRFM decoded Invalid", word);
-                let enc = encode(&insn)
-                    .unwrap_or_else(|e| panic!("{:08X} encode error {:?}", word, e));
+                let enc =
+                    encode(&insn).unwrap_or_else(|e| panic!("{:08X} encode error {:?}", word, e));
                 assert_eq!(enc, word, "{:08X} round-trip produced {:08X}", word, enc);
             }
         }
@@ -272,7 +293,10 @@ fn rprfm_feature_gated() {
     // Without FEAT_RPRFM, the word does not decode as RPRFM (the slot reverts to
     // Invalid: ordinary PRFM does not allocate the Rt<4:3>==11 prefetch ops).
     let insn = decode(0xF8A25BFA, 0, without(Feature::Rprfm));
-    assert!(insn.is_invalid(), "RPRFM should be gated off without FEAT_RPRFM");
+    assert!(
+        insn.is_invalid(),
+        "RPRFM should be gated off without FEAT_RPRFM"
+    );
     // With the feature it decodes.
     let insn = decode(0xF8A25BFA, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid());

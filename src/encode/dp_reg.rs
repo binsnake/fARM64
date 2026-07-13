@@ -54,9 +54,7 @@ pub fn encode(insn: &Instruction) -> R {
         AddExtended32 | AddExtended64 | AddsExtended32 | AddsExtended64 | SubExtended32
         | SubExtended64 | SubsExtended32 | SubsExtended64 => enc_addsub_extended(insn),
         // Add/subtract (with carry).
-        Adc32 | Adc64 | Adcs32 | Adcs64 | Sbc32 | Sbc64 | Sbcs32 | Sbcs64 => {
-            enc_addsub_carry(insn)
-        }
+        Adc32 | Adc64 | Adcs32 | Adcs64 | Sbc32 | Sbc64 | Sbcs32 | Sbcs64 => enc_addsub_carry(insn),
         // Flag manipulation.
         Rmif => enc_rmif(insn),
         Setf8 | Setf16 => enc_setf(insn),
@@ -73,9 +71,9 @@ pub fn encode(insn: &Instruction) -> R {
         // Add/subtract checked-pointer (FEAT_CPA scalar).
         Addpt | Subpt => enc_addsub_pt(insn),
         // Data-processing (2 source).
-        Udiv32 | Udiv64 | Sdiv32 | Sdiv64 | Lslv32 | Lslv64 | Lsrv32 | Lsrv64 | Asrv32
-        | Asrv64 | Rorv32 | Rorv64 | Crc32b | Crc32h | Crc32w | Crc32x | Crc32cb | Crc32ch
-        | Crc32cw | Crc32cx | SubpDp | SubpsDp | IrgDp | GmiDp | Pacga | SmaxReg32 | SmaxReg64
+        Udiv32 | Udiv64 | Sdiv32 | Sdiv64 | Lslv32 | Lslv64 | Lsrv32 | Lsrv64 | Asrv32 | Asrv64
+        | Rorv32 | Rorv64 | Crc32b | Crc32h | Crc32w | Crc32x | Crc32cb | Crc32ch | Crc32cw
+        | Crc32cx | SubpDp | SubpsDp | IrgDp | GmiDp | Pacga | SmaxReg32 | SmaxReg64
         | SminReg32 | SminReg64 | UmaxReg32 | UmaxReg64 | UminReg32 | UminReg64 => {
             enc_dp_2source(insn)
         }
@@ -85,11 +83,9 @@ pub fn encode(insn: &Instruction) -> R {
             enc_dp_1source_basic(insn)
         }
         PaciaDp | PacibDp | PacdaDp | PacdbDp | AutiaDp | AutibDp | AutdaDp | AutdbDp
-        | PacizaDp | PacizbDp | PacdzaDp | PacdzbDp | AutizaDp | AutizbDp | AutdzaDp
-        | AutdzbDp | XpaciDp | XpacdDp
-        | Paciasppc | Pacibsppc | Pacnbiasppc | Pacnbibsppc | Autiasppcr | Autibsppcr => {
-            enc_dp_1source_pauth(insn)
-        }
+        | PacizaDp | PacizbDp | PacdzaDp | PacdzbDp | AutizaDp | AutizbDp | AutdzaDp | AutdzbDp
+        | XpaciDp | XpacdDp | Paciasppc | Pacibsppc | Pacnbiasppc | Pacnbibsppc | Autiasppcr
+        | Autibsppcr => enc_dp_1source_pauth(insn),
         _ => Err(EncodeError::Unsupported),
     }
 }
@@ -458,13 +454,8 @@ fn enc_addsub_carry(insn: &Instruction) -> R {
         }
     };
 
-    let word = (sf << 31)
-        | (op << 30)
-        | (s << 29)
-        | (0b11010000 << 21)
-        | (rm << 16)
-        | (rn << 5)
-        | rd;
+    let word =
+        (sf << 31) | (op << 30) | (s << 29) | (0b11010000 << 21) | (rm << 16) | (rn << 5) | rd;
     Ok(word)
 }
 
@@ -473,7 +464,11 @@ fn enc_addsub_carry(insn: &Instruction) -> R {
 /// amount (0..7) on `Xm`.
 fn enc_addsub_pt(insn: &Instruction) -> R {
     use Code::*;
-    let op = if matches!(insn.code(), Subpt) { 1u32 } else { 0 };
+    let op = if matches!(insn.code(), Subpt) {
+        1u32
+    } else {
+        0
+    };
     let rd = reg_num(insn, 0)?;
     let rn = reg_num(insn, 1)?;
     let (rm, shift) = reg_with_shift(insn, 2)?;
@@ -814,8 +809,7 @@ fn enc_dp_1source_basic(insn: &Instruction) -> R {
 
     // sf 1 0 11010110 00000 opcode Rn Rd ; opcode2(word<20:16>)==00000, S==0.
     // Fixed bits above opcode: bit30=1, bit29=0(S), word<28:21>=11010110.
-    let word =
-        (sf << 31) | (1 << 30) | (0b11010110 << 21) | (opcode << 10) | (rn << 5) | rd;
+    let word = (sf << 31) | (1 << 30) | (0b11010110 << 21) | (opcode << 10) | (rn << 5) | rd;
     Ok(word)
 }
 
@@ -898,7 +892,8 @@ mod tests {
             .encode()
             .unwrap_or_else(|e| panic!("encode of {word:#010x} ({:?}) failed: {e:?}", insn.code()));
         assert_eq!(
-            got, word,
+            got,
+            word,
             "round-trip mismatch for {word:#010x}: re-encoded {got:#010x} (code={:?}, mnem={:?})",
             insn.code(),
             insn.mnemonic()
@@ -1007,7 +1002,7 @@ mod tests {
         rt(0x5AC01D07); // cnt w7, w8
         rt(0xDAC01949); // ctz x9, x10
         rt(0x5AC0198B); // ctz w11, w12
-        // 2-source register min/max.
+                        // 2-source register min/max.
         rt(0x9AC26020); // smax x0, x1, x2
         rt(0x1ACF61CD); // smax w13, w14, w15
         rt(0x9AD26A30); // smin x16, x17, x18

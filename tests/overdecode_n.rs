@@ -31,12 +31,35 @@ use fARM64::{encode, FeatureSet};
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{:08X} decoded Invalid", word);
-    let enc = encode(&insn)
-        .unwrap_or_else(|e| panic!("{:08X} ({}) encode error {:?}", word, insn.mnemonic().name(), e));
-    assert_eq!(enc, word, "{:08X} ({}) re-encoded to {:08X}", word, insn.mnemonic().name(), enc);
+    let enc = encode(&insn).unwrap_or_else(|e| {
+        panic!(
+            "{:08X} ({}) encode error {:?}",
+            word,
+            insn.mnemonic().name(),
+            e
+        )
+    });
+    assert_eq!(
+        enc,
+        word,
+        "{:08X} ({}) re-encoded to {:08X}",
+        word,
+        insn.mnemonic().name(),
+        enc
+    );
     let insn2 = decode(enc, 0, FeatureSet::ALL);
-    assert_eq!(insn.mnemonic(), insn2.mnemonic(), "{:08X} mnemonic drift", word);
-    assert_eq!(insn.op_count(), insn2.op_count(), "{:08X} operand-count drift", word);
+    assert_eq!(
+        insn.mnemonic(),
+        insn2.mnemonic(),
+        "{:08X} mnemonic drift",
+        word
+    );
+    assert_eq!(
+        insn.op_count(),
+        insn2.op_count(),
+        "{:08X} operand-count drift",
+        word
+    );
 }
 
 fn is_invalid(word: u32) -> bool {
@@ -64,7 +87,11 @@ fn scalar_misc_vector_only_int_ops_reserved() {
         0x5EA02BAA,    // saddlp (vector-only)
         0x7EA02BAA,    // uaddlp (vector-only)
     ] {
-        assert!(is_invalid(bad), "{:08X} vector-only int misc should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} vector-only int misc should be Invalid",
+            bad
+        );
     }
 }
 
@@ -80,16 +107,29 @@ fn scalar_misc_fp_rounding_reserved() {
         0x5E61EAAD,     // frint32z d13, d21
         0x7E61EAAD,     // frint32x d13, d21
     ] {
-        assert!(is_invalid(bad), "{:08X} scalar FP-rounding misc should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} scalar FP-rounding misc should be Invalid",
+            bad
+        );
     }
 }
 
 #[test]
 fn scalar_misc_fcvtxn_size_reserved() {
     // FCVTXN scalar is fixed at size==01 (`s <- d`); any other size is reserved.
-    assert!(is_invalid(0x7EA16BC9), "7EA16BC9 fcvtxn size==10 should be Invalid");
-    assert!(is_invalid(0x7E216822), "7E216822 fcvtxn size==00 should be Invalid");
-    assert!(is_invalid(0x7EE16822), "7EE16822 fcvtxn size==11 should be Invalid");
+    assert!(
+        is_invalid(0x7EA16BC9),
+        "7EA16BC9 fcvtxn size==10 should be Invalid"
+    );
+    assert!(
+        is_invalid(0x7E216822),
+        "7E216822 fcvtxn size==00 should be Invalid"
+    );
+    assert!(
+        is_invalid(0x7EE16822),
+        "7EE16822 fcvtxn size==11 should be Invalid"
+    );
     // The one allocated size (01) still decodes + round-trips.
     assert_eq!(mnem(0x7E616822), "fcvtxn");
     assert_roundtrip(0x7E616822);
@@ -98,17 +138,26 @@ fn scalar_misc_fcvtxn_size_reserved() {
 #[test]
 fn scalar_pairwise_faddp_and_fp16_size_reserved() {
     // FADDP has no min variant: `size<1>` (the max/min selector) must be 0.
-    assert!(is_invalid(0x5EB0DAC3), "5EB0DAC3 FP16 FADDP size==10 should be Invalid");
-    assert!(is_invalid(0x7EB0DAC3), "7EB0DAC3 S/D FADDP size==10 should be Invalid");
+    assert!(
+        is_invalid(0x5EB0DAC3),
+        "5EB0DAC3 FP16 FADDP size==10 should be Invalid"
+    );
+    assert!(
+        is_invalid(0x7EB0DAC3),
+        "7EB0DAC3 S/D FADDP size==10 should be Invalid"
+    );
     // FP16 scalar pairwise has no double-precision form (`size<0>` must be 0).
-    assert!(is_invalid(0x5E70D822), "5E70D822 FP16 FADDP size==01 should be Invalid");
+    assert!(
+        is_invalid(0x5E70D822),
+        "5E70D822 FP16 FADDP size==01 should be Invalid"
+    );
     // The allocated pairwise forms survive.
     for &(w, m) in &[
-        (0x5E30D822u32, "faddp"),   // h, .2h
-        (0x7E30D822, "faddp"),      // s, .2s
-        (0x7E70D822, "faddp"),      // d, .2d
-        (0x5EB0F822, "fminp"),      // FP16 min variant (size==10) still OK
-        (0x5EF1B822, "addp"),       // integer ADDP scalar
+        (0x5E30D822u32, "faddp"), // h, .2h
+        (0x7E30D822, "faddp"),    // s, .2s
+        (0x7E70D822, "faddp"),    // d, .2d
+        (0x5EB0F822, "fminp"),    // FP16 min variant (size==10) still OK
+        (0x5EF1B822, "addp"),     // integer ADDP scalar
     ] {
         assert_eq!(mnem(w), m, "{:08X} mnemonic", w);
         assert_roundtrip(w);
@@ -137,7 +186,11 @@ fn scalar_misc_allocated_forms_survive() {
         (0x5EF9F822, "frecpx"),    // h (FP16)
         (0x7EF9D822, "frsqrte"),   // h (FP16)
     ] {
-        assert!(!is_invalid(w), "{:08X} allocated scalar misc should decode", w);
+        assert!(
+            !is_invalid(w),
+            "{:08X} allocated scalar misc should decode",
+            w
+        );
         assert_eq!(mnem(w), m, "{:08X} mnemonic", w);
         assert_roundtrip(w);
     }
@@ -147,12 +200,12 @@ fn scalar_misc_allocated_forms_survive() {
 fn vector_misc_unaffected() {
     // The vector two-reg-misc path keeps every form (XTN/CNT/REV/SADDLP/FRINT*).
     for &(w, m) in &[
-        (0x0E212800u32, "xtn"),    // xtn v0.8b, v0.8h
-        (0x0E205800, "cnt"),       // cnt v0.8b, v0.8b
-        (0x0E200800, "rev64"),     // rev64 v0.8b, v0.8b
-        (0x0E202800, "saddlp"),    // saddlp v0.4h, v0.8b
-        (0x4E619800, "frintm"),    // frintm v0.2d, v0.2d
-        (0x4E61A800, "fcvtns"),    // fcvtns v0.2d, v0.2d
+        (0x0E212800u32, "xtn"), // xtn v0.8b, v0.8h
+        (0x0E205800, "cnt"),    // cnt v0.8b, v0.8b
+        (0x0E200800, "rev64"),  // rev64 v0.8b, v0.8b
+        (0x0E202800, "saddlp"), // saddlp v0.4h, v0.8b
+        (0x4E619800, "frintm"), // frintm v0.2d, v0.2d
+        (0x4E61A800, "fcvtns"), // fcvtns v0.2d, v0.2d
     ] {
         assert!(!is_invalid(w), "{:08X} vector misc should decode", w);
         assert_eq!(mnem(w), m, "{:08X} mnemonic", w);
@@ -173,16 +226,20 @@ fn sve_extract_narrow_tsz_reserved() {
         0x4578561A,    // sqxtunt with tsz==111
         0x45684744,    // sqxtnt with tsz==101
     ] {
-        assert!(is_invalid(bad), "{:08X} extract-narrow bad tsz should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} extract-narrow bad tsz should be Invalid",
+            bad
+        );
     }
     // All three sizes / six ops with a valid tsz still decode + round-trip.
     for &(w, m) in &[
-        (0x45284382u32, "sqxtnb"),  // .b <- .h
-        (0x45284782, "sqxtnt"),     // .b <- .h
-        (0x45284F82, "uqxtnt"),     // .b <- .h
-        (0x45304782, "sqxtnt"),     // .h <- .s
-        (0x45605782, "sqxtunt"),    // .s <- .d
-        (0x45605382, "sqxtunb"),    // .s <- .d
+        (0x45284382u32, "sqxtnb"), // .b <- .h
+        (0x45284782, "sqxtnt"),    // .b <- .h
+        (0x45284F82, "uqxtnt"),    // .b <- .h
+        (0x45304782, "sqxtnt"),    // .h <- .s
+        (0x45605782, "sqxtunt"),   // .s <- .d
+        (0x45605382, "sqxtunb"),   // .s <- .d
     ] {
         assert_eq!(mnem(w), m, "{:08X} mnemonic", w);
         assert_roundtrip(w);
@@ -196,8 +253,14 @@ fn sve_extract_narrow_tsz_reserved() {
 #[test]
 fn sve_saddv_d_reserved() {
     // SADDV `.d` (size==11) is reserved; UADDV keeps its `.d` form.
-    assert!(is_invalid(0x04C02EF6), "04C02EF6 saddv .d should be Invalid");
-    assert!(is_invalid(0x04C03962), "04C03962 saddv .d should be Invalid");
+    assert!(
+        is_invalid(0x04C02EF6),
+        "04C02EF6 saddv .d should be Invalid"
+    );
+    assert!(
+        is_invalid(0x04C03962),
+        "04C03962 saddv .d should be Invalid"
+    );
     for &(w, m) in &[
         (0x04003962u32, "saddv"), // .b
         (0x04803962, "saddv"),    // .s
@@ -212,12 +275,15 @@ fn sve_saddv_d_reserved() {
 #[test]
 fn sve_pred_rev_punpk_bits_reserved() {
     // Predicate REV / PUNPK are unary and fix `<12:10>=000`.
-    assert!(is_invalid(0x05744501), "05744501 rev p.h <12:10>!=0 should be Invalid");
+    assert!(
+        is_invalid(0x05744501),
+        "05744501 rev p.h <12:10>!=0 should be Invalid"
+    );
     for &(w, m) in &[
-        (0x05744101u32, "rev"),     // rev p1.h, p8.h
-        (0x05344101, "rev"),        // rev p1.b, p8.b
-        (0x05314101, "punpkhi"),    // punpkhi p1.h, p8.b
-        (0x05304101, "punpklo"),    // punpklo p1.h, p8.b
+        (0x05744101u32, "rev"),  // rev p1.h, p8.h
+        (0x05344101, "rev"),     // rev p1.b, p8.b
+        (0x05314101, "punpkhi"), // punpkhi p1.h, p8.b
+        (0x05304101, "punpklo"), // punpklo p1.h, p8.b
     ] {
         assert_eq!(mnem(w), m, "{:08X} mnemonic", w);
         assert_roundtrip(w);
@@ -227,7 +293,10 @@ fn sve_pred_rev_punpk_bits_reserved() {
 #[test]
 fn sve_pmov_from_vector_bit4_reserved() {
     // PMOV-from-vector writes a 4-bit `Pd`; `<4>` must be 0.
-    assert!(is_invalid(0x056E38BF), "056E38BF pmov-from-vector <4>=1 should be Invalid");
+    assert!(
+        is_invalid(0x056E38BF),
+        "056E38BF pmov-from-vector <4>=1 should be Invalid"
+    );
     // The canonical word (and the to-vector twin) still decode.
     assert_eq!(mnem(0x056E38AF), "pmov");
     assert_roundtrip(0x056E38AF);
@@ -239,13 +308,19 @@ fn sve_pmov_from_vector_bit4_reserved() {
 fn sve_brkas_brkbs_merge_bit_reserved() {
     // The flag-setting BRKAS/BRKBS (`S=1`) are zeroing-only: the merge bit `<4>`
     // must be 0.
-    assert!(is_invalid(0x25D05893), "25D05893 brkbs <4>=1 should be Invalid");
-    assert!(is_invalid(0x25505893), "25505893 brkas <4>=1 should be Invalid");
+    assert!(
+        is_invalid(0x25D05893),
+        "25D05893 brkbs <4>=1 should be Invalid"
+    );
+    assert!(
+        is_invalid(0x25505893),
+        "25505893 brkas <4>=1 should be Invalid"
+    );
     for &(w, m) in &[
-        (0x25D05883u32, "brkbs"),  // brkbs p3.b, p6/z, p4.b
-        (0x25505883, "brkas"),     // brkas p3.b, p6/z, p4.b
-        (0x25905893, "brkb"),      // brkb (non-S) keeps /m (M=1)
-        (0x25105893, "brka"),      // brka (non-S) keeps /m (M=1)
+        (0x25D05883u32, "brkbs"), // brkbs p3.b, p6/z, p4.b
+        (0x25505883, "brkas"),    // brkas p3.b, p6/z, p4.b
+        (0x25905893, "brkb"),     // brkb (non-S) keeps /m (M=1)
+        (0x25105893, "brka"),     // brka (non-S) keeps /m (M=1)
     ] {
         assert_eq!(mnem(w), m, "{:08X} mnemonic", w);
         assert_roundtrip(w);
@@ -260,7 +335,11 @@ fn sve_incdecp_vector_byte_reserved() {
         0x252C805E,    // incp z30.b
         0x2528805E,    // sqincp z30.b
     ] {
-        assert!(is_invalid(bad), "{:08X} vector INC/DEC-P .b should be Invalid", bad);
+        assert!(
+            is_invalid(bad),
+            "{:08X} vector INC/DEC-P .b should be Invalid",
+            bad
+        );
     }
     // The valid vector sizes and all scalar forms (incl. `.b`) survive.
     for &(w, m) in &[
@@ -278,10 +357,13 @@ fn sve_incdecp_vector_byte_reserved() {
 #[test]
 fn sve_dup_imm_byte_shift_reserved() {
     // DUP/MOV-immediate with `lsl #8` (`sh==1`) is reserved for `.b` elements.
-    assert!(is_invalid(0x2538EFC5), "2538EFC5 mov z.b with lsl #8 should be Invalid");
+    assert!(
+        is_invalid(0x2538EFC5),
+        "2538EFC5 mov z.b with lsl #8 should be Invalid"
+    );
     for &(w, m) in &[
-        (0x2538CFC5u32, "mov"),  // mov z5.b, #0x7e   (no shift)
-        (0x2578EFC5, "mov"),     // mov z5.h, #0x7e00 (.h keeps the shift)
+        (0x2538CFC5u32, "mov"), // mov z5.b, #0x7e   (no shift)
+        (0x2578EFC5, "mov"),    // mov z5.h, #0x7e00 (.h keeps the shift)
     ] {
         assert!(!is_invalid(w), "{:08X} should decode", w);
         assert_eq!(mnem(w), m, "{:08X} mnemonic", w);

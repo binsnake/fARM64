@@ -23,7 +23,7 @@
 //!
 //! Code identity follows the module convention: one [`Code`] per ARM ARM encoding
 //! class, the preferred-disassembly alias installed via
-//! [`Instruction::set_mnemonic`] where the corpus uses one, and arrangement /
+//! `Instruction::set_mnemonic` where the corpus uses one, and arrangement /
 //! predicate / lane decoration carried in the operands. Every path is total and
 //! panic-free; unallocated encodings are left [`Code::Invalid`].
 
@@ -33,7 +33,7 @@ use crate::features::{Feature, FeatureSet};
 use crate::instruction::Instruction;
 use crate::mnemonic::{Code, Mnemonic};
 use crate::operand::{Operand, PredQual};
-use crate::register::{gp_register, Register, RegWidth};
+use crate::register::{gp_register, RegWidth, Register};
 
 // ---------------------------------------------------------------------------
 // Register-bank tables (mirrors of the ones in `sve_int`, kept local so the two
@@ -41,38 +41,192 @@ use crate::register::{gp_register, Register, RegWidth};
 // ---------------------------------------------------------------------------
 
 const Z: [Register; 32] = [
-    Register::Z0, Register::Z1, Register::Z2, Register::Z3, Register::Z4, Register::Z5, Register::Z6, Register::Z7,
-    Register::Z8, Register::Z9, Register::Z10, Register::Z11, Register::Z12, Register::Z13, Register::Z14, Register::Z15,
-    Register::Z16, Register::Z17, Register::Z18, Register::Z19, Register::Z20, Register::Z21, Register::Z22, Register::Z23,
-    Register::Z24, Register::Z25, Register::Z26, Register::Z27, Register::Z28, Register::Z29, Register::Z30, Register::Z31,
+    Register::Z0,
+    Register::Z1,
+    Register::Z2,
+    Register::Z3,
+    Register::Z4,
+    Register::Z5,
+    Register::Z6,
+    Register::Z7,
+    Register::Z8,
+    Register::Z9,
+    Register::Z10,
+    Register::Z11,
+    Register::Z12,
+    Register::Z13,
+    Register::Z14,
+    Register::Z15,
+    Register::Z16,
+    Register::Z17,
+    Register::Z18,
+    Register::Z19,
+    Register::Z20,
+    Register::Z21,
+    Register::Z22,
+    Register::Z23,
+    Register::Z24,
+    Register::Z25,
+    Register::Z26,
+    Register::Z27,
+    Register::Z28,
+    Register::Z29,
+    Register::Z30,
+    Register::Z31,
 ];
 const P: [Register; 16] = [
-    Register::P0, Register::P1, Register::P2, Register::P3, Register::P4, Register::P5, Register::P6, Register::P7,
-    Register::P8, Register::P9, Register::P10, Register::P11, Register::P12, Register::P13, Register::P14, Register::P15,
+    Register::P0,
+    Register::P1,
+    Register::P2,
+    Register::P3,
+    Register::P4,
+    Register::P5,
+    Register::P6,
+    Register::P7,
+    Register::P8,
+    Register::P9,
+    Register::P10,
+    Register::P11,
+    Register::P12,
+    Register::P13,
+    Register::P14,
+    Register::P15,
 ];
 const BR: [Register; 32] = [
-    Register::B0, Register::B1, Register::B2, Register::B3, Register::B4, Register::B5, Register::B6, Register::B7,
-    Register::B8, Register::B9, Register::B10, Register::B11, Register::B12, Register::B13, Register::B14, Register::B15,
-    Register::B16, Register::B17, Register::B18, Register::B19, Register::B20, Register::B21, Register::B22, Register::B23,
-    Register::B24, Register::B25, Register::B26, Register::B27, Register::B28, Register::B29, Register::B30, Register::B31,
+    Register::B0,
+    Register::B1,
+    Register::B2,
+    Register::B3,
+    Register::B4,
+    Register::B5,
+    Register::B6,
+    Register::B7,
+    Register::B8,
+    Register::B9,
+    Register::B10,
+    Register::B11,
+    Register::B12,
+    Register::B13,
+    Register::B14,
+    Register::B15,
+    Register::B16,
+    Register::B17,
+    Register::B18,
+    Register::B19,
+    Register::B20,
+    Register::B21,
+    Register::B22,
+    Register::B23,
+    Register::B24,
+    Register::B25,
+    Register::B26,
+    Register::B27,
+    Register::B28,
+    Register::B29,
+    Register::B30,
+    Register::B31,
 ];
 const HR: [Register; 32] = [
-    Register::H0, Register::H1, Register::H2, Register::H3, Register::H4, Register::H5, Register::H6, Register::H7,
-    Register::H8, Register::H9, Register::H10, Register::H11, Register::H12, Register::H13, Register::H14, Register::H15,
-    Register::H16, Register::H17, Register::H18, Register::H19, Register::H20, Register::H21, Register::H22, Register::H23,
-    Register::H24, Register::H25, Register::H26, Register::H27, Register::H28, Register::H29, Register::H30, Register::H31,
+    Register::H0,
+    Register::H1,
+    Register::H2,
+    Register::H3,
+    Register::H4,
+    Register::H5,
+    Register::H6,
+    Register::H7,
+    Register::H8,
+    Register::H9,
+    Register::H10,
+    Register::H11,
+    Register::H12,
+    Register::H13,
+    Register::H14,
+    Register::H15,
+    Register::H16,
+    Register::H17,
+    Register::H18,
+    Register::H19,
+    Register::H20,
+    Register::H21,
+    Register::H22,
+    Register::H23,
+    Register::H24,
+    Register::H25,
+    Register::H26,
+    Register::H27,
+    Register::H28,
+    Register::H29,
+    Register::H30,
+    Register::H31,
 ];
 const SR: [Register; 32] = [
-    Register::S0, Register::S1, Register::S2, Register::S3, Register::S4, Register::S5, Register::S6, Register::S7,
-    Register::S8, Register::S9, Register::S10, Register::S11, Register::S12, Register::S13, Register::S14, Register::S15,
-    Register::S16, Register::S17, Register::S18, Register::S19, Register::S20, Register::S21, Register::S22, Register::S23,
-    Register::S24, Register::S25, Register::S26, Register::S27, Register::S28, Register::S29, Register::S30, Register::S31,
+    Register::S0,
+    Register::S1,
+    Register::S2,
+    Register::S3,
+    Register::S4,
+    Register::S5,
+    Register::S6,
+    Register::S7,
+    Register::S8,
+    Register::S9,
+    Register::S10,
+    Register::S11,
+    Register::S12,
+    Register::S13,
+    Register::S14,
+    Register::S15,
+    Register::S16,
+    Register::S17,
+    Register::S18,
+    Register::S19,
+    Register::S20,
+    Register::S21,
+    Register::S22,
+    Register::S23,
+    Register::S24,
+    Register::S25,
+    Register::S26,
+    Register::S27,
+    Register::S28,
+    Register::S29,
+    Register::S30,
+    Register::S31,
 ];
 const DR: [Register; 32] = [
-    Register::D0, Register::D1, Register::D2, Register::D3, Register::D4, Register::D5, Register::D6, Register::D7,
-    Register::D8, Register::D9, Register::D10, Register::D11, Register::D12, Register::D13, Register::D14, Register::D15,
-    Register::D16, Register::D17, Register::D18, Register::D19, Register::D20, Register::D21, Register::D22, Register::D23,
-    Register::D24, Register::D25, Register::D26, Register::D27, Register::D28, Register::D29, Register::D30, Register::D31,
+    Register::D0,
+    Register::D1,
+    Register::D2,
+    Register::D3,
+    Register::D4,
+    Register::D5,
+    Register::D6,
+    Register::D7,
+    Register::D8,
+    Register::D9,
+    Register::D10,
+    Register::D11,
+    Register::D12,
+    Register::D13,
+    Register::D14,
+    Register::D15,
+    Register::D16,
+    Register::D17,
+    Register::D18,
+    Register::D19,
+    Register::D20,
+    Register::D21,
+    Register::D22,
+    Register::D23,
+    Register::D24,
+    Register::D25,
+    Register::D26,
+    Register::D27,
+    Register::D28,
+    Register::D29,
+    Register::D30,
+    Register::D31,
 ];
 
 // ---------------------------------------------------------------------------
@@ -93,37 +247,79 @@ fn arr(size: u32) -> VA {
 /// A scalable `Z{n}` operand with arrangement `a`.
 #[inline]
 fn zreg(n: u32, a: VA) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: Some(a), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A scalable `Z{n}.Q` operand (128-bit element permute).
 #[inline]
 fn zreg_q(n: u32) -> Operand {
-    Operand::Reg { reg: Z[(n & 0x1f) as usize], arr: Some(VA::Sq), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: Z[(n & 0x1f) as usize],
+        arr: Some(VA::Sq),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A governing predicate `P{n}` with a `/z` or `/m` qualifier.
 #[inline]
 fn preg_q(n: u32, q: PredQual) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: Some(q) }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: Some(q),
+    }
 }
 
 /// A bare predicate `P{n}` (no qualifier, no size).
 #[inline]
 fn preg(n: u32) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A sized predicate `P{n}.<T>` (no qualifier).
 #[inline]
 fn preg_sz(n: u32, a: VA) -> Operand {
-    Operand::Reg { reg: P[(n & 0xf) as usize], arr: Some(a), lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: P[(n & 0xf) as usize],
+        arr: Some(a),
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A general-purpose register operand (`X`/`W`), reg-31 as ZR.
 #[inline]
 fn gpr(n: u32, w: RegWidth) -> Operand {
-    Operand::Reg { reg: gp_register(false, w, n as u8), arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg: gp_register(false, w, n as u8),
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A scalar SIMD `B/H/S/D` operand for the element width given by `size`.
@@ -136,7 +332,14 @@ fn scalar_fp(n: u32, size: u32) -> Operand {
         2 => SR[n],
         _ => DR[n],
     };
-    Operand::Reg { reg, arr: None, lane: None, shift: None, extend: None, pred: None }
+    Operand::Reg {
+        reg,
+        arr: None,
+        lane: None,
+        shift: None,
+        extend: None,
+        pred: None,
+    }
 }
 
 /// A two-register Z list `{Z{n}.<T>, Z{n+1}.<T>}` for the `*_con` permute forms.
@@ -144,7 +347,12 @@ fn scalar_fp(n: u32, size: u32) -> Operand {
 fn zlist2(n: u32, a: VA) -> Operand {
     let n0 = (n & 0x1f) as usize;
     let n1 = ((n + 1) & 0x1f) as usize;
-    Operand::MultiReg { regs: [Z[n0], Z[n1], Register::None, Register::None], count: 2, arr: Some(a), lane: None }
+    Operand::MultiReg {
+        regs: [Z[n0], Z[n1], Register::None, Register::None],
+        count: 2,
+        arr: Some(a),
+        lane: None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +514,12 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
             // `.Q` permute lives with `<23:22>=10` and `<15:11>=00011`? In fact the
             // `.Q` forms have `<15:13>=000`, `<12:11>` family, `<10>=H`, and the
             // `<23:22>` carries `op` (0) and the fixed `1`. We detect via `<15:11>`.
-            if bits(word, 11, 2) <= 0b11 && bits(word, 14, 2) == 0b00 && bits(word, 13, 1) == 0 && bit(word, 21) == 1 && is_q_perm(word) {
+            if bits(word, 11, 2) <= 0b11
+                && bits(word, 14, 2) == 0b00
+                && bits(word, 13, 1) == 0
+                && bit(word, 21) == 1
+                && is_q_perm(word)
+            {
                 let fam = bits(word, 11, 2);
                 let h = bit(word, 10);
                 let mnem = match (fam, h) {
@@ -368,7 +581,9 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
 /// (`<23:22>=10`, `<21>=1`, `<12:11>` in {00,01,11}).
 #[inline]
 fn is_q_perm(word: u32) -> bool {
-    bits(word, 22, 2) == 0b10 && bit(word, 21) == 1 && matches!(bits(word, 11, 2), 0b00 | 0b01 | 0b11)
+    bits(word, 22, 2) == 0b10
+        && bit(word, 21) == 1
+        && matches!(bits(word, 11, 2), 0b00 | 0b01 | 0b11)
 }
 
 /// Predicate permute (`<15:13>=010`): ZIP/UZP/TRN predicate (`<20>=0`, Pm present)
@@ -421,7 +636,11 @@ fn decode_pred_perm(word: u32, out: &mut Instruction) {
         // PUNPKHI/LO: H=<16>. Dest `.H`, source `.B`.
         let hi = bit(word, 16) == 1;
         out.set(Code::SvePunpk);
-        out.set_mnemonic(if hi { Mnemonic::Punpkhi } else { Mnemonic::Punpklo });
+        out.set_mnemonic(if hi {
+            Mnemonic::Punpkhi
+        } else {
+            Mnemonic::Punpklo
+        });
         out.push_operand(preg_sz(pd, VA::Sh));
         out.push_operand(preg_sz(pn, VA::Sb));
     }
@@ -444,9 +663,17 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
             // CLASTA/CLASTB to GP register: `<20:16>=1000 B`.
             0b10000 | 0b10001 => {
                 let b = bit(word, 16);
-                let w = if size == 3 { RegWidth::X64 } else { RegWidth::W32 };
+                let w = if size == 3 {
+                    RegWidth::X64
+                } else {
+                    RegWidth::W32
+                };
                 out.set(Code::SveClastR);
-                out.set_mnemonic(if b == 0 { Mnemonic::Clasta } else { Mnemonic::Clastb });
+                out.set_mnemonic(if b == 0 {
+                    Mnemonic::Clasta
+                } else {
+                    Mnemonic::Clastb
+                });
                 out.push_operand(gpr(d, w));
                 out.push_operand(preg(pg));
                 out.push_operand(gpr(d, w));
@@ -455,9 +682,17 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
             // LASTA/LASTB to GP register: `<20:16>=0000 B`.
             0b00000 | 0b00001 => {
                 let b = bit(word, 16);
-                let w = if size == 3 { RegWidth::X64 } else { RegWidth::W32 };
+                let w = if size == 3 {
+                    RegWidth::X64
+                } else {
+                    RegWidth::W32
+                };
                 out.set(Code::SveLastR);
-                out.set_mnemonic(if b == 0 { Mnemonic::Lasta } else { Mnemonic::Lastb });
+                out.set_mnemonic(if b == 0 {
+                    Mnemonic::Lasta
+                } else {
+                    Mnemonic::Lastb
+                });
                 out.push_operand(gpr(d, w));
                 out.push_operand(preg(pg));
                 out.push_operand(zreg(s1, arr(size)));
@@ -513,7 +748,11 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
             let b = bit(word, 16);
             let a = arr(size);
             out.set(Code::SveClastZ);
-            out.set_mnemonic(if b == 0 { Mnemonic::Clasta } else { Mnemonic::Clastb });
+            out.set_mnemonic(if b == 0 {
+                Mnemonic::Clasta
+            } else {
+                Mnemonic::Clastb
+            });
             out.push_operand(zreg(d, a));
             out.push_operand(preg(pg));
             out.push_operand(zreg(d, a));
@@ -523,7 +762,11 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b01010 | 0b01011 => {
             let b = bit(word, 16);
             out.set(Code::SveClastV);
-            out.set_mnemonic(if b == 0 { Mnemonic::Clasta } else { Mnemonic::Clastb });
+            out.set_mnemonic(if b == 0 {
+                Mnemonic::Clasta
+            } else {
+                Mnemonic::Clastb
+            });
             out.push_operand(scalar_fp(d, size));
             out.push_operand(preg(pg));
             out.push_operand(scalar_fp(d, size));
@@ -533,7 +776,11 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b00010 | 0b00011 => {
             let b = bit(word, 16);
             out.set(Code::SveLastV);
-            out.set_mnemonic(if b == 0 { Mnemonic::Lasta } else { Mnemonic::Lastb });
+            out.set_mnemonic(if b == 0 {
+                Mnemonic::Lasta
+            } else {
+                Mnemonic::Lastb
+            });
             out.push_operand(scalar_fp(d, size));
             out.push_operand(preg(pg));
             out.push_operand(zreg(s1, arr(size)));
@@ -572,11 +819,20 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
     }
 }
 
-
 /// A single-register Z list `{Z{n}.<T>}` for the single-table `TBL`.
 #[inline]
 fn zlist1(n: u32, a: VA) -> Operand {
-    Operand::MultiReg { regs: [Z[(n & 0x1f) as usize], Register::None, Register::None, Register::None], count: 1, arr: Some(a), lane: None }
+    Operand::MultiReg {
+        regs: [
+            Z[(n & 0x1f) as usize],
+            Register::None,
+            Register::None,
+            Register::None,
+        ],
+        count: 1,
+        arr: Some(a),
+        lane: None,
+    }
 }
 
 /// EXT (destructive): `EXT <Zdn>.B, <Zdn>.B, <Zm>.B, #imm`.
@@ -713,7 +969,12 @@ fn decode_while_pair_pn(word: u32, out: &mut Instruction) {
         let pn = 8 + bits(word, 0, 3);
         out.set(Code::SveWhilePn);
         out.set_mnemonic(mnem);
-        out.push_operand(Operand::PredCounter { reg: P[(pn & 0xf) as usize], zeroing: false, arr: Some(a), index: None });
+        out.push_operand(Operand::PredCounter {
+            reg: P[(pn & 0xf) as usize],
+            zeroing: false,
+            arr: Some(a),
+            index: None,
+        });
     }
     out.push_operand(gpr(rn, RegWidth::X64));
     out.push_operand(gpr(rm, RegWidth::X64));
@@ -817,7 +1078,12 @@ fn decode_pext_ptrue_pn(word: u32, out: &mut Instruction) {
 #[inline]
 fn pred_pair(first: u32, a: VA) -> Operand {
     Operand::MultiReg {
-        regs: [P[(first & 0xf) as usize], P[((first + 1) & 0xf) as usize], Register::None, Register::None],
+        regs: [
+            P[(first & 0xf) as usize],
+            P[((first + 1) & 0xf) as usize],
+            Register::None,
+            Register::None,
+        ],
         count: 2,
         arr: Some(a),
         lane: None,
@@ -840,7 +1106,11 @@ fn decode_while_dup(word: u32, out: &mut Instruction) {
     let rn = bits(word, 5, 5);
     let pd = bits(word, 0, 4);
     let sf = bit(word, 12);
-    let w = if sf == 1 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if sf == 1 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
 
     let u = bit(word, 11);
     let lt = bit(word, 10);
@@ -876,7 +1146,11 @@ fn decode_while_rw(word: u32, out: &mut Instruction) {
     let pd = bits(word, 0, 4);
     let rw = bit(word, 4);
     out.set(Code::SveWhileRw);
-    out.set_mnemonic(if rw == 1 { Mnemonic::Whilerw } else { Mnemonic::Whilewr });
+    out.set_mnemonic(if rw == 1 {
+        Mnemonic::Whilerw
+    } else {
+        Mnemonic::Whilewr
+    });
     out.push_operand(preg_sz(pd, a));
     out.push_operand(gpr(rn, RegWidth::X64));
     out.push_operand(gpr(rm, RegWidth::X64));
@@ -896,12 +1170,20 @@ fn decode_cterm(word: u32, out: &mut Instruction) {
         return;
     }
     let sz = bit(word, 22);
-    let w = if sz == 1 { RegWidth::X64 } else { RegWidth::W32 };
+    let w = if sz == 1 {
+        RegWidth::X64
+    } else {
+        RegWidth::W32
+    };
     let rm = bits(word, 16, 5);
     let rn = bits(word, 5, 5);
     let op = bit(word, 4);
     out.set(Code::SveCterm);
-    out.set_mnemonic(if op == 0 { Mnemonic::Ctermeq } else { Mnemonic::Ctermne });
+    out.set_mnemonic(if op == 0 {
+        Mnemonic::Ctermeq
+    } else {
+        Mnemonic::Ctermne
+    });
     out.push_operand(gpr(rn, w));
     out.push_operand(gpr(rm, w));
 }
@@ -1165,7 +1447,11 @@ fn decode_break(word: u32, out: &mut Instruction) {
         if s == 1 && m == 1 {
             return;
         }
-        let q = if s == 0 && m == 1 { PredQual::Merging } else { PredQual::Zeroing };
+        let q = if s == 0 && m == 1 {
+            PredQual::Merging
+        } else {
+            PredQual::Zeroing
+        };
         out.set(Code::SveBrkPred);
         out.set_mnemonic(mnem);
         out.push_operand(preg_sz(pd, VA::Sb));
@@ -1176,10 +1462,19 @@ fn decode_break(word: u32, out: &mut Instruction) {
 
     // BRKN/BRKNS: `00100101 0 S 011000 01 Pg 0 Pn 0 Pdm`.
     //   KEY brkn : <23:16>=00011000 ; brkns: <23:16>=01011000.
-    if bits(word, 16, 6) == 0b011000 && bits(word, 14, 2) == 0b01 && bit(word, 9) == 0 && bit(word, 4) == 0 && bit(word, 23) == 0 {
+    if bits(word, 16, 6) == 0b011000
+        && bits(word, 14, 2) == 0b01
+        && bit(word, 9) == 0
+        && bit(word, 4) == 0
+        && bit(word, 23) == 0
+    {
         let s = bit(word, 22);
         out.set(Code::SveBrkn);
-        out.set_mnemonic(if s == 0 { Mnemonic::Brkn } else { Mnemonic::Brkns });
+        out.set_mnemonic(if s == 0 {
+            Mnemonic::Brkn
+        } else {
+            Mnemonic::Brkns
+        });
         out.push_operand(preg_sz(pd, VA::Sb));
         out.push_operand(preg_q(pg, PredQual::Zeroing));
         out.push_operand(preg_sz(pn, VA::Sb));
@@ -1233,19 +1528,31 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
     // ignored it and over-decoded the `<23>=1` reserved slot (e.g. `2598F02F` ->
     // `rdffr p15.b, p1/z` / `25D8F125` -> `rdffrs`, both UNDEFINED in LLVM;
     // canonical `2518F02F` / `2558F125`). Reject `<23>=1`.
-    if bit(word, 23) == 0 && bits(word, 16, 6) == 0b011000 && bits(word, 9, 7) == 0b1111000 && bit(word, 4) == 0 {
+    if bit(word, 23) == 0
+        && bits(word, 16, 6) == 0b011000
+        && bits(word, 9, 7) == 0b1111000
+        && bit(word, 4) == 0
+    {
         let s = bit(word, 22);
         let pg = bits(word, 5, 4);
         let pd = bits(word, 0, 4);
         out.set(Code::SveRdffrPred);
-        out.set_mnemonic(if s == 0 { Mnemonic::Rdffr } else { Mnemonic::Rdffrs });
+        out.set_mnemonic(if s == 0 {
+            Mnemonic::Rdffr
+        } else {
+            Mnemonic::Rdffrs
+        });
         out.push_operand(preg_sz(pd, VA::Sb));
         out.push_operand(preg_q(pg, PredQual::Zeroing));
         return;
     }
 
     // PTEST: `00100101 0101 0000 11 Pg 0 Pn 0 0000`.
-    if bits(word, 16, 8) == 0b01010000 && bits(word, 14, 2) == 0b11 && bit(word, 9) == 0 && bits(word, 0, 5) == 0 {
+    if bits(word, 16, 8) == 0b01010000
+        && bits(word, 14, 2) == 0b11
+        && bit(word, 9) == 0
+        && bits(word, 0, 5) == 0
+    {
         let pg = bits(word, 10, 4);
         let pn = bits(word, 5, 4);
         out.set(Code::SvePtest);
@@ -1268,7 +1575,12 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
     }
 
     // PNEXT: `00100101 size 011001 11000 1 0 Pg 0 Pdn`.
-    if bits(word, 16, 6) == 0b011001 && bits(word, 11, 5) == 0b11000 && bit(word, 10) == 1 && bit(word, 9) == 0 && bit(word, 4) == 0 {
+    if bits(word, 16, 6) == 0b011001
+        && bits(word, 11, 5) == 0b11000
+        && bit(word, 10) == 1
+        && bit(word, 9) == 0
+        && bit(word, 4) == 0
+    {
         let a = arr(size);
         let pg = bits(word, 5, 4);
         let pdn = bits(word, 0, 4);
@@ -1298,7 +1610,11 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
         let pattern = bits(word, 5, 5);
         let pd = bits(word, 0, 4);
         out.set(Code::SvePtrue);
-        out.set_mnemonic(if s == 0 { Mnemonic::Ptrue } else { Mnemonic::Ptrues });
+        out.set_mnemonic(if s == 0 {
+            Mnemonic::Ptrue
+        } else {
+            Mnemonic::Ptrues
+        });
         out.push_operand(preg_sz(pd, a));
         // The pattern operand is elided when it is `all` (0x1f) for PTRUE.
         push_pattern(out, pattern);

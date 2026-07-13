@@ -1,6 +1,7 @@
 # ENCODING.md — AArch64 Encoding Reference & Decoder Notes (fARM64)
 
-This is the encoding-level reference for the `fARM64` AArch64 disassembler. It
+This is the encoding-level reference for the `fARM64` AArch64 disassembler and
+semantic encoder. It
 documents how a 32-bit little-endian A64 instruction word is classified, how each
 base-ISA group lays out its bit fields, the operand shapes those fields produce,
 and the tricky derivations (logical-immediate masks, PC-relative `ADR`/`ADRP`,
@@ -8,18 +9,17 @@ move-wide `hw`, load/store addressing modes, SP-vs-ZR resolution at register 31,
 condition codes, and the alias / preferred-disassembly rules). It closes with the
 differential-testing plan and the oracle corpora it compares against.
 
-The correctness contract is **conformance with the *Arm Architecture Reference
-Manual* (the "ARM ARM")**. `fARM64`'s decoder is an **original, hand-written
-implementation derived directly from the ARM ARM** — a recursive decode tree plus
-plain hand-written transcriptions of the ARM pseudocode (`DecodeBitMasks`,
+The correctness contract for Arm architectural instructions is **conformance
+with the *Arm Architecture Reference Manual* (the "Arm ARM")**. The decoder uses
+a hand-written recursive decode tree plus plain Rust implementations of the Arm
+pseudocode (`DecodeBitMasks`,
 `AdvSIMDExpandImm`, `VFPExpandImm`, `MoveWidePreferred`, `Replicate`, …). It is
-**not** a derivative of any other disassembler. "Correct" means *matches the ARM
-ARM*, cross-checked against multiple independent oracles (LLVM `llvm-mc` /
+cross-checked against multiple independent oracles (LLVM `llvm-mc` /
 `llvm-objdump`, GNU binutils `objdump`, and Binary Ninja's `arch-arm64`
 `test_cases.txt` corpus used **only as one development guide**).
 
-Where another tool deliberately diverges from the spec, `fARM64` **follows the
-spec** and records the divergence on an allow-list. The load-bearing example is
+Where another tool diverges from the spec, `fARM64` follows the spec and records
+focused regression cases. A representative example is
 `DecodeBitMasks`: Binary Ninja sets `tmask == wmask` under a `// TODO: do this
 right` comment at `refs/arch-arm64-master/disassembler/pcode.c:88`; `fARM64`
 instead computes `tmask` per the ARM ARM and notes the intentional difference. See
@@ -61,8 +61,7 @@ ordinary Rust code in the `src/decode/*` modules.
 1. **Top-level dispatch** (`decode::decode_into`, `src/decode/mod.rs`): a single
    `match (word >> 25) & 0xf` on `op0 = bits[28:25]` selects one of the eight A64
    encoding groups and calls the matching hand-written group decoder. The entry
-   function also handles the reserved/UDF space and the `HINT` special case
-   (`EndOfInstruction` accepted, not an error).
+   function also handles the reserved/UDF space.
 2. **Per-group decoders** (one file per group — see the module map below): each
    decoder matches the group's sub-fields with nested `match`/`if`, validates the
    fixed bits and constraints inline, and builds the `Instruction` **directly**.
@@ -83,34 +82,37 @@ Aliasing is applied **in code**, per the ARM ARM "alias conditions" for each
 encoding (e.g. `MOV` ← `ORR`, `CMP` ← `SUBS`, `LSL`/`LSR`/`ASR` ← `UBFM`/`SBFM`,
 `NOP` ← `HINT`). Decode always yields a canonical `Code`; the alias condition sets
 the resolved `Mnemonic`, gated by `FormatterOptions::aliases` (default on). The
-`Code`/`Mnemonic` enums and the `&'static str` name tables are the *only*
-mechanically generated artefacts (emitted by the optional host-only `cargo xtask
-gen` from a curated, ARM-spec-derived dataset); they contain no decode **logic**.
+`Code`/`Mnemonic` enums and the `&'static str` name tables are committed Rust
+source and contain no decode logic. The host-only `xtask` is currently a future
+generator scaffold (its planned invocation is `cargo run -p xtask -- gen`) and
+does not currently emit or rewrite those files.
 
 ### DecodeError outcomes
 
-The decode tree returns a typed `DecodeError` on every fall-through. The variants
-correspond to the ARM ARM's decode outcomes (reserved / unallocated / UNDEFINED
-encodings, `SEE`-elsewhere redirections, and constraint violations) plus a Rust-side
-`FeatureRequired`. The discriminant values are stable and chosen for ergonomics.
+The decode tree writes either a valid `Instruction` or `Code::Invalid`; it does
+not return a typed error from each fall-through. `Decoder::last_error()` maps a
+valid instruction to `None`, any invalid full word to `Unmatched`, and a short
+input tail to `EndOfInstruction`. This means reserved, unallocated,
+constraint-failing, and runtime-gated-off words currently share the `Unmatched`
+result.
+
+`DecodeError` also exposes vocabulary for finer-grained ARM ARM outcomes and a
+Rust-side `FeatureRequired` case. Those reserved variants have stable values via
+`DecodeError::status()`, but the current decoder does not emit them.
 
 | `DecodeError` | meaning |
 |-|-|
 | `None` | success; the named encoding is accurate |
-| `Reserved` | the spec marks this encoding space reserved |
-| `Unmatched` | the word fell through the spec's structural checks |
-| `Unallocated` | the encoding space is unallocated in the ARM ARM |
-| `Undefined` | a decode constraint made this encoding UNDEFINED |
-| `EndOfInstruction` | accepted (not an error) only for a HINT encoding |
-| `Lost` | descended past checks where the spec redirects (`SEE` up-higher) |
-| `Unreachable` | reached an `Unreachable()` point in the pseudocode |
-| `AssertFailed` | a decode-time assertion failed |
-| `ErrorOperands` | operand construction failed |
-| `FeatureRequired(Feature)` | encoding gated off by the active `FeatureSet` |
-
-The `HINT`/`EndOfInstruction` special case lives in the entry function
-(`decode::decode_into`): `EndOfInstruction` is accepted (not an error) when the
-matched encoding is a HINT.
+| `Reserved` | reserved vocabulary: the spec marks this encoding space reserved |
+| `Unmatched` | an invalid full word (the current decoder's common failure result) |
+| `Unallocated` | reserved vocabulary: the encoding space is unallocated in the ARM ARM |
+| `Undefined` | reserved vocabulary: a decode constraint made this encoding UNDEFINED |
+| `EndOfInstruction` | fewer than four bytes remain in the decoder input |
+| `Lost` | reserved vocabulary: descended past a `SEE`-higher redirection |
+| `Unreachable` | reserved vocabulary: reached an `Unreachable()` point in pseudocode |
+| `AssertFailed` | reserved vocabulary: a decode-time assertion failed |
+| `ErrorOperands` | reserved vocabulary: operand construction failed |
+| `FeatureRequired(Feature)` | reserved vocabulary: an active `FeatureSet` omitted an encoding's feature |
 
 ---
 
@@ -142,7 +144,7 @@ bit of `op0`. (`x1x0` matches `{0100,0110,1100,1110}`; `x101` matches
 |-|-|-|-|
 | `0000` | Reserved (`UDF`) + SME (`word<31>==1`) | entry `decode_reserved` → `sme/` | `Feature::Sme` for the SME sub-region |
 | `0001` / `0011` | Unallocated | — (left `Invalid`) | — |
-| `0010` | SVE / SVE2 | `sve/` | `Feature::Sve` (else `Invalid`/`FeatureRequired`) |
+| `0010` | SVE / SVE2 | `sve/` | `Feature::Sve` (else `Invalid`; `Decoder::last_error()` is `Unmatched`) |
 | `100x` | Data Processing — Immediate | `dp_imm.rs` | base |
 | `101x` | Branch / Exception / System | `branch_sys.rs` | base |
 | `x1x0` | Loads and Stores | `ldst.rs` (+ `ldst_simd.rs`) | base |
@@ -154,20 +156,20 @@ Notes:
 - Bit 31 (`sf` / `op` in various forms) further splits some spaces *inside* a group
   decoder (e.g. `ADR` vs `ADRP`, where it is the page selector). It does not change
   the top-level group selection.
-- The reserved space (`op0==0000` with `word<31:16>==0`) decodes to `UDF`, the
-  permanently-undefined encoding (`udf #imm16`). Within the same `op0==0000`
-  region, `word<31>==1` is the SME sub-tree (routed to `sme/` only when the `sme`
-  cargo feature is compiled and `Feature::Sme` is accepted; otherwise the word is
-  left `Invalid`).
+- The reserved space includes `UDF`, the SME sub-tree, and the separately gated
+  Apple implementation-defined AMX/GXF clusters. SME is routed to `sme/` only
+  when the `sme` Cargo feature is compiled and its runtime feature is accepted.
+  Apple words require `Feature::AppleAmx` or `Feature::Gxf`.
 - The SME and SVE sub-trees are large and structurally distinct; they are routed
   only when both compiled (cargo feature) and accepted (runtime `FeatureSet`).
   Otherwise the word is left `Code::Invalid` rather than being silently
   misdecoded as base ISA. `SMSTART`/`SMSTOP` are the exception: they are
   `MSR (immediate)` PSTATE encodings handled in `branch_sys.rs`.
-- Feature gating happens at two independent layers: a **cargo feature** decides
-  what code/enum variants are *compiled* (size control for wasm/embedded), and the
-  runtime **`FeatureSet`** decides what is *accepted*. A base-only build omits the
-  SVE/SME decoders entirely.
+- Feature gating happens at two independent layers: Cargo features decide which
+  optional implementation modules are compiled, and the runtime **`FeatureSet`**
+  decides what is accepted. Public enum variants remain available. Only SVE,
+  SME, and the Advanced SIMD crypto decoder have Cargo compile-out gates; FP16,
+  BF16, LSE, PAuth, MTE, and most runtime extensions are always compiled.
 
 The base-ISA groups are detailed below in `op0` order.
 
@@ -259,13 +261,12 @@ Algorithm (integer-only, no heap, no FP), from the ARM ARM:
    `bits.rs`.
 5. Return both `wmask` and `tmask`.
 
-**Intentional divergence (allow-listed).** Binary Ninja's `arch-arm64` sets
+**Known oracle difference.** Binary Ninja's `arch-arm64` sets
 `tmask = wmask` under a `// TODO: do this right` comment at
 `refs/arch-arm64-master/disassembler/pcode.c:88`. `fARM64` follows the ARM ARM and
 computes the correct `tmask`. For logical-**immediate** disassembly the two agree
 (only `wmask` is printed), so this never affects base-ISA output; where `tmask`
-matters, the binja corpus entry is recorded on the
-[intentional-divergence allow-list](#oracle-corpora-and-the-divergence-allow-list).
+matters, the corpus sweep reports the textual difference for investigation.
 
 ### Move wide (immediate): MOVN / MOVZ / MOVK
 
@@ -416,8 +417,8 @@ The HINT space (`bits` select `CRm:op2`) decodes named hints:
 
 - `NOP <- HINT #0` etc. are the *named-hint* preferred forms; unknown CRm:op2
   values format as `HINT #<imm>`. Where the binja corpus prints `hint ...` instead
-  of a named hint (`dgh`) or `msr ...` instead of `cfinv`, those entries are on the
-  [intentional-divergence allow-list](#oracle-corpora-and-the-divergence-allow-list).
+  of a named hint (`dgh`) or `msr ...` instead of `cfinv`, the corpus sweep
+  reports the policy difference.
 - `MSR`/`MRS` carry a 15-bit system-register key
   `op0:op1:CRn:CRm:op2`; see [System registers](#system-registers).
 - Barriers `DSB`/`DMB`/`ISB`/`CLREX` take a 4-bit `CRm` "option" immediate
@@ -709,16 +710,16 @@ Representative rules (each implemented in its group decoder):
 | `NOP`/`YIELD`/`WFE`/... | `HINT` | named `CRm:op2` |
 | `CSET`/`CSETM` | `CSINC`/`CSINV` | `Rn==Rm==ZR`, inverted cond |
 
-The `EndOfInstruction` status is *not* an error for HINT encodings; the entry
-function (`decode::decode_into`) accepts it as the ARM ARM's HINT special case.
+`HINT` encodings are ordinary successful decodes. `EndOfInstruction` is used
+only for a short input tail, not as an instruction-family sentinel.
 
 ---
 
 ## Where the extension groups slot into the tree
 
-Extensions are **gated, not separately authored**. The hand-written decode tree
-contains the extension encodings inline; cargo features decide what is compiled and
-the runtime `FeatureSet` decides what is accepted.
+Extension encodings may live inline in a base group or in a dedicated subtree.
+Cargo features compile optional modules; runtime `FeatureSet` checks perform
+fine-grained admission.
 
 - **SVE / SVE2** (`op0 == 0b0010`): a structurally distinct scalable-vector
   sub-tree under `src/decode/sve/` (dispatched by `word<31:29>` into
@@ -733,12 +734,15 @@ the runtime `FeatureSet` decides what is accepted.
   ZA operands use `Operand::SmeTile`/`Operand::SmeTileSlice`. Example:
   `str za[w12, #0x6], [x8, #0x6, mul vl]`. `SMSTART`/`SMSTOP` are handled in
   `branch_sys.rs` (they are `MSR (immediate)` PSTATE encodings).
-- **FP/NEON, FP16, BF16, LSE, PAuth, MTE, crypto** live *within* the base groups
-  (mostly the `x111` and load/store spaces; crypto in `simd_fp/crypto.rs`) and are
-  gated by an innermost `Code::feature()` test after the structural match.
-- `FeatureSet` is **two u64 words** (`features0` for decode-time admission,
-  `features1` for pcode-time behaviour), kept separate because the ARM ARM treats
-  those questions independently.
+- **FP/NEON, FP16, BF16, LSE, PAuth, and MTE** live within the base groups and
+  use runtime feature checks. They have no corresponding Cargo feature. Advanced
+  SIMD crypto also lives in a base group but its decoder module requires Cargo
+  `crypto`; its public enums and encoder support remain compiled without it.
+- **Apple AMX/GXF** live in the reserved group, are implementation-defined rather
+  than Arm architectural extensions, and require independent runtime features.
+- `FeatureSet` contains two `u64` words. Current decode-time admission checks
+  `features0`; `features1` is reserved for a separate pseudocode-behaviour
+  dimension and is mirrored by `FeatureSet::with()`.
 
 ---
 
@@ -750,10 +754,9 @@ oracles**, with no single tool treated as ground truth:
 
 - **LLVM** — `llvm-mc -disassemble` / `llvm-objdump`.
 - **GNU binutils** — `objdump -d`.
-- **Binary Ninja `arch-arm64`** — the `test_cases.txt` corpus, used **only as a
-  development guide**, read locally and never shipped, with a documented
-  [allow-list](#oracle-corpora-and-the-divergence-allow-list) for the places where
-  binja intentionally diverges from the spec.
+- **Binary Ninja `arch-arm64`** — the `test_cases.txt` corpus, used only as a
+  development guide, read locally, never shipped, with differences reported for
+  investigation rather than silently normalized away.
 
 Disagreement among oracles is resolved by the ARM ARM. The corpus formats below
 describe how `fARM64` ingests and compares against the binja corpus specifically
@@ -761,8 +764,8 @@ describe how `fARM64` ingests and compares against the binja corpus specifically
 
 ### Binja corpus format (development oracle)
 
-The development corpus is `refs/arch-arm64-master/disassembler/test_cases.txt`
-(~42k cases, SVE/SME-dominated) — Binary Ninja's own `arch-arm64` generated output.
+The development corpus is `refs/arch-arm64-master/disassembler/test_cases.txt` —
+Binary Ninja's own `arch-arm64` generated output.
 It is read **locally only**, is **not authoritative**, and is **never shipped**.
 
 File grammar:
@@ -785,50 +788,24 @@ File grammar:
 
 Both actual and expected strings are normalized before comparison:
 
-1. `strip()`, then collapse runs of whitespace to a single space.
-2. Strip a trailing ` //...` comment.
-3. Expand SVE register ranges `{z14.s-z17.s}` → `{z14.s, z15.s, z16.s, z17.s}`
-   (3- and 4-register runs, mod-32 wrap).
-4. Remove spaces inside `{ ... }` lists.
-5. Strip leading hex zeros: `0x00000000071eb000` → `0x71eb000`.
-6. Convert decimal immediates to hex: `#6` → `#0x6` (both `#\d+[,\]]` and trailing
-   `#\d+$` forms).
-7. Normalize float immediates `#-3.375000000000000000e+00` → `#-3.375`, and
-   `0.000000`/`0.000` → `0.0`.
-8. Lowercase everything.
+1. Strip a trailing `//` or `;` comment.
+2. Lowercase text and turn tabs into spaces.
+3. Collapse whitespace runs.
+4. Normalize comma spacing.
+5. Remove padding immediately inside brackets, braces, and parentheses.
 
-### Token-equality comparator
+The comparison is then exact. It deliberately does not rewrite numeric radices,
+register ranges, aliases, or condition synonyms, because those transformations
+could conceal a semantic or policy difference.
 
-After normalization, an exact string match is the fast path. On a miss, compare
-token-by-token (`split()` on whitespace; equal token count + equal mnemonic
-required), with these equivalences:
+### Handling oracle disagreements
 
-- Strip leading/trailing "trash" chars `#{}[]!,` symmetrically.
-- `xN.d == xN` and `sp.d == sp` (the `.d` arrangement on an X register is dropped).
-- `cs == hs`, `cc == lo` (condition spellings).
-- Numeric equality across bases: `0xff == 255`; and signed/unsigned hex
-  equivalence at the byte/word/dword widths — `0xbc == -68` (len-4 hex),
-  `0xfffffffe == -2` (len-10 hex), `0xffff...fffe == -2` (len-18 hex), via the
-  `<b>/<i>/<q>` width-aware reinterpretation.
-
-### Oracle corpora and the divergence allow-list
-
-When the binja corpus disagrees with `fARM64`'s spec-faithful output, the entry is
-recorded on an explicit allow-list rather than counted as a failure. These are
-cases where binja (or its source) diverges from the ARM ARM; `fARM64` follows the
-spec and documents the difference. The allow-list includes:
-
-- `DecodeBitMasks` `tmask` (binja `tmask == wmask` at `pcode.c:88`; `fARM64`
-  computes the spec value — see [DecodeBitMasks](#decodebitmasks-logical-immediates)).
-- `dgh` vs `hint ...` (named hint vs raw `HINT`).
-- `cfinv` / `sb` / `xaflag` / `msr ssbs` / `msr pan` vs `msr ...`.
-- `mov ...` vs `dupm ...`.
-- `at `/`dc `/`cfp ` vs `sys ...`; `tlbi...` vs `sys ...`.
-- `cmpp ...` vs `subps ...`.
-- any `axflag...`.
-
-Each allow-listed entry should be cross-confirmed against LLVM/binutils so the
-`fARM64` side is verified spec-correct, not merely "different".
+The ignored corpus sweep reports every attempted textual mismatch and writes the
+details to `target/golden-mismatches.txt`; it does not silently allow-list them.
+Investigate a difference against the Arm ARM and, where possible, a second tool.
+Once understood, add a focused checked-in test that pins fARM64's intended
+behavior. `DecodeBitMasks` is a representative case where the implementation
+follows the architectural pseudocode even if a development corpus differs.
 
 ### Test harness & oracles
 
@@ -842,19 +819,19 @@ Each allow-listed entry should be cross-confirmed against LLVM/binutils so the
 - **Differential harness** (`tests/golden.rs`): iterates the binja corpus, decodes
   with the default `FmtFormatter` (default `FormatterOptions`, aliases on),
   normalizes (`tests/common/mod.rs`), and compares, bucketing by encoding group.
-  It is `#[ignore]`d and currently reports a coverage/parity summary rather than
-  gating; mismatches are dumped to `target/golden-mismatches.txt`. The measured
-  result is **99.35% coverage at 99.78% parity**; the residual mismatches are the
-  documented spec-vs-binja divergences. See [VALIDATION.md](./VALIDATION.md) for
-  the full results and per-group tables.
+  It is `#[ignore]`d and reports a run-specific coverage/parity summary;
+  mismatches are dumped to `target/golden-mismatches.txt`. See
+  [VALIDATION.md](./VALIDATION.md) for reproducible commands. No fixed percentage
+  is part of the public compatibility contract.
 - **LLVM cross-check** (`tests/llvm_diff.rs`): re-disassembles sampled words with
   `llvm-mc --disassemble` to confirm `fARM64` is spec-correct where it diverges
   from the binja corpus; skips cleanly if `llvm-mc` is absent.
-- **Static assertions** (`lib.rs`): `size_of::<Operand>() <= 16`,
-  `size_of::<Instruction>() <= 112`, and the `Copy` witnesses for both. Decode is
-  total and panic-free for all 2^32 words, always advancing exactly 4 bytes; the
-  default decode + `FmtFormatter` + `BufSink` path is zero-alloc by construction
-  (no `alloc` dependency).
+- **Static assertions and robustness tests**: `lib.rs` enforces
+  `size_of::<Operand>() <= 16`, `size_of::<Instruction>() <= 112`, and `Copy`
+  witnesses for both. Structured tests exercise invalid inputs and fixed
+  four-byte cursor movement.
+  The allocation-counting audit checks that the default decode +
+  `FmtFormatter` + `BufSink` path performs zero allocation.
 
 ---
 
@@ -874,21 +851,26 @@ impl SystemReg {
 `name()` does a binary search over a sorted `&'static (u16, &'static str)` table.
 Unknown registers return `None`; the formatter then emits the generic
 `S<op0>_<op1>_c<CRn>_c<CRm>_<op2>` syntax (forward-compatible with new sysregs).
-The binja corpus's `msr ssbs`/`msr s0_...` discrepancies are on the
-[divergence allow-list](#oracle-corpora-and-the-divergence-allow-list).
+The optional corpus sweep reports naming differences such as `msr ssbs` versus a
+generic system-register spelling.
 
 ---
 
 ## Provenance and licensing
 
-`fARM64`'s decoder is an **original implementation** written by hand from the *Arm
-Architecture Reference Manual*. It is **not** a derivative of Binary Ninja's
-`arch-arm64` or any other disassembler. The crate is licensed `MIT`
-(the Rust default); there is no required-attribution obligation to any third party.
+fARM64 is licensed under the MIT License. Arm architectural decode/encode
+behavior is implemented from the *Arm Architecture Reference Manual*.
 
 Binary Ninja's `test_cases.txt` corpus is used **only as one differential-testing
 oracle during development** — read locally, never shipped, and not authoritative.
-Where binja diverges from the spec (e.g. the `DecodeBitMasks` `tmask == wmask`
-shortcut at `pcode.c:88`), `fARM64` follows the ARM ARM and records the intentional
-divergence on the
-[allow-list](#oracle-corpora-and-the-divergence-allow-list).
+Where binja diverges from the spec (for example, the `DecodeBitMasks`
+`tmask == wmask` shortcut at `pcode.c:88`), fARM64 follows the Arm ARM and keeps
+focused regression coverage of its intended behavior.
+
+Apple AMX naming and encodings reference
+[`corsix/amx`](https://github.com/corsix/amx). Apple GXF encodings reference
+Asahi Linux's [Apple Proprietary Instructions](https://asahilinux.org/docs/hw/cpu/apple-instructions/);
+Sven Peter's [GXF article](https://blog.svenpeter.dev/posts/m1_sprr_gxf/) provides
+background. Both are identified as
+implementation-defined and runtime-gated separately from Arm extensions. See
+`NOTICE` for the consolidated provenance notes.

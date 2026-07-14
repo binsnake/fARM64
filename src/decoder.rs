@@ -229,7 +229,7 @@ pub struct DecoderIntoIter<'a> {
     dec: Decoder<'a>,
 }
 
-impl<'a> Iterator for DecoderIntoIter<'a> {
+impl Iterator for DecoderIntoIter<'_> {
     type Item = Instruction;
 
     #[inline]
@@ -259,7 +259,7 @@ pub struct DecoderIter<'a, 'b> {
     dec: &'b mut Decoder<'a>,
 }
 
-impl<'a, 'b> Iterator for DecoderIter<'a, 'b> {
+impl Iterator for DecoderIter<'_, '_> {
     type Item = Instruction;
 
     #[inline]

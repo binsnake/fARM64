@@ -34,7 +34,7 @@ Cargo features decide which optional implementation modules are **compiled**; th
 |-|-|-|
 | *(none / default)* | A | `no_std`, **no `alloc`**, freestanding. Decoder + `FmtFormatter` + all enums + encoder. Always builds. |
 | `alloc` | B | Adds `String`/`Vec` conveniences (`format_to_string`, a reusable cached `InstructionInfoFactory`, and a token-collecting `String` sink). |
-| `std` | C | Implies `alloc`; adds `std::error::Error` for `DecodeError`/`EncodeError` and std-only test helpers. |
+| `std` | C | Implies `alloc`; adds `std::error::Error` for `DecodeError`, `EncodeError`, and `EnumValueError`, plus std-only test helpers. |
 | `fmt-gnu` | A | Adds `GnuFormatter`, currently a UAL-equivalent compatibility adapter. Pure `no_std`. |
 | `sve` | A | Compiles the SVE/SVE2 decoder and encoder modules. |
 | `sme` | A | Compiles the SME/SME2 decoder and encoder modules. |
@@ -51,17 +51,17 @@ The default build links neither `alloc` nor `std`. `std` implies `alloc`. The ru
 ```toml
 [dependencies]
 # Default: no_std, no alloc, zero-heap decoder + formatter + encoder.
-fARM64 = "0.0.1"
+fARM64 = "0.0.2"
 ```
 
 Opt into more as needed:
 
 ```toml
 # Owned-string conveniences and the cached info factory.
-fARM64 = { version = "0.0.1", features = ["alloc"] }
+fARM64 = { version = "0.0.2", features = ["alloc"] }
 
 # All optional implementation modules plus std and the GNU adapter.
-fARM64 = { version = "0.0.1", features = ["std", "full", "fmt-gnu"] }
+fARM64 = { version = "0.0.2", features = ["std", "full", "fmt-gnu"] }
 ```
 
 The import path uses the stylized crate name: `use fARM64::...`.
@@ -499,7 +499,7 @@ Design and reference docs: [`docs/DESIGN.md`](docs/DESIGN.md), [`docs/API.md`](d
 
 ## Status
 
-Version `0.0.1` is the initial crates.io release. The checked-in test suite is the release gate; optional corpus and LLVM sweeps provide additional local cross-checking but are not packaged and no fixed coverage percentage is promised. The `Code`/`Mnemonic`/`Register`/`Feature` enums are `#[non_exhaustive]` with an append-only discriminant policy.
+Version `0.0.2` adds complete, allocation-free `Code::values()` and `Mnemonic::values()` catalogs plus checked integer conversions compatible with iced-style consumers. The checked-in test suite is the release gate; optional corpus and LLVM sweeps provide additional local cross-checking but are not packaged and no fixed coverage percentage is promised. The `Code`/`Mnemonic`/`Register`/`Feature` enums are `#[non_exhaustive]` with an append-only discriminant policy.
 
 ## License
 

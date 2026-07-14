@@ -2260,7 +2260,7 @@ mod imp {
         // Shell: word<31:24>=0xC0, word<18>=1.
         let mut word = 0xC004_0000 // word<18>=1
             | (size << 22)
-            | (vertical as u32) << 15
+            | ((vertical as u32) << 15)
             | (ws << 13)
             | (q << 10);
         if to_vector {

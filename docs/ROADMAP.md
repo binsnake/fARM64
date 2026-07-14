@@ -5,6 +5,15 @@ roadmap records current public priorities; completed development-session logs
 and local-machine measurements belong in version control history, not in the
 published crate documentation.
 
+## Delivered for 0.0.2
+
+- Complete public `Code::values()` and `Mnemonic::values()` enumeration in
+  stable discriminant order, generated from the authoritative declarations.
+- Safe, constant-time `from_u16()` and iced-compatible `TryFrom<usize>`
+  conversion without weakening the crate-wide `forbid(unsafe_code)` policy.
+- Complete enum metadata tests replacing the former manually maintained,
+  partial encoding catalog.
+
 ## Delivered for 0.0.1
 
 - A borrowing `Decoder` and `Copy` `Instruction` model for fixed-width A64.

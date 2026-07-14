@@ -70,7 +70,7 @@ prefixes, segment overrides, 16/32/64-bit mode selection).
 |-|-|-|-|
 | *(none)* | yes | `no_std`, **no alloc**: `Decoder`, `Instruction`, all enums, `FmtFormatter`, `BufSink`, core `InstructionInfo` | A — always works |
 | `alloc` | no | `format_to_string`, `String`/token-collecting sinks, `InstructionInfoFactory` | B |
-| `std` | no | implies `alloc`; `std::error::Error` for decode/encode errors and std test helpers | C |
+| `std` | no | implies `alloc`; `std::error::Error` for decode, encode, and enum-conversion errors; std test helpers | C |
 | `fmt-gnu` | no | `GnuFormatter`, currently a UAL-equivalent compatibility adapter | — |
 | `sve` | no | compile the SVE/SVE2 decoder and encoder modules | A |
 | `sme` | no | compile the SME/SME2 decoder and encoder modules | A |
@@ -481,6 +481,10 @@ drift.
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct EnumValueError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u16)]
 #[non_exhaustive]
 pub enum Code {
@@ -490,12 +494,21 @@ pub enum Code {
 }
 
 impl Code {
+    /// Every encoding identity in declaration/discriminant order, including Invalid.
+    pub fn values() -> impl Iterator<Item = Self>
+        + DoubleEndedIterator + ExactSizeIterator + core::iter::FusedIterator;
+    /// Checked, constant-time conversion from the public repr(u16) discriminant.
+    pub const fn from_u16(value: u16) -> Option<Self>;
     /// Operation this encoding maps to.
     pub const fn mnemonic(self) -> Mnemonic;
     /// Gating extension (`Feature::Base` for the base ISA).
     pub const fn feature(self) -> Feature;
     /// True if this encoding is part of the base ISA (no feature gate).
     pub const fn is_base(self) -> bool;
+}
+
+impl TryFrom<usize> for Code {
+    type Error = EnumValueError;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -508,10 +521,24 @@ pub enum Mnemonic {
 }
 
 impl Mnemonic {
+    /// Every mnemonic in discriminant order, including Invalid.
+    pub fn values() -> impl Iterator<Item = Self>
+        + DoubleEndedIterator + ExactSizeIterator + core::iter::FusedIterator;
+    /// Checked, constant-time conversion from the public repr(u16) discriminant.
+    pub const fn from_u16(value: u16) -> Option<Self>;
     /// Lowercase canonical name from the const table; never allocates.
     pub const fn name(self) -> &'static str;
 }
+
+impl TryFrom<usize> for Mnemonic {
+    type Error = EnumValueError;
+}
 ```
+
+Both iterators are generated from the authoritative enum/name declarations and
+remain complete when variants are appended. They are `no_std`, allocation-free,
+exact-size, double-ended, and fused. `EnumValueError` is a zero-sized error; its
+`std::error::Error` implementation is available only with the `std` feature.
 
 Why both: `Code` lets you dispatch the exact encoding; `Mnemonic` lets you ask
 high-level questions (`insn.mnemonic() == Mnemonic::B`) without matching

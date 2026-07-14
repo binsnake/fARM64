@@ -33,7 +33,7 @@
 //! |-|-|-|
 //! | *(none / default)* | A | `no_std`, **no `alloc`**, freestanding. Decoder + [`format::FmtFormatter`] + all enums. Always builds. |
 //! | `alloc` | B | Adds `String`/`Vec` conveniences ([`format_to_string`], a cached [`info::InstructionInfoFactory`], and a token-collecting `String` sink). |
-//! | `std` | C | Implies `alloc`; adds [`std::error::Error`] for [`DecodeError`] and std-only test/bench helpers. |
+//! | `std` | C | Implies `alloc`; adds [`std::error::Error`] for [`DecodeError`], [`EncodeError`], and [`EnumValueError`], plus std-only test/bench helpers. |
 //! | `fmt-gnu` | A | Adds a UAL-equivalent GNU compatibility adapter. Pure `no_std`. |
 //! | `sve` | A | Compiles the SVE/SVE2 decoder and encoder modules. |
 //! | `sme` | A | Compiles the SME/SME2 decoder and encoder modules. |
@@ -156,8 +156,7 @@ pub use crate::format::{
 };
 pub use crate::info::{instruction_info, InstructionInfo, OpAccess, UsedMemory, UsedRegister};
 pub use crate::instruction::Instruction;
-pub use crate::mnemonic::Code;
-pub use crate::mnemonic::Mnemonic;
+pub use crate::mnemonic::{Code, EnumValueError, Mnemonic};
 pub use crate::operand::{MemIndexMode, OpKind, Operand, PredQual, SliceIndicator, SveMemMode};
 pub use crate::register::{gp_register, RegClass, RegWidth, Register};
 pub use crate::sysreg::SystemReg;

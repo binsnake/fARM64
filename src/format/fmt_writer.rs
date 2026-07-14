@@ -84,7 +84,7 @@ impl<'a> BufSink<'a> {
     }
 }
 
-impl<'a> core::fmt::Write for BufSink<'a> {
+impl core::fmt::Write for BufSink<'_> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         let bytes = s.as_bytes();
         let remaining = self.buf.len() - self.len;
@@ -1541,7 +1541,7 @@ struct SinkAdapter<'a> {
     out: &'a mut dyn FormatterOutput,
 }
 
-impl<'a> core::fmt::Write for SinkAdapter<'a> {
+impl core::fmt::Write for SinkAdapter<'_> {
     #[inline]
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         self.out.write(s, TokenKind::SysReg);

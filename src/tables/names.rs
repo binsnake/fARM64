@@ -371,15 +371,32 @@ pub const fn register_name(reg: Register) -> &'static str {
     }
 }
 
-/// Name of a [`Mnemonic`], as a `&'static str`.
-///
-/// A full `const` match over every [`Mnemonic`] variant (the lowercase UAL
-/// spelling). Exhaustive on purpose: there is no catch-all arm, so a newly added
-/// [`Mnemonic`] that lacks a name is a compile error rather than a silent
-/// placeholder. Kept in lockstep with the [`Mnemonic`] enum.
-#[inline]
-pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
-    match m {
+/// Generate the mnemonic name lookup and discriminant-indexed value catalog
+/// from one exhaustive list. There is no catch-all name arm, so adding a
+/// [`Mnemonic`] without adding it here is a compile error rather than a silent
+/// omission from either API.
+macro_rules! mnemonic_names {
+    ($(Mnemonic::$variant:ident => $name:literal,)+) => {
+        #[inline]
+        #[deny(unreachable_patterns)]
+        pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
+            match m {
+                $(Mnemonic::$variant => $name,)+
+            }
+        }
+
+        pub(crate) const MNEMONIC_VALUES: &[Mnemonic] = &{
+            let mut values = [Mnemonic::Invalid; 0 $(+ {
+                let _ = stringify!($variant);
+                1
+            })+];
+            $(values[Mnemonic::$variant as usize] = Mnemonic::$variant;)+
+            values
+        };
+    };
+}
+
+mnemonic_names! {
         Mnemonic::Invalid => "",
         Mnemonic::Add => "add",
         Mnemonic::Sub => "sub",
@@ -2108,7 +2125,6 @@ pub const fn mnemonic_name(m: Mnemonic) -> &'static str {
         // Apple GXF (IMPLEMENTATION DEFINED).
         Mnemonic::Genter => "genter",
         Mnemonic::Gexit => "gexit",
-    }
 }
 
 /// Name of a [`Condition`], as a `&'static str`.

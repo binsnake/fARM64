@@ -28,7 +28,7 @@
 //!   6. **WRFFR** — `<11:9>` is a fixed `000`. `252894A0` (`<10>=1`) is
 //!      UNDEFINED; canonical `252890A0`.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sve"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};

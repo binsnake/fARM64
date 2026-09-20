@@ -68,6 +68,7 @@ fn is_invalid(word: u32) -> bool {
     decode(word, 0, FeatureSet::ALL).is_invalid()
 }
 
+#[cfg(feature = "sve")]
 fn mnem(word: u32) -> &'static str {
     decode(word, 0, FeatureSet::ALL).mnemonic().name()
 }
@@ -120,6 +121,7 @@ fn rcw_pair_rcws_size01_preserved() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_dup_imm_reserved() {
     // `MOV <Zd>.<T>, #imm` fixes <18:17>=00; flipping either bit is reserved.
     for &(bad, good) in &[
@@ -147,6 +149,7 @@ fn sve_dup_imm_reserved() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_arith_imm_b_shift_reserved() {
     // size==00 (`.b`) with sh==1 (`<13>=1`) cannot hold a shifted-by-8 value.
     for &(bad, good) in &[
@@ -169,6 +172,7 @@ fn sve_arith_imm_b_shift_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_arith_imm_shift_other_sizes_preserved() {
     // The `.h`/`.s`/`.d` element sizes accept the `lsl #8` shift.
     for &w in &[
@@ -190,6 +194,7 @@ fn sve_arith_imm_shift_other_sizes_preserved() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_movprfx_reserved() {
     for &(bad, good) in &[
         (0x0425BFA0u32, 0x0420BFA0u32), // movprfx z0, z29  (<20:16>=00101 bad)
@@ -280,6 +285,7 @@ fn fp16_two_reg_misc_valid_set_preserved() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_pmov_to_vector_bit9_reserved() {
     for &(bad, good) in &[
         (0x05ED3AF7u32, 0x05ED38F7u32), // pmov z23[6], p7.d  (<9>=1 bad)
@@ -301,6 +307,7 @@ fn sve_pmov_to_vector_bit9_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_pmov_from_vector_bit9_preserved() {
     // The from-vector direction (D==0) uses the full 5-bit Zn field, so word<9>
     // is part of the register and both values are valid.

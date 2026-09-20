@@ -19,6 +19,9 @@
 //! `<unknown>` in LLVM.
 
 #![cfg(feature = "std")]
+// Some tests below are `#[cfg]`-gated on `sve`/`sme`; their imports go
+// unused in a build without those features.
+#![allow(unused_imports)]
 
 use fARM64::decode::decode;
 use fARM64::format::{BufSink, FmtFormatter, Formatter};
@@ -26,6 +29,7 @@ use fARM64::{encode, Feature, FeatureSet};
 
 /// Render `word` to its textual disassembly, with the mnemonic/operand column
 /// padding collapsed to a single space so the expected strings stay readable.
+#[cfg(any(feature = "sve", feature = "sme"))]
 fn text(word: u32) -> String {
     let insn = decode(word, 0x1000, FeatureSet::ALL);
     let mut buf = [0u8; 160];
@@ -40,6 +44,7 @@ fn text(word: u32) -> String {
 
 /// Decode `word`, re-encode, require an identical word; then re-decode and
 /// require mnemonic + operand-count stability.
+#[cfg(any(feature = "sve", feature = "sme"))]
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0x1000, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{word:08X} decoded Invalid");
@@ -65,6 +70,7 @@ fn assert_roundtrip(word: u32) {
 }
 
 /// `(word, expected disassembly)` pairs — the LLVM oracle renderings.
+#[cfg(feature = "sve")]
 const CASES: &[(u32, &str)] = &[
     // FP8 -> FP16/BF16 widen (opc 01000, size 00).
     (0x65083113, "f1cvt z19.h, z8.b"),
@@ -103,6 +109,7 @@ const CASES: &[(u32, &str)] = &[
 ];
 
 #[test]
+#[cfg(feature = "sve")]
 fn examples_decode_and_render() {
     for &(w, expected) in CASES {
         assert_eq!(text(w), expected, "{w:08X} rendering");
@@ -110,6 +117,7 @@ fn examples_decode_and_render() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn examples_roundtrip() {
     for &(w, _) in CASES {
         assert_roundtrip(w);
@@ -119,6 +127,7 @@ fn examples_roundtrip() {
 /// Exhaustive round-trip over the FP8 single-source families (opc 01000/01001),
 /// every variant and every source/destination register.
 #[test]
+#[cfg(feature = "sve")]
 fn fp8_widen_roundtrip_exhaustive() {
     for opc in [0b01000u32, 0b01001] {
         for var in 0u32..4 {
@@ -141,6 +150,7 @@ fn fp8_widen_roundtrip_exhaustive() {
 /// Exhaustive round-trip over the FP8 narrow group family (opc 01010): every
 /// variant, every even source-group base, every destination register.
 #[test]
+#[cfg(feature = "sve")]
 fn fp8_narrow_group_roundtrip_exhaustive() {
     for var in 0u32..4 {
         for zn in (0u32..32).step_by(2) {
@@ -161,6 +171,7 @@ fn fp8_narrow_group_roundtrip_exhaustive() {
 /// Exhaustive round-trip over the int->FP widen family (opc 01100): all three
 /// sizes, every variant, every source/destination register.
 #[test]
+#[cfg(feature = "sve")]
 fn int_to_fp_roundtrip_exhaustive() {
     for size in [0b01u32, 0b10, 0b11] {
         for var in 0u32..4 {
@@ -219,6 +230,7 @@ fn reserved_neighbours_invalid() {
 /// FEAT_FP8 gating: the FP8 widen / narrow families need `Fp8` and are otherwise
 /// `Invalid` (with the rest of SVE enabled).
 #[test]
+#[cfg(feature = "sve")]
 fn fp8_families_gated_on_fp8() {
     let base = FeatureSet::BASE
         .with(Feature::Sve)
@@ -245,6 +257,7 @@ fn fp8_families_gated_on_fp8() {
 /// FEAT_SVE2p3 gating: the int->FP widen family needs `Sve2p3` and is otherwise
 /// `Invalid` (even with Fp8 + SVE2.2 enabled).
 #[test]
+#[cfg(feature = "sve")]
 fn int_to_fp_gated_on_sve2p3() {
     let base = FeatureSet::BASE
         .with(Feature::Sve)
@@ -276,6 +289,7 @@ fn int_to_fp_gated_on_sve2p3() {
 // ===========================================================================
 
 /// `(word, expected disassembly)` pairs — the LLVM oracle renderings.
+#[cfg(feature = "sme")]
 const SME_CASES: &[(u32, &str)] = &[
     // Narrow: FP32 group -> FP16/BF16 single.
     (0xC120E000, "fcvt z0.h, { z0.s, z1.s }"),
@@ -292,6 +306,7 @@ const SME_CASES: &[(u32, &str)] = &[
 ];
 
 #[test]
+#[cfg(feature = "sme")]
 fn sme_examples_decode_and_render() {
     for &(w, expected) in SME_CASES {
         assert_eq!(text(w), expected, "{w:08X} rendering");
@@ -299,6 +314,7 @@ fn sme_examples_decode_and_render() {
 }
 
 #[test]
+#[cfg(feature = "sme")]
 fn sme_examples_roundtrip() {
     for &(w, _) in SME_CASES {
         assert_roundtrip(w);
@@ -308,6 +324,7 @@ fn sme_examples_roundtrip() {
 /// Exhaustive round-trip over the SME2 narrow forms (sz 00/01, both variants),
 /// every even source-group base and every destination register.
 #[test]
+#[cfg(feature = "sme")]
 fn sme_narrow_roundtrip_exhaustive() {
     for size in [0u32, 1] {
         for interleave in [0u32, 1] {
@@ -324,6 +341,7 @@ fn sme_narrow_roundtrip_exhaustive() {
 /// Exhaustive round-trip over the SME2 widen form (sz 10, both variants), every
 /// even destination-group base and every source register.
 #[test]
+#[cfg(feature = "sme")]
 fn sme_widen_roundtrip_exhaustive() {
     for interleave in [0u32, 1] {
         for zd in (0u32..32).step_by(2) {
@@ -352,6 +370,7 @@ fn sme_reserved_neighbours_invalid() {
 /// and the whole widen direction need `SmeF16f16`; the plain narrow `FCVT`/
 /// `BFCVT` need only `Sme2`.
 #[test]
+#[cfg(feature = "sme")]
 fn sme_f16f16_gating() {
     let sme2_only = FeatureSet::BASE.with(Feature::Sme).with(Feature::Sme2);
     let with_f16 = sme2_only.with(Feature::SmeF16f16);

@@ -19,6 +19,9 @@
 //!    is bounded.
 
 #![cfg(feature = "std")]
+// Some tests below are `#[cfg]`-gated on `sve`/`sme`; their imports go
+// unused in a build without those features.
+#![allow(unused_imports)]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};
@@ -32,6 +35,7 @@ fn text(word: u32) -> String {
 
 /// Decode `word`, re-encode, require the identical word back.
 #[track_caller]
+#[cfg(any(feature = "sve", feature = "sme"))]
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{word:08X} decoded Invalid");
@@ -53,6 +57,7 @@ fn assert_invalid(word: u32) {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sme")]
 fn j1_movaz_single_vector() {
     // The zeroing tile→vector readout (no predicate). fARM64 renders the tile
     // slice in binja house style (`z`-prefix, hex immediate); LLVM prints
@@ -67,6 +72,7 @@ fn j1_movaz_single_vector() {
 }
 
 #[test]
+#[cfg(feature = "sme")]
 fn j1_predicated_mova_preserved() {
     // `word<9> == 0` is still the predicated single-vector MOVA, both directions.
     assert_eq!(text(0xC0420028), "mova    z8.h, p0/m, z0h.h[w12, #0x1]");
@@ -94,6 +100,7 @@ fn j1_movaz_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sme")]
 fn j1_movaz_feature_gated_on_sme2() {
     // MOVAZ is FEAT_SME2; without it the encoding must stay Invalid even though
     // base SME is accepted.
@@ -123,6 +130,7 @@ fn j2_gather64_signed_dword_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn j2_gather64_valid_forms_preserved() {
     // The unsigned dword gather (op2/op3 unpacked, op6/op7 packed) stays valid.
     assert_eq!(
@@ -145,6 +153,7 @@ fn j2_gather64_valid_forms_preserved() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn j3_cpy_imm_byte_shift_reserved() {
     // `LSL #8` (`sh == 1`) cannot apply to a `.b` element → UNDEFINED.
     assert_invalid(0x05156075); // mov z21.b, p5/m, #imm, lsl #8 — reserved
@@ -155,6 +164,7 @@ fn j3_cpy_imm_byte_shift_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn j3_cpy_imm_shifted_other_sizes_preserved() {
     // `.h`/`.s`/`.d` accept the `LSL #8` shift (imm rendered already-shifted).
     assert_eq!(text(0x05556075), "mov     z21.h, p5/m, #0x300");
@@ -164,6 +174,7 @@ fn j3_cpy_imm_shifted_other_sizes_preserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn j3_zip_requires_bit21() {
     // The ZIP/UZP/TRN permute leaf fixes `word<21> == 1`; the `<21> == 0` slot
     // (a reserved CPY-imm) must not be mis-claimed as `ZIP1`.
@@ -186,6 +197,7 @@ fn j4_ext_reserved_slots() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn j4_ext_valid_forms_preserved() {
     // Destructive EXT (`word<23:21> == 001`).
     assert_eq!(text(0x052F14C1), "ext     z1.b, z1.b, z6.b, #0x7d");

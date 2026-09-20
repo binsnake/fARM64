@@ -218,6 +218,7 @@ fn vector_misc_unaffected() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_extract_narrow_tsz_reserved() {
     // The destination element `tsz` (`tszh:tszl`) must be `001`/`010`/`100`; the
     // non-power-of-two patterns are reserved.
@@ -251,6 +252,7 @@ fn sve_extract_narrow_tsz_reserved() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_saddv_d_reserved() {
     // SADDV `.d` (size==11) is reserved; UADDV keeps its `.d` form.
     assert!(
@@ -273,6 +275,7 @@ fn sve_saddv_d_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_pred_rev_punpk_bits_reserved() {
     // Predicate REV / PUNPK are unary and fix `<12:10>=000`.
     assert!(
@@ -291,6 +294,7 @@ fn sve_pred_rev_punpk_bits_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_pmov_from_vector_bit4_reserved() {
     // PMOV-from-vector writes a 4-bit `Pd`; `<4>` must be 0.
     assert!(
@@ -305,6 +309,7 @@ fn sve_pmov_from_vector_bit4_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_brkas_brkbs_merge_bit_reserved() {
     // The flag-setting BRKAS/BRKBS (`S=1`) are zeroing-only: the merge bit `<4>`
     // must be 0.
@@ -328,6 +333,7 @@ fn sve_brkas_brkbs_merge_bit_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_incdecp_vector_byte_reserved() {
     // The vector INC/DEC-P forms operate on `.h`/`.s`/`.d`; `.b` is reserved.
     for bad in [
@@ -355,6 +361,7 @@ fn sve_incdecp_vector_byte_reserved() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_dup_imm_byte_shift_reserved() {
     // DUP/MOV-immediate with `lsl #8` (`sh==1`) is reserved for `.b` elements.
     assert!(

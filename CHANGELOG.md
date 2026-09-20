@@ -57,6 +57,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MAX_USED_MEM` is now documented as exact at two (the MOPS copy family carries
   both a destination and a source memory operand), and a sweep of the encoding
   space guards both inline access-list capacities against silent truncation.
+- The test suite is now feature-gated, so `cargo test` passes for every
+  combination of Cargo features rather than only `--all-features`. Single-
+  extension test files carry a file-level
+  `#![cfg(all(feature = "std", feature = "sve"|"sme"))]` — the convention
+  `tests/sme_zals_i1.rs` already used — while files that mix an extension with
+  unrelated coverage gate the individual tests so the unrelated ones keep
+  running. `tests/sme_l3.rs` additionally needed `std`, which it uses through
+  `format_to_string`.
 
 ### Fixed
 

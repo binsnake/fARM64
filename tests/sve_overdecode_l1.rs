@@ -11,7 +11,7 @@
 //! the canonical words decode to the expected mnemonic and round-trip through
 //! `encode` back to the identical word.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sve"))]
 
 use fARM64::decode::decode;
 use fARM64::{encode, Feature, FeatureSet};

@@ -140,6 +140,7 @@ fn neon_fdot_f16_neighbours() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_addqp_addsubp_examples() {
     check(0x043779B1, "addqp z17.b, z13.b, z23.b");
     check(0x04E27D59, "addsubp z25.d, z10.d, z2.d");
@@ -162,6 +163,7 @@ fn sve_addqp_addsubp_gating() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_luti6_examples() {
     check(0x4526AFD1, "luti6 z17.b, {z30.b, z31.b}, z6");
     check(0x4523AC20, "luti6 z0.b, {z1.b, z2.b}, z3");
@@ -182,12 +184,14 @@ fn sve_luti6_gating_and_reserved() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_fmmla_f16f32_examples() {
     check(0x6430E7F3, "fmmla z19.s, z31.h, z16.h");
     check(0x6422E420, "fmmla z0.s, z1.h, z2.h");
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_fmmla_f16f32_gating() {
     gated_off(0x6430E7F3, Feature::F16f32mm);
     // The neighbouring BFMMLA (.s<-.h, <23:22>=01) still decodes.
@@ -202,6 +206,7 @@ fn sve_fmmla_f16f32_gating() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_dot_hb_examples() {
     check(0x44560750, "udot z16.h, z26.b, z22.b");
     check(0x4453012F, "sdot z15.h, z9.b, z19.b");
@@ -210,6 +215,7 @@ fn sve_dot_hb_examples() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_dot_hb_gating_and_neighbours() {
     gated_off(0x44560750, Feature::Sve2p3);
     // The existing .s<-.b (size=10) and .d<-.h (size=11) dots still decode.
@@ -228,6 +234,7 @@ fn sve_dot_hb_gating_and_neighbours() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_sqabs_sqneg_zeroing_examples() {
     check(0x440ABD9E, "sqabs z30.b, p7/z, z12.b");
     check(0x44CBA737, "sqneg z23.d, p1/z, z25.d");
@@ -237,6 +244,7 @@ fn sve_sqabs_sqneg_zeroing_examples() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_sqabs_sqneg_zeroing_gating() {
     gated_off(0x440ABD9E, Feature::Sve2p2);
     gated_off(0x44CBA737, Feature::Sve2p2);
@@ -249,6 +257,7 @@ fn sve_sqabs_sqneg_zeroing_gating() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_cpa_examples() {
     check(0x44D7DA82, "madpt z2.d, z23.d, z20.d");
     check(0x44CFD317, "mlapt z23.d, z24.d, z15.d");
@@ -272,6 +281,7 @@ fn sve_cpa_gating() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_famax_famin_examples() {
     check(0x658E8BF9, "famax z25.s, p2/m, z25.s, z31.s");
     check(0x658F96F1, "famin z17.s, p5/m, z17.s, z23.s");
@@ -292,6 +302,7 @@ fn sve_famax_famin_gating() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_frint_merging_examples() {
     check(0x6516A0FB, "frint64z z27.d, p0/m, z7.d");
     check(0x6510A020, "frint32z z0.s, p0/m, z1.s");
@@ -302,6 +313,7 @@ fn sve_frint_merging_examples() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_frint_merging_gating() {
     gated_off(0x6516A0FB, Feature::Sve2p2);
     gated_off(0x6510A020, Feature::Sve2p2);

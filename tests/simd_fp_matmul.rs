@@ -107,6 +107,7 @@ fn neon_i8mm_examples() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_matmul_examples() {
     // FMMLA .s / .d (F32MM / F64MM).
     check(0x64A0E400, "fmmla z0.s, z0.s, z0.s");
@@ -120,6 +121,7 @@ fn sve_matmul_examples() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_fp8_mlal_examples() {
     check(0x6420518E, "fmlalb z14.h, z12.b, z0.b[0]");
     check(0x64A0518E, "fmlalt z14.h, z12.b, z0.b[0]");
@@ -133,6 +135,7 @@ fn sve_fp8_mlal_examples() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_bf16_indexed_examples() {
     check(0x64220960, "bfmla z0.h, z11.h, z2.h[0]");
     check(0x64200800, "bfmla z0.h, z0.h, z0.h[0]");
@@ -143,6 +146,7 @@ fn sve_bf16_indexed_examples() {
 }
 
 #[test]
+#[cfg(feature = "sme")]
 fn sme2_multivector_fmul_examples() {
     check(
         0xC160E798,
@@ -203,6 +207,7 @@ fn neon_i8mm_roundtrip_sweep() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_fp8_mlal_roundtrip_sweep() {
     // FMLALB/T (to .h): base 0x64205000; T=bit23; index{ih<20:19>,il<11:10>};
     // Zm z0..z7 (<18:16>).
@@ -235,6 +240,7 @@ fn sve_fp8_mlal_roundtrip_sweep() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_bf16_indexed_roundtrip_sweep() {
     // base 0x64200800 (bfmla); <15:10>: bfmla=000010 bfmls=000011 bfmul=001010.
     for sub in [0b000010u32, 0b000011, 0b001010] {
@@ -257,6 +263,7 @@ fn sve_bf16_indexed_roundtrip_sweep() {
 }
 
 #[test]
+#[cfg(feature = "sme")]
 fn sme2_multivector_fmul_roundtrip_sweep() {
     // vgx2: base 0xC120E400; vgx4: base 0xC121E400. size <23:22> = 01/10/11.
     for size in [1u32, 2, 3] {

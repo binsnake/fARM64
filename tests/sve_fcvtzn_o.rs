@@ -9,7 +9,7 @@
 //! All canonical example words are LLVM (`clang`/`llvm-objdump --mattr=+all`)
 //! oracle encodings; the reserved words below are `<unknown>` in LLVM.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sve"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{BufSink, FmtFormatter, Formatter};

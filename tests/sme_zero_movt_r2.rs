@@ -23,7 +23,7 @@
 //!      (`word<23:16> == 0x4F`), `movt zt0[off], Xt` (`0x4E`) and
 //!      `movt Xt, zt0[off]` (`0x4C`), byte offset = `word<14:12> * 8`. FEAT_SME2.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sme"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};

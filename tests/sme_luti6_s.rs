@@ -21,7 +21,7 @@
 //! (and an exhaustive 128-word round-trip sweep) confirm both directions; a
 //! feature-gating check confirms it is dark without FEAT_LUT.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sme"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};

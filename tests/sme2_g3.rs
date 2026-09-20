@@ -22,7 +22,7 @@
 //! the corpus' decimal convention (`[w12, 6:7]`) — an intentional radix
 //! difference, mirrored in the expected strings below.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sme"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};

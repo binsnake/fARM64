@@ -140,6 +140,7 @@ fn copy_other_forms_unaffected() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn saddlbt_slot01_reserved() {
     // `<11:10>`: 00=SADDLBT, 10=SSUBLBT, 11=SSUBLTB; the `01` slot is reserved
     // at every size (`455386AB`/`459386AB`/`45D386AB` all `<unknown>`).
@@ -168,6 +169,7 @@ fn saddlbt_slot01_reserved() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn pmull_s_size10_reserved() {
     // PMULLB/PMULLT exist only for .h (size==01), .d (size==11), .q (size==00);
     // .s (size==10) is reserved → UNDEFINED.
@@ -198,6 +200,7 @@ fn pmull_s_size10_reserved() {
 // ===========================================================================
 
 #[test]
+#[cfg(feature = "sve")]
 fn fp_imm_bits9_6_reserved() {
     // FADD/FSUB/FMUL/FSUBR/FMAXNM/FMINNM/FMAX/FMIN with #const fix `<9:6>=0000`.
     for &(bad, good) in &[

@@ -34,7 +34,7 @@
 //!     `<21>=1`, so their `<21>=0` slots are reserved. E.g. `25B7BC6F`
 //!     (`psel … <15:14>=10`) and `050055E0`/`0500A7AE` (`<21>=0`) → UNDEFINED.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sve"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};

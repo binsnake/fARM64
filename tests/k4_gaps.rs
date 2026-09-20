@@ -13,12 +13,16 @@
 //!     translation-table change instructions (register/immediate/`nb`).
 
 #![cfg(feature = "std")]
+// Some tests below are `#[cfg]`-gated on `sve`/`sme`; their imports go
+// unused in a build without those features.
+#![allow(unused_imports)]
 
 use fARM64::decode::decode;
 use fARM64::format::{BufSink, FmtFormatter, Formatter};
 use fARM64::{encode, Feature, FeatureSet};
 
 /// Render `insn` to its textual disassembly.
+#[cfg(feature = "sve")]
 fn text(word: u32) -> String {
     let insn = decode(word, 0x1000, FeatureSet::ALL);
     let mut buf = [0u8; 160];
@@ -29,6 +33,7 @@ fn text(word: u32) -> String {
 
 /// Decode `word`, re-encode, require an identical word; then re-decode and
 /// require mnemonic + operand stability.
+#[cfg(feature = "sve")]
 fn assert_roundtrip(word: u32) {
     let insn = decode(word, 0x1000, FeatureSet::ALL);
     assert!(!insn.is_invalid(), "{word:08X} decoded Invalid");
@@ -55,6 +60,7 @@ fn assert_roundtrip(word: u32) {
 
 /// Each `(word, expected disassembly)` pair is the LLVM oracle rendering, modulo
 /// fARM64's intentional hexadecimal-immediate formatting policy.
+#[cfg(feature = "sve")]
 const CASES: &[(u32, &str)] = &[
     // --- K4-1: SVE2.2 /z narrow/long FP converts + reciprocal estimates ---
     (0x64C2AF9B, "fcvtnt  z27.s, p3/z, z28.d"),
@@ -104,6 +110,7 @@ const CASES: &[(u32, &str)] = &[
 ];
 
 #[test]
+#[cfg(feature = "sve")]
 fn examples_decode_and_render() {
     for &(w, expected) in CASES {
         assert_eq!(text(w), expected, "{w:08X} rendering");
@@ -111,6 +118,7 @@ fn examples_decode_and_render() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn examples_round_trip() {
     for &(w, _) in CASES {
         assert_roundtrip(w);
@@ -120,6 +128,7 @@ fn examples_round_trip() {
 // --- Feature gating -------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve2p2_zeroing_converts_gated() {
     // The /z narrow/long converts and the URECPE/URSQRTE /z need FEAT_SVE2p2.
     let no = FeatureSet::BASE
@@ -144,6 +153,7 @@ fn sve2p2_zeroing_converts_gated() {
 }
 
 #[test]
+#[cfg(feature = "sve")]
 fn sve_aes2_gated() {
     let base = FeatureSet::BASE.with(Feature::Sve).with(Feature::Sve2p1);
     let yes = base.with(Feature::SveAes2);

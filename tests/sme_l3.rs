@@ -22,7 +22,7 @@
 //! 6. **Consecutive-destination `LUTI6`** — the K3 `LUTI6` covers the stride-4
 //!    destination; this adds the 4-register consecutive destination form.
 
-#![cfg(feature = "sme")]
+#![cfg(all(feature = "std", feature = "sme"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};

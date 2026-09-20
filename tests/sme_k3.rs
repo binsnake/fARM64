@@ -20,7 +20,7 @@
 //! 4. **SME2 multi-vector LUTI6** (FEAT_LUT): `LUTI6 { Zd, Zd+4, Zd+8, Zd+12 }.H,
 //!    { Zn, Zn+1 }.H, { Zt, Zt+1 }[index]`. E.g. `C132FDE3`.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sme"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};

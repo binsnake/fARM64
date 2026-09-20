@@ -10,7 +10,7 @@
 //! `z` prefix (binja style) where LLVM writes `za`; the *mnemonic* (first token)
 //! and operand structure are what must match.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sme"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{format_to_string, FmtFormatter};

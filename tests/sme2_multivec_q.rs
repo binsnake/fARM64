@@ -23,7 +23,7 @@
 //! Every canonical word + rendering is the LLVM oracle; reserved words are
 //! `<unknown>` in LLVM.
 
-#![cfg(feature = "std")]
+#![cfg(all(feature = "std", feature = "sme"))]
 
 use fARM64::decode::decode;
 use fARM64::format::{BufSink, FmtFormatter, Formatter};

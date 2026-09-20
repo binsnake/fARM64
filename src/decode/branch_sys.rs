@@ -820,7 +820,7 @@ fn decode_msr_imm(out: &mut Instruction, op1: u32, op2: u32, crm: u32, rt: u32) 
 
     if let Some(field) = pstate_field_name(op1, op2, crm) {
         out.set(Code::MsrImm);
-        out.set_mnemonic(Mnemonic::Msr);
+        out.set_alias(Mnemonic::Msr);
         out.push_operand(sysop(field));
         out.push_operand(Operand::ImmUnsigned(crm as u64));
         return;
@@ -883,7 +883,7 @@ fn decode_hint(out: &mut Instruction, features: FeatureSet, crm: u32, op2: u32, 
         7 if pauth => {
             // XPACLRI (HINT #7).
             out.set(Code::HintGeneric);
-            out.set_mnemonic(Mnemonic::Xpaclri);
+            out.set_alias(Mnemonic::Xpaclri);
             return;
         }
         8 if pauth => return set_pauth_hint(out, Mnemonic::Pacia1716),
@@ -980,7 +980,7 @@ fn decode_hint(out: &mut Instruction, features: FeatureSet, crm: u32, op2: u32, 
 #[inline]
 fn set_pauth_hint(out: &mut Instruction, m: Mnemonic) {
     out.set(Code::HintGeneric);
-    out.set_mnemonic(m);
+    out.set_alias(m);
 }
 
 /// Set the generic `HINT #imm` for an unallocated selector.
@@ -1051,9 +1051,9 @@ fn decode_barrier(out: &mut Instruction, features: FeatureSet, crm: u32, op2: u3
             // PSSBB are DSB-encoding aliases (canonical `Code::Dsb`).
             out.set(Code::Dsb);
             if crm == 0b0000 {
-                out.set_mnemonic(Mnemonic::Ssbb);
+                out.set_alias(Mnemonic::Ssbb);
             } else if crm == 0b0100 {
-                out.set_mnemonic(Mnemonic::Pssbb);
+                out.set_alias(Mnemonic::Pssbb);
             } else {
                 push_barrier_option(out, crm);
             }
@@ -1145,7 +1145,7 @@ fn decode_sys(
         };
         if let Some(m) = m {
             out.set(Code::Sys);
-            out.set_mnemonic(m);
+            out.set_alias(m);
             out.push_operand(sysop("rctx"));
             out.push_operand(xreg(false, rt));
             return;
@@ -1162,7 +1162,7 @@ fn decode_sys(
     // one flat directory drives both decode and encode.
     if let Some(t) = crate::tables::sysins::lookup(read, op1, crn, crm, op2) {
         out.set(if read { Code::Sysl } else { Code::Sys });
-        out.set_mnemonic(t.mnem);
+        out.set_alias(t.mnem);
         if !t.name.is_empty() && t.kw_first {
             out.push_operand(sysop(t.name));
         }
@@ -1367,7 +1367,7 @@ fn decode_sysp(out: &mut Instruction, op1: u32, crn: u32, crm: u32, op2: u32, rt
         if t.mnem as u16 == Mnemonic::Tlbi as u16 {
             if let Some(pair) = reg_pair_or_zz(rt) {
                 out.set(Code::Sysp);
-                out.set_mnemonic(Mnemonic::Tlbip);
+                out.set_alias(Mnemonic::Tlbip);
                 out.push_operand(sysop(t.name));
                 out.push_operand(pair);
                 return;

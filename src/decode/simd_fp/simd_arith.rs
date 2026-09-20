@@ -591,7 +591,7 @@ fn three_same_logical(q: u32, u: u32, size: u32, rm: u32, rn: u32, rd: u32, out:
     // alias (binja renders `mov Vd.T, Vn.T`).
     if code == Code::OrrVec && rn == rm {
         out.set(Code::OrrVec);
-        out.set_mnemonic(crate::mnemonic::Mnemonic::Mov);
+        out.set_alias(crate::mnemonic::Mnemonic::Mov);
         out.push_operand(vreg(rd, arr));
         out.push_operand(vreg(rn, arr));
         return;

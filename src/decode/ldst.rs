@@ -752,7 +752,7 @@ fn fp_unscaled_code(acc: u32, load: bool) -> Code {
     // codes are GP-only, so SIMD&FP unscaled forms map onto the dedicated FP
     // unsigned codes is wrong — instead the corpus shows them as ldur/stur with
     // a B/H/S/D/Q register. We model them with the matching FP *immediate* code
-    // but emit the LDUR/STUR mnemonic via set_mnemonic at the call site.
+    // but emit the LDUR/STUR mnemonic via set_alias at the call site.
     match (acc, load) {
         (0, true) => Code::LdrFpImmUnsigned8,
         (1, true) => Code::LdrFpImmUnsigned16,
@@ -880,7 +880,7 @@ fn decode_reg_unscaled(word: u32, out: &mut Instruction) {
     out.set(form.code);
     if form.is_fp {
         // SIMD&FP unscaled => LDUR/STUR mnemonic with the B/H/S/D/Q register.
-        out.set_mnemonic(if (opc & 1) == 1 {
+        out.set_alias(if (opc & 1) == 1 {
             Mnemonic::Ldur
         } else {
             Mnemonic::Stur
@@ -926,7 +926,7 @@ fn decode_reg_immidx(word: u32, variant: RegVariant, out: &mut Instruction) {
     if form.is_fp {
         let load = (opc & 1) == 1;
         // FP forms keep LDR/STR; the FP code carries the right view.
-        out.set_mnemonic(if load { Mnemonic::Ldr } else { Mnemonic::Str });
+        out.set_alias(if load { Mnemonic::Ldr } else { Mnemonic::Str });
         out.push_operand(simd_op(fp_reg(form.fp_code, rt)));
     } else {
         push_data_reg(out, &form, rt);
@@ -1034,7 +1034,7 @@ fn decode_reg_offset(word: u32, features: FeatureSet, out: &mut Instruction) {
         // Refine the B (acc==0) register-offset form, which reuses LdrFpReg32 as
         // the code carrier; emit LDR/STR with the byte register.
         let load = (opc & 1) == 1;
-        out.set_mnemonic(if load { Mnemonic::Ldr } else { Mnemonic::Str });
+        out.set_alias(if load { Mnemonic::Ldr } else { Mnemonic::Str });
         out.push_operand(simd_op(fp_reg(form.fp_code, rt)));
     } else if form.is_prfm {
         out.push_operand(prefetch_op(rt));
@@ -1144,7 +1144,7 @@ fn decode_pair(word: u32, features: FeatureSet, out: &mut Instruction) {
         let imm = sign_extend(imm7 as u64, 7) << scale;
         out.set(code);
         if is_np {
-            out.set_mnemonic(if load { Mnemonic::Ldnp } else { Mnemonic::Stnp });
+            out.set_alias(if load { Mnemonic::Ldnp } else { Mnemonic::Stnp });
         }
         out.push_operand(simd_op(fp_reg(fp_code, rt)));
         out.push_operand(simd_op(fp_reg(fp_code, rt2)));
@@ -1997,11 +1997,11 @@ fn emit_atomic_rmw(
     let x = size == 3;
     let w = w_of(x as u32);
     if st_alias {
-        out.set_mnemonic(st_mnemonic(op, size, r));
+        out.set_alias(st_mnemonic(op, size, r));
         out.push_operand(gp(false, w, rs));
         out.push_operand(mem_off(rn, 0));
     } else {
-        out.set_mnemonic(ld_mnemonic(op, size, a, r));
+        out.set_alias(ld_mnemonic(op, size, a, r));
         out.push_operand(gp(false, w, rs));
         out.push_operand(gp(false, w, rt));
         out.push_operand(mem_off(rn, 0));

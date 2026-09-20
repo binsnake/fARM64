@@ -175,7 +175,7 @@ fn decode_addsub_imm(word: u32, out: &mut Instruction) {
 
     if !flag_setting && op == 0 && sh == 0 && imm12 == 0 && (rd_is_31 || rn_is_31) {
         // MOV (to/from SP): both registers are SP-capable.
-        out.set_mnemonic(Mnemonic::Mov);
+        out.set_alias(Mnemonic::Mov);
         out.push_operand(reg(true, w, rd));
         out.push_operand(reg(true, w, rn));
         return;
@@ -183,7 +183,7 @@ fn decode_addsub_imm(word: u32, out: &mut Instruction) {
 
     if flag_setting && rd_is_31 {
         // CMP (SUBS) / CMN (ADDS): drop Rd, Rn is SP-capable.
-        out.set_mnemonic(if op == 1 {
+        out.set_alias(if op == 1 {
             Mnemonic::Cmp
         } else {
             Mnemonic::Cmn
@@ -330,7 +330,7 @@ fn decode_logical_imm(word: u32, out: &mut Instruction) {
 
     // ANDS Rd==ZR -> TST Rn, #imm.
     if opc == 0b11 && rd == 31 {
-        out.set_mnemonic(Mnemonic::Tst);
+        out.set_alias(Mnemonic::Tst);
         out.push_operand(reg(false, w, rn));
         out.push_operand(Operand::ImmLogical(imm));
         return;
@@ -338,7 +338,7 @@ fn decode_logical_imm(word: u32, out: &mut Instruction) {
 
     // ORR Rn==ZR with !MoveWidePreferred -> MOV Rd, #imm (signed display).
     if opc == 0b01 && rn == 31 && !move_wide_preferred(sf, n, imms, immr) {
-        out.set_mnemonic(Mnemonic::Mov);
+        out.set_alias(Mnemonic::Mov);
         // MOV (bitmask) is SP-capable on Rd per ARM ARM, but binja prints the
         // immediate as a signed value.
         out.push_operand(reg(true, w, rd));
@@ -410,7 +410,7 @@ fn decode_move_wide(word: u32, out: &mut Instruction) {
         let imm_is_zero_shifted = imm16 == 0 && hw != 0;
         if !imm_is_zero_shifted {
             let val = (imm16 as u64) << shift;
-            out.set_mnemonic(Mnemonic::Mov);
+            out.set_alias(Mnemonic::Mov);
             out.push_operand(reg(false, w, rd));
             out.push_operand(Operand::ImmSigned(signed_imm(val, datasize)));
             return;
@@ -426,7 +426,7 @@ fn decode_move_wide(word: u32, out: &mut Instruction) {
             } else {
                 raw
             };
-            out.set_mnemonic(Mnemonic::Mov);
+            out.set_alias(Mnemonic::Mov);
             out.push_operand(reg(false, w, rd));
             out.push_operand(Operand::ImmSigned(signed_imm(val, datasize)));
             return;
@@ -516,7 +516,7 @@ fn emit_sbfm_alias(
             _ => None,
         };
         if let Some(m) = ext {
-            out.set_mnemonic(m);
+            out.set_alias(m);
             out.push_operand(reg(false, w, rd));
             // Source is always the 32-bit (W) view for the sign-extends.
             out.push_operand(reg(false, RegWidth::W32, rn));
@@ -526,7 +526,7 @@ fn emit_sbfm_alias(
 
     // ASR: imms == datasize-1.
     if imms == max {
-        out.set_mnemonic(Mnemonic::Asr);
+        out.set_alias(Mnemonic::Asr);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rn));
         out.push_operand(Operand::ImmUnsigned(immr as u64));
@@ -535,7 +535,7 @@ fn emit_sbfm_alias(
 
     // SBFIZ: imms < immr -> SBFIZ Rd, Rn, #(-immr MOD datasize), #(imms+1).
     if imms < immr {
-        out.set_mnemonic(Mnemonic::Sbfiz);
+        out.set_alias(Mnemonic::Sbfiz);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rn));
         out.push_operand(Operand::ImmUnsigned(((datasize - immr) % datasize) as u64));
@@ -544,7 +544,7 @@ fn emit_sbfm_alias(
     }
 
     // SBFX: imms >= immr -> SBFX Rd, Rn, #immr, #(imms-immr+1).
-    out.set_mnemonic(Mnemonic::Sbfx);
+    out.set_alias(Mnemonic::Sbfx);
     out.push_operand(reg(false, w, rd));
     out.push_operand(reg(false, w, rn));
     out.push_operand(Operand::ImmUnsigned(immr as u64));
@@ -572,7 +572,7 @@ fn emit_ubfm_alias(
             _ => None,
         };
         if let Some(m) = ext {
-            out.set_mnemonic(m);
+            out.set_alias(m);
             out.push_operand(reg(false, w, rd));
             out.push_operand(reg(false, RegWidth::W32, rn));
             return;
@@ -581,7 +581,7 @@ fn emit_ubfm_alias(
 
     // LSL: imms + 1 == immr  (i.e. imms != max && imms+1 == immr).
     if imms != max && imms + 1 == immr {
-        out.set_mnemonic(Mnemonic::Lsl);
+        out.set_alias(Mnemonic::Lsl);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rn));
         out.push_operand(Operand::ImmUnsigned((max - imms) as u64));
@@ -590,7 +590,7 @@ fn emit_ubfm_alias(
 
     // LSR: imms == datasize-1.
     if imms == max {
-        out.set_mnemonic(Mnemonic::Lsr);
+        out.set_alias(Mnemonic::Lsr);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rn));
         out.push_operand(Operand::ImmUnsigned(immr as u64));
@@ -599,7 +599,7 @@ fn emit_ubfm_alias(
 
     // UBFIZ: imms < immr -> UBFIZ Rd, Rn, #(-immr MOD datasize), #(imms+1).
     if imms < immr {
-        out.set_mnemonic(Mnemonic::Ubfiz);
+        out.set_alias(Mnemonic::Ubfiz);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rn));
         out.push_operand(Operand::ImmUnsigned(((datasize - immr) % datasize) as u64));
@@ -608,7 +608,7 @@ fn emit_ubfm_alias(
     }
 
     // UBFX: imms >= immr -> UBFX Rd, Rn, #immr, #(imms-immr+1).
-    out.set_mnemonic(Mnemonic::Ubfx);
+    out.set_alias(Mnemonic::Ubfx);
     out.push_operand(reg(false, w, rd));
     out.push_operand(reg(false, w, rn));
     out.push_operand(Operand::ImmUnsigned(immr as u64));
@@ -632,13 +632,13 @@ fn emit_bfm_alias(
         let width = imms + 1;
         if rn == 31 {
             // BFC Rd, #lsb, #width.
-            out.set_mnemonic(Mnemonic::Bfc);
+            out.set_alias(Mnemonic::Bfc);
             out.push_operand(reg(false, w, rd));
             out.push_operand(Operand::ImmUnsigned(lsb as u64));
             out.push_operand(Operand::ImmUnsigned(width as u64));
         } else {
             // BFI Rd, Rn, #lsb, #width.
-            out.set_mnemonic(Mnemonic::Bfi);
+            out.set_alias(Mnemonic::Bfi);
             out.push_operand(reg(false, w, rd));
             out.push_operand(reg(false, w, rn));
             out.push_operand(Operand::ImmUnsigned(lsb as u64));
@@ -648,7 +648,7 @@ fn emit_bfm_alias(
     }
 
     // BFXIL Rd, Rn, #immr, #(imms-immr+1).
-    out.set_mnemonic(Mnemonic::Bfxil);
+    out.set_alias(Mnemonic::Bfxil);
     out.push_operand(reg(false, w, rd));
     out.push_operand(reg(false, w, rn));
     out.push_operand(Operand::ImmUnsigned(immr as u64));
@@ -690,7 +690,7 @@ fn decode_extract(word: u32, out: &mut Instruction) {
 
     // ROR alias when Rn == Rm.
     if rn == rm {
-        out.set_mnemonic(Mnemonic::Ror);
+        out.set_alias(Mnemonic::Ror);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rn));
         out.push_operand(Operand::ImmUnsigned(imms as u64));

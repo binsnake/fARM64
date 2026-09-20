@@ -27,26 +27,43 @@
 //!   SME ZA outer-product, ...) makes slot 0 [`OpAccess::ReadWrite`].
 //! * **Compare/test with no destination** (`CMP`/`TST`/`FCMP`/...): every
 //!   register operand is [`OpAccess::Read`].
-//! * **NZCV flags**, the **link register** (`X30` for calls/returns), and the
-//!   governing predicate are added as implicit reads/writes.
+//! * **Merging predication** (`Pg/M`) leaves the destination's unselected
+//!   elements at their previous value, so the destination is
+//!   [`OpAccess::ReadWrite`]; zeroing predication (`Pg/Z`) overwrites every
+//!   element and leaves it [`OpAccess::Write`].
+//! * **MOPS** (`CPYF*`/`CPY*`/`SET*`/`SETG*`) read-modify all three of their
+//!   writeback operands, so every one is [`OpAccess::ReadWrite`].
+//! * The **implicit** registers computed by [`crate::implicit`] — the link
+//!   register, the pointer-authentication `X30`/`SP`/`X16`/`X17`, the FEAT_LS64
+//!   `Xt+1..Xt+7` group, the SVE `FFR`, `PC`, and the `NZCV` flags — are merged
+//!   in on top, so a register that is both named and implicitly touched
+//!   (`RET X30`) reports one combined access.
 //!
 //! The zero register (`XZR`/`WZR`) is included with its access, matching iced
-//! (which records the zero register rather than dropping it).
+//! (which records the zero register rather than dropping it). The SME `ZA`
+//! array is reported through the [`Register::Za`] pseudo-register whenever an
+//! operand names a ZA tile, tile slice, or ZA-array vector group.
 
 use crate::enums::FlowControl;
 use crate::instruction::Instruction;
 use crate::mnemonic::Mnemonic;
-use crate::operand::{MemIndexMode, Operand};
+use crate::operand::{MemIndexMode, Operand, PredQual};
 use crate::register::Register;
 
 /// Maximum register accesses recorded inline.
 ///
-/// A worst-case form is a 4-register SIMD/SVE list plus the memory base/index
-/// plus the implicit link register, which can exceed `MAX_OPERANDS`; size with
-/// headroom so [`add_reg`](InfoBuilder::add_reg) never drops an access.
-const MAX_USED_REGS: usize = 8;
-/// Maximum memory accesses recorded inline (A64 touches at most one explicit
-/// memory operand per instruction; kept as a small constant for headroom).
+/// The largest shapes are the SME2 multi-vector forms — `SEL { z16.b - z19.b },
+/// pn14, { z8.b - z11.b }, { z4.b - z7.b }` reaches thirteen — and the FEAT_LS64
+/// `ST64BV` family, which needs a status register, the named 64-byte transfer
+/// register, its seven implicit companions (`Xt+1..Xt+7`) and the memory base.
+/// Sized with headroom above both so [`add_reg`](InfoBuilder::add_reg) never
+/// drops an access; `no_truncation_across_the_encoding_space` guards the bound.
+const MAX_USED_REGS: usize = 20;
+/// Maximum memory accesses recorded inline.
+///
+/// Two is exact, not slack: the MOPS copy family (`CPYP [Xd]!, [Xs]!, Xn!`)
+/// carries a destination *and* a source memory operand, and nothing else in A64
+/// carries more than one. `no_truncation_across_the_encoding_space` guards it.
 const MAX_USED_MEM: usize = 2;
 
 /// How an operand reads/writes a register or memory location.
@@ -72,7 +89,7 @@ impl OpAccess {
     /// written in another becomes [`OpAccess::ReadWrite`]. [`OpAccess::None`] is
     /// the identity; equal accesses merge to themselves.
     #[inline]
-    fn merge(self, other: OpAccess) -> OpAccess {
+    pub(crate) fn merge(self, other: OpAccess) -> OpAccess {
         use OpAccess::*;
         match (self, other) {
             (None, a) | (a, None) => a,
@@ -141,10 +158,14 @@ impl InstructionInfo {
 
     /// `true` if the instruction reads any of the NZCV condition flags.
     ///
-    /// Reported for the conditional forms (anything carrying a condition code)
-    /// and the carry-consuming / conditional-select families (`ADC`/`SBC`/
-    /// `CSEL`/`CCMP`/...). The NZCV flags are kept as a separate boolean
-    /// (iced-style), not as a pseudo-register in [`Register`].
+    /// Reported for the conditional forms (anything carrying a condition code),
+    /// the carry-consuming / conditional-select families (`ADC`/`SBC`/`CSEL`/
+    /// `CCMP`/...), and the flag-manipulation forms that preserve the flags they
+    /// do not write (`RMIF`/`SETF8`/`SETF16`/`CFINV`/`AXFLAG`/`XAFLAG`).
+    ///
+    /// This is the iced-style scalar view of the same fact that
+    /// [`used_registers`](InstructionInfo::used_registers) reports as a
+    /// [`Register::Nzcv`] access.
     #[inline]
     pub fn flags_read(&self) -> bool {
         self.flags_read
@@ -155,6 +176,10 @@ impl InstructionInfo {
     /// Reported for every flag-setting form ([`Instruction::set_flags`]'s
     /// [`crate::FlagEffect::writes_flags`]), including the conditional-compare
     /// `CCMP`/`CCMN` (which conditionally update the flags).
+    ///
+    /// This is the iced-style scalar view of the same fact that
+    /// [`used_registers`](InstructionInfo::used_registers) reports as a
+    /// [`Register::Nzcv`] access.
     #[inline]
     pub fn flags_written(&self) -> bool {
         self.flags_written
@@ -199,43 +224,50 @@ fn accumulates_into_dest(m: Mnemonic) -> bool {
             | Smopa | Smops | Umopa | Umops | Sumopa | Sumops | Usmopa | Usmops
             | Bmopa | Bmops
             | Addha | Addva
+            // `CHKFEAT X16` takes the feature-request bitmap in X16 and writes
+            // the unsupported-feature result back into the same register.
+            | Chkfeat
+            // The pointer-authentication data-processing forms sign, authenticate
+            // or strip *in place*: `PACIA Xd, Xn` computes `Xd = AddPAC(Xd, Xn)`,
+            // so the destination is an input as well.
+            | Pacia | Pacib | Pacda | Pacdb
+            | Paciza | Pacizb | Pacdza | Pacdzb
+            | Autia | Autib | Autda | Autdb
+            | Autiza | Autizb | Autdza | Autdzb
+            | Xpaci | Xpacd
     )
 }
 
-/// `true` for the compare/test forms that have **no destination register**: all
-/// register operands are read and only the flags are written.
-fn is_compare_no_dest(m: Mnemonic) -> bool {
+/// `true` for the forms that have **no destination register**, so every
+/// register operand is read and only implicit state is written.
+///
+/// The compares and tests (`CMP`/`TST`/`FCMP`/...) write only the flags; the
+/// flag-manipulation forms `RMIF`/`SETF8`/`SETF16` read their `Xn`/`Wn` source
+/// into NZCV; `WRFFR` reads its predicate into the SVE `FFR`; and the
+/// FEAT_PAuth_LR `AUT*SPPCR` forms take a modifier register and authenticate
+/// the *implicit* `X30`.
+fn has_no_dest_register(m: Mnemonic) -> bool {
     use Mnemonic::*;
     matches!(
         m,
-        Cmp | Cmn | Tst | Ccmp | Ccmn | Fcmp | Fcmpe | Fccmp | Fccmpe
-    )
-}
-
-/// `true` if the mnemonic reads NZCV (carry-consuming / conditional-select /
-/// conditional-compare families). The conditional forms that carry an explicit
-/// condition code are detected separately via [`Instruction::condition`].
-fn mnemonic_reads_flags(m: Mnemonic) -> bool {
-    use Mnemonic::*;
-    matches!(
-        m,
-        Adc | Adcs
-            | Sbc
-            | Sbcs
-            | Ngc
-            | Ngcs
-            | Csel
-            | Csinc
-            | Csinv
-            | Csneg
-            | Cinc
-            | Cinv
-            | Cneg
-            | Cset
-            | Csetm
+        Cmp | Cmn
+            | Tst
             | Ccmp
             | Ccmn
-            | Fcsel
+            | Fcmp
+            | Fcmpe
+            | Fccmp
+            | Fccmpe
+            // Flag manipulation: the operand is the *source* of the new flags.
+            | Rmif
+            | Setf8
+            | Setf16
+            // `WRFFR <Pn>.B` reads the predicate into FFR.
+            | Wrffr
+            // FEAT_PAuth_LR register-modifier authenticate: the operand is the
+            // modifier; the authenticated register is the implicit X30.
+            | Autiasppcr
+            | Autibsppcr
     )
 }
 
@@ -327,7 +359,6 @@ fn classify_mem(m: Mnemonic, has_mem_operand: bool) -> MemKind {
             | Rcwclr | Rcwclra | Rcwclrl | Rcwclral | Rcwsclr | Rcwsclra | Rcwsclrl | Rcwsclral
             | Rcwswp | Rcwswpa | Rcwswpl | Rcwswpal | Rcwsswp | Rcwsswpa | Rcwsswpl | Rcwsswpal
             | Rcwset | Rcwseta | Rcwsetl | Rcwsetal | Rcwsset | Rcwsseta | Rcwssetl | Rcwssetal
-            | St64bv | St64bv0
             // FEAT_LSFE atomic-float RMW loads.
             | Ldfadd | Ldfadda | Ldfaddl | Ldfaddal | Ldfmax | Ldfmaxa | Ldfmaxl | Ldfmaxal
             | Ldfmin | Ldfmina | Ldfminl | Ldfminal
@@ -415,9 +446,11 @@ fn classify_mem(m: Mnemonic, has_mem_operand: bool) -> MemKind {
         return MemKind::AtomicStore;
     }
     // Store-exclusive: status reg (slot 0) written, data read, memory written.
+    // The FEAT_LS64 `ST64BV`/`ST64BV0` share that shape exactly — `<Xs>` is the
+    // status result and `<Xt>` the (64-byte) data source.
     if matches!(
         m,
-        Stxr | Stxrb | Stxrh | Stlxr | Stlxrb | Stlxrh | Stxp | Stlxp
+        Stxr | Stxrb | Stxrh | Stlxr | Stlxrb | Stlxrh | Stxp | Stlxp | St64bv | St64bv0
     ) {
         return MemKind::StoreExclusive;
     }
@@ -626,13 +659,54 @@ fn add_operand_regs(b: &mut InfoBuilder, op: &Operand, access: OpAccess) {
         }
         Operand::PredCounter { reg, .. } => b.add_reg(reg, access),
         // The SME tile-slice / ZA-array operands carry a slice-select GP register
-        // (`Ws`), always read; the ZA tile itself is not a `Register` enum value.
-        Operand::SmeTileSlice { sel, .. } => b.add_reg(sel, OpAccess::Read),
-        Operand::SmeZaSlice { sel, .. } => b.add_reg(sel, OpAccess::Read),
-        // Immediates, labels, conditions, sysregs/sysops, ZA tiles, and the
-        // SVE pattern/multiplier decorators carry no register.
+        // (`Ws`), always read, plus the `ZA` array itself, which takes the
+        // operand's access. The operand's `reg` field is the *ZA tile* number
+        // (Binary Ninja prints tiles with a `z` prefix) — it is not the SVE `Z`
+        // register of that number and is deliberately not reported as one.
+        Operand::SmeTileSlice { sel, .. } => {
+            b.add_reg(sel, OpAccess::Read);
+            b.add_reg(Register::Za, access);
+        }
+        Operand::SmeZaSlice { sel, .. } => {
+            b.add_reg(sel, OpAccess::Read);
+            b.add_reg(Register::Za, access);
+        }
+        // A bare ZA tile takes the operand's access on the `ZA` array.
+        Operand::SmeTile { .. } => b.add_reg(Register::Za, access),
+        // `ZERO`'s brace list selects either ZA tiles or the ZT0 lookup table;
+        // either way the named state is written.
+        Operand::SmeZaMask { zt0, .. } => {
+            b.add_reg(if zt0 { Register::Zt0 } else { Register::Za }, access)
+        }
+        // The SME2 `MOVT` ZT0 operand names the lookup-table register.
+        Operand::SmeZt0Index { .. } => b.add_reg(Register::Zt0, access),
+        // Immediates, labels, conditions, sysregs/sysops, and the SVE
+        // pattern/multiplier decorators carry no register.
         _ => {}
     }
+}
+
+/// `true` for the MOPS (FEAT_MOPS) copy/set families, whose operands are all
+/// writeback (`<Xd>!`, `<Xs>!`, `<Xn>!` / `[<Xd>]!`) and therefore all
+/// read-modified: each prologue/main/epilogue step consumes the running
+/// destination pointer, source pointer and remaining count, and writes the
+/// updated values back.
+///
+/// Detected structurally rather than from a 130-entry mnemonic list: the
+/// [`Operand::RegBang`] and [`MemIndexMode::PreNoOffset`] shapes are produced
+/// *only* by this family, so the test cannot drift as mnemonics are added.
+fn is_mops_rmw(insn: &Instruction, op_count: usize) -> bool {
+    for i in 0..op_count {
+        match insn.op(i) {
+            Operand::RegBang(_) => return true,
+            Operand::MemImm {
+                mode: MemIndexMode::PreNoOffset,
+                ..
+            } => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Record a memory operand's base/index registers and the [`UsedMemory`] entry.
@@ -680,6 +754,38 @@ fn is_writeback(mode: MemIndexMode) -> bool {
     )
 }
 
+/// `true` if any operand is a governing predicate with the merging qualifier
+/// (`Pg/M`).
+///
+/// Under merging predication the elements the predicate does not select keep
+/// their previous value, which makes the destination a read-modify-write. The
+/// qualifier never appears on slot 0 (it is always a governing operand), so the
+/// destination this applies to is unambiguous.
+#[inline]
+fn has_merging_predicate(insn: &Instruction, op_count: usize) -> bool {
+    (0..op_count).any(|i| {
+        matches!(
+            insn.op(i),
+            Operand::Reg {
+                pred: Some(PredQual::Merging),
+                ..
+            }
+        )
+    })
+}
+
+/// `true` if the operand is an SVE/SME predicate register — a governing
+/// predicate ([`Operand::Reg`] of a `P` register, with or without a `/z`, `/m`
+/// qualifier) or a predicate-as-counter ([`Operand::PredCounter`]).
+#[inline]
+fn is_predicate_operand(op: &Operand) -> bool {
+    match *op {
+        Operand::Reg { reg, .. } => reg.class() == crate::register::RegClass::Predicate,
+        Operand::PredCounter { .. } => true,
+        _ => false,
+    }
+}
+
 /// `true` if the operand is a memory-shaped operand (carries an effective
 /// address whose base/index are registers).
 #[inline]
@@ -708,39 +814,54 @@ pub fn instruction_info(insn: &Instruction) -> InstructionInfo {
 
     let kind = classify_mem(m, mem_slot.is_some());
 
-    match mem_slot {
-        Some(slot) if kind != MemKind::NotMem => {
-            classify_memory_form(&mut b, insn, kind, slot, op_count);
-        }
-        // Control-transfer instructions have no GP destination register: every
-        // register operand is the branch target / test register / PAC modifier,
-        // all read. (The implicit link register is added below.) This excludes
-        // the conditional-select / compare families, which are `FlowControl::Next`
-        // and fall through to the data-processing rule.
-        _ if flow.is_control_transfer() => {
-            for i in 0..op_count {
-                add_operand_regs(&mut b, &insn.op(i), OpAccess::Read);
+    if is_mops_rmw(insn, op_count) {
+        // MOPS: each writeback operand (`<Xn>!` / `[<Xn>]!`) is a running
+        // pointer or remaining-count that the step consumes and writes back.
+        // `SET*`'s third operand is the plain fill value `<Xs>`, read only.
+        for i in 0..op_count {
+            match insn.op(i) {
+                op @ Operand::MemImm {
+                    mode: MemIndexMode::PreNoOffset,
+                    ..
+                } => add_memory_operand(&mut b, &op, OpAccess::ReadWrite),
+                Operand::RegBang(reg) => b.add_reg(reg, OpAccess::ReadWrite),
+                op => add_operand_regs(&mut b, &op, OpAccess::Read),
             }
         }
-        _ => classify_dataproc_form(&mut b, insn, m, op_count),
+    } else {
+        match mem_slot {
+            Some(slot) if kind != MemKind::NotMem => {
+                classify_memory_form(&mut b, insn, kind, slot, op_count);
+            }
+            // Control-transfer instructions have no GP destination register:
+            // every register operand is the branch target / test register / PAC
+            // modifier, all read. (The implicit link register is added below.)
+            // This excludes the conditional-select / compare families, which are
+            // `FlowControl::Next` and fall through to the data-processing rule.
+            _ if flow.is_control_transfer() => {
+                for i in 0..op_count {
+                    add_operand_regs(&mut b, &insn.op(i), OpAccess::Read);
+                }
+            }
+            _ => classify_dataproc_form(&mut b, insn, m, op_count),
+        }
     }
 
-    // --- Implicit NZCV flags ---
+    // --- Implicit registers -------------------------------------------------
+    //
+    // The link register of a call/return, the pointer-authentication
+    // `X30`/`SP`/`X16`/`X17`, the FEAT_LS64 `Xt+1..Xt+7` companions, the SVE
+    // `FFR`, `PC`, and the `NZCV` flags. Merged on top of the explicit operands
+    // so a register that is both named and implicitly touched reports one
+    // combined access.
+    let implicit = crate::implicit::implicit_registers(insn);
+    for entry in implicit.iter() {
+        b.add_reg(entry.register, entry.access);
+    }
+
+    // The NZCV booleans are the same information in scalar form.
     let flags_written = insn.set_flags().writes_flags();
-    let flags_read = insn.condition().is_some() || mnemonic_reads_flags(m);
-
-    // --- Implicit link register X30 ---
-    match flow {
-        FlowControl::Call | FlowControl::IndirectCall => {
-            // BL / BLR / pointer-authed calls write the return address into X30.
-            b.add_reg(Register::X30, OpAccess::Write);
-        }
-        // RET defaults to X30; an explicit `RET Xn` already recorded that reg.
-        FlowControl::Return if op_count == 0 => {
-            b.add_reg(Register::X30, OpAccess::Read);
-        }
-        _ => {}
-    }
+    let flags_read = crate::implicit::reads_nzcv(insn);
 
     InstructionInfo {
         regs: b.regs,
@@ -776,6 +897,15 @@ fn classify_memory_form(
             continue;
         }
         let op = insn.op(i);
+        // An SVE/SME governing predicate (`Pg/z`, `Pg/m`, `PNg/z`) past slot 0
+        // is a *control* input, never a destination — even on a load, whose
+        // other register operands are written. At slot 0 a predicate register is
+        // the data register of `LDR <Pt>, [..]` / `STR <Pt>, [..]` and keeps the
+        // family's access.
+        if i > 0 && is_predicate_operand(&op) {
+            add_operand_regs(b, &op, OpAccess::Read);
+            continue;
+        }
         // Index/base register operands are folded into the memory entry already
         // (a memory operand is a single slot in this ISA), so only data registers
         // remain here.
@@ -823,11 +953,15 @@ fn classify_memory_form(
 /// Classify a data-processing instruction's operands into accesses.
 ///
 /// Slot 0 (the destination) is written, or read-modified for the accumulate /
-/// insert / predicate-result families; the remaining register operands are read.
-/// Compare/test forms read every operand.
+/// insert / predicate-result families and under merging predication; the
+/// remaining register operands are read. Compare/test forms read every operand.
 fn classify_dataproc_form(b: &mut InfoBuilder, insn: &Instruction, m: Mnemonic, op_count: usize) {
-    let compare = is_compare_no_dest(m);
-    let accum = accumulates_into_dest(m);
+    let no_dest = has_no_dest_register(m);
+    // Merging predication (`Pg/M`) leaves the inactive elements of the
+    // destination at their previous value, so the destination is an input as
+    // well — `ABS Zd.B, Pg/M, Zn.B` preserves every element `Pg` does not
+    // select. Zeroing predication (`Pg/Z`) writes every element and does not.
+    let accum = accumulates_into_dest(m) || has_merging_predicate(insn, op_count);
 
     for i in 0..op_count {
         let op = insn.op(i);
@@ -837,7 +971,7 @@ fn classify_dataproc_form(b: &mut InfoBuilder, insn: &Instruction, m: Mnemonic, 
             add_memory_operand(b, &op, OpAccess::Read);
             continue;
         }
-        let access = if compare {
+        let access = if no_dest {
             // No destination: every register operand is read.
             OpAccess::Read
         } else if i == 0 {
@@ -884,5 +1018,62 @@ impl InstructionInfoFactory {
         self.last = Some(instruction_info(insn));
         // The `Some` was just assigned.
         self.last.as_ref().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Decoder, DecoderOptions};
+
+    /// The inline access lists must never fill up: [`InfoBuilder::add_reg`] and
+    /// [`InfoBuilder::add_mem`] drop silently past capacity, which would be an
+    /// invisible wrong answer rather than a failure.
+    ///
+    /// Sweeps the whole 32-bit encoding space at a coarse stride.
+    /// [`MAX_USED_REGS`] must stay *strictly* above the observed maximum:
+    /// reaching the capacity is already evidence that some nearby encoding
+    /// could overflow it. [`MAX_USED_MEM`] is exact at two (the MOPS copy
+    /// family), so it is checked against the number of memory-shaped *operands*
+    /// instead — that count is what [`add_mem`](InfoBuilder::add_mem) would
+    /// otherwise have to drop.
+    #[test]
+    fn no_truncation_across_the_encoding_space() {
+        const STRIDE: u32 = 977;
+        let mut worst_regs = 0usize;
+        let mut worst_reg_word = 0u32;
+        let mut worst_mem_ops = 0usize;
+        let mut worst_mem_word = 0u32;
+        let mut word = 0u32;
+        loop {
+            let bytes = word.to_le_bytes();
+            let insn = Decoder::new(&bytes, 0x1000, DecoderOptions::NONE).decode();
+            if !insn.is_invalid() {
+                let regs = instruction_info(&insn).used_registers().len();
+                if regs > worst_regs {
+                    worst_regs = regs;
+                    worst_reg_word = word;
+                }
+                let mem_ops = (0..insn.op_count())
+                    .filter(|&i| is_memory_operand(&insn.op(i)))
+                    .count();
+                if mem_ops > worst_mem_ops {
+                    worst_mem_ops = mem_ops;
+                    worst_mem_word = word;
+                }
+            }
+            match word.checked_add(STRIDE) {
+                Some(next) => word = next,
+                None => break,
+            }
+        }
+        assert!(
+            worst_regs < MAX_USED_REGS,
+            "used_registers reached {worst_regs} of {MAX_USED_REGS} at {worst_reg_word:#010x}; raise MAX_USED_REGS before an encoding silently loses an access"
+        );
+        assert!(
+            worst_mem_ops <= MAX_USED_MEM,
+            "an encoding carries {worst_mem_ops} memory operands but only {MAX_USED_MEM} fit ({worst_mem_word:#010x}); raise MAX_USED_MEM"
+        );
     }
 }

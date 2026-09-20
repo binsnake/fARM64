@@ -242,7 +242,7 @@ pub fn decode(word: u32, out: &mut Instruction) {
             zgroup(zd, 4, VA::Sb, 4)
         };
         out.set(Code::SmeLuti4Zt);
-        out.set_mnemonic(Mnemonic::Luti4);
+        out.set_alias(Mnemonic::Luti4);
         out.push_operand(dst);
         out.push_operand(zt0());
         out.push_operand(zpair(zn));
@@ -325,7 +325,7 @@ pub fn decode(word: u32, out: &mut Instruction) {
     } else {
         Code::SmeLuti4Zt
     });
-    out.set_mnemonic(if is_l2 {
+    out.set_alias(if is_l2 {
         Mnemonic::Luti2
     } else {
         Mnemonic::Luti4

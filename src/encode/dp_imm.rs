@@ -126,6 +126,13 @@ fn enc_pc_rel(insn: &Instruction) -> R {
     let is_adrp = insn.code() == Code::Adrp;
 
     let imm21: u32 = if is_adrp {
+        // `ADRP` can only name a 4 KiB page, so a target carrying sub-page bits
+        // has no encoding. The decoder always produces a page-aligned label, so
+        // this only rejects a target an *edit* introduced — rounding it down
+        // silently would re-encode to a different address than the operand says.
+        if target & 0xFFF != 0 {
+            return Err(EncodeError::InvalidImmediate);
+        }
         // base = page(ip); imm = (page(target) - page(ip)) >> 12, as a signed
         // 21-bit value.
         let base = ip & !0xFFF;

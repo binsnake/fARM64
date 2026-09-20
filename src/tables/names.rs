@@ -368,6 +368,12 @@ pub const fn register_name(reg: Register) -> &'static str {
         Register::Pf31 => "pf31",
         // SME2 lookup-table register (LLVM spells it lowercase `zt0`).
         Register::Zt0 => "zt0",
+        // Implicit-state pseudo-registers. These never appear in disassembly
+        // text; the names exist for diagnostics and access-analysis dumps.
+        Register::Nzcv => "nzcv",
+        Register::Ffr => "ffr",
+        Register::Za => "za",
+        Register::Pc => "pc",
     }
 }
 

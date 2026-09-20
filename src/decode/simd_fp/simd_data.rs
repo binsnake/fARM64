@@ -483,14 +483,14 @@ fn decode_luti_neon(word: u32, features: FeatureSet, out: &mut Instruction) {
                 // LUTI4 .8h, two-register table; 2-bit index.
                 let index = (b14 << 1) | b13;
                 out.set(Code::Luti4TwoVec);
-                out.set_mnemonic(Mnemonic::Luti4);
+                out.set_alias(Mnemonic::Luti4);
                 out.push_operand(vreg(rd, VectorArrangement::V8H));
                 out.push_operand(vlist2(rn, VectorArrangement::V8H));
                 out.push_operand(vidx(rm, index));
             } else if b13 == 1 {
                 // LUTI4 .16b, single-register table; 1-bit index.
                 out.set(Code::Luti4Vec);
-                out.set_mnemonic(Mnemonic::Luti4);
+                out.set_alias(Mnemonic::Luti4);
                 out.push_operand(vreg(rd, VectorArrangement::V16B));
                 out.push_operand(vlist1(rn, VectorArrangement::V16B));
                 out.push_operand(vidx(rm, b14));
@@ -501,7 +501,7 @@ fn decode_luti_neon(word: u32, features: FeatureSet, out: &mut Instruction) {
                 // LUTI2 .16b, single-register table; 2-bit index.
                 let index = (b14 << 1) | b13;
                 out.set(Code::Luti2Vec);
-                out.set_mnemonic(Mnemonic::Luti2);
+                out.set_alias(Mnemonic::Luti2);
                 out.push_operand(vreg(rd, VectorArrangement::V16B));
                 out.push_operand(vlist1(rn, VectorArrangement::V16B));
                 out.push_operand(vidx(rm, index));
@@ -511,7 +511,7 @@ fn decode_luti_neon(word: u32, features: FeatureSet, out: &mut Instruction) {
             // LUTI2 .8h, single-register table; 3-bit index.
             let index = (b14 << 2) | (b13 << 1) | b12;
             out.set(Code::Luti2Vec);
-            out.set_mnemonic(Mnemonic::Luti2);
+            out.set_alias(Mnemonic::Luti2);
             out.push_operand(vreg(rd, VectorArrangement::V8H));
             out.push_operand(vlist1(rn, VectorArrangement::V8H));
             out.push_operand(vidx(rm, index));
@@ -628,7 +628,7 @@ fn decode_dup_element_scalar(word: u32, out: &mut Instruction) {
         None => return,
     };
     out.set(Code::DupElementScalar);
-    out.set_mnemonic(Mnemonic::Mov);
+    out.set_alias(Mnemonic::Mov);
     out.push_operand(scalar_reg(rd, esize));
     out.push_operand(vreg_lane(rn, elem_arr(esize), index));
 }
@@ -675,7 +675,7 @@ fn decode_ins_general(q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instruction
         RegWidth::W32
     };
     out.set(Code::InsGeneral);
-    out.set_mnemonic(Mnemonic::Mov);
+    out.set_alias(Mnemonic::Mov);
     out.push_operand(vreg_lane(rd, elem_arr(esize), index));
     out.push_operand(gpr(w, rn));
 }
@@ -703,7 +703,7 @@ fn decode_ins_element(q: u32, imm5: u32, imm4: u32, rn: u32, rd: u32, out: &mut 
     let src_index = (imm4 >> shift) as u8;
     let arr = elem_arr(esize);
     out.set(Code::InsElement);
-    out.set_mnemonic(Mnemonic::Mov);
+    out.set_alias(Mnemonic::Mov);
     out.push_operand(vreg_lane(rd, arr, dst_index));
     out.push_operand(vreg_lane(rn, arr, src_index));
 }
@@ -752,7 +752,7 @@ fn decode_umov(q: u32, imm5: u32, rn: u32, rd: u32, out: &mut Instruction) {
     out.set(Code::Umov);
     // The full-width element transfers (`.S` for W, `.D` for X) are spelled `mov`.
     if esize == 32 || esize == 64 {
-        out.set_mnemonic(Mnemonic::Mov);
+        out.set_alias(Mnemonic::Mov);
     }
     out.push_operand(gpr(w, rd));
     out.push_operand(vreg_lane(rn, elem_arr(esize), index));

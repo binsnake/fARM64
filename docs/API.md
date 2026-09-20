@@ -34,6 +34,8 @@ appears in these types. Everything below is a projection of that core.
 - [Encoder (`encode` / `EncodeError`)](#encoder-encode--encodeerror)
 - [Formatter subsystem](#formatter-subsystem)
 - [`InstructionInfo` flow/access facility](#instructioninfo-flowaccess-facility)
+- [Implicit register reads/writes](#implicit-register-readswrites)
+- [Editing an instruction and re-encoding it](#editing-an-instruction-and-re-encoding-it)
 - [End-to-end usage examples](#end-to-end-usage-examples)
 - [iced-x86 features intentionally dropped or changed](#iced-x86-features-intentionally-dropped-or-changed)
 
@@ -256,6 +258,38 @@ impl Instruction {
     pub fn flow_control(&self) -> FlowControl;
     /// NZCV write behaviour.
     pub fn set_flags(&self) -> FlagEffect;
+    /// Registers touched without being named in an operand.
+    pub fn implicit_registers(&self) -> ImplicitRegisters;
+
+    // ---- editing (see "Editing an instruction and re-encoding it") ----
+
+    /// `true` once any mutator below has run, so `word()` is stale.
+    pub const fn is_modified(&self) -> bool;
+
+    pub fn set_ip(&mut self, ip: u64);
+    /// Move to `ip`, shifting every resolved `Label` so displacements survive.
+    pub fn relocate(&mut self, ip: u64);
+    /// New encoding identity; resets the mnemonic, keeps the operands.
+    pub fn set_code(&mut self, code: Code);
+    /// New displayed mnemonic (alias selection); keeps `code()`.
+    pub fn set_mnemonic(&mut self, mnemonic: Mnemonic);
+
+    pub fn set_op(&mut self, n: usize, op: Operand) -> bool;
+    pub fn set_op_count(&mut self, count: usize) -> bool;
+    pub fn push_op(&mut self, op: Operand) -> bool;
+    /// Class- and width-checked; keeps arrangement/lane/shift/extend/predicate.
+    pub fn set_op_register(&mut self, n: usize, reg: Register) -> bool;
+    pub fn set_op_register_unchecked(&mut self, n: usize, reg: Register) -> bool;
+    /// Keeps the immediate's `Operand` variant (and so how it is packed).
+    pub fn set_op_immediate(&mut self, n: usize, value: u64) -> bool;
+    pub fn set_condition(&mut self, cond: Condition) -> bool;
+    /// Absolute target; direct branches / direct calls only.
+    pub fn set_near_branch_target(&mut self, target: u64) -> bool;
+    /// Absolute target of any `Operand::Label` (ADR/ADRP, literal loads, branches).
+    pub fn set_label(&mut self, target: u64) -> bool;
+    pub fn set_memory_base(&mut self, reg: Register) -> bool;
+    pub fn set_memory_index(&mut self, reg: Register) -> bool;
+    pub fn set_memory_displacement64(&mut self, disp: i64) -> bool;
 }
 ```
 
@@ -431,6 +465,10 @@ pub enum Register {
     P0, /* .. */ P15,
     // prefetch pseudo-operand register class
     Pf0, /* .. */ Pf31,
+    // SME2 lookup table
+    Zt0,
+    // implicit-state pseudo-registers (never explicit operands)
+    Nzcv, Ffr, Za, Pc,
 }
 
 impl Register {
@@ -447,6 +485,8 @@ impl Register {
     pub const fn is_sve(self) -> bool;    // Z/P
     /// Register class of this register.
     pub const fn class(self) -> RegClass;
+    /// `true` for the implicit-state pseudo-registers (`Nzcv`/`Ffr`/`Za`/`Pc`).
+    pub const fn is_pseudo(self) -> bool;
     /// Lowercase canonical name from the const table; never allocates.
     pub const fn name(self) -> &'static str;
 }
@@ -456,7 +496,12 @@ pub const fn gp_register(use_sp: bool, width: RegWidth, n: u8) -> Register;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
-pub enum RegClass { None, Gp, ScalarFp, Vector, Sve, Predicate, Prefetch }
+#[non_exhaustive]
+pub enum RegClass {
+    None, Gp, ScalarFp, Vector, Sve, Predicate, Prefetch, ZtLut,
+    /// `Nzcv`/`Ffr`/`Za`/`Pc` — implicit architectural state.
+    Special,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -464,8 +509,15 @@ pub enum RegWidth { W32, X64 }
 ```
 
 `Register` includes prefetch pseudo-register slots `Pf0..Pf31` (the prefetch
-operation class), in addition to GP (`W`/`X`/`Wsp`/`Sp`/`Wzr`/`Xzr`), scalar
-`B/H/S/D/Q`, vector `V`, SVE `Z`, and predicate `P`.
+operation class) and the SME2 lookup table `Zt0`, in addition to GP
+(`W`/`X`/`Wsp`/`Sp`/`Wzr`/`Xzr`), scalar `B/H/S/D/Q`, vector `V`, SVE `Z`, and
+predicate `P`.
+
+It also carries four **implicit-state pseudo-registers** — `Nzcv`, `Ffr`, `Za`
+and `Pc` — so the access analysis can report architectural state that has no
+numbered register. They are `RegClass::Special`, the decoder never produces them
+as an operand, and the formatter never emits them; see
+[Implicit register reads/writes](#implicit-register-readswrites).
 
 ---
 
@@ -888,9 +940,12 @@ pub struct SymbolResult<'a> {
 
 The core path is implemented and fills fixed-capacity inline arrays with no
 allocation. It classifies explicit operands, memory base/index use, writeback,
-common read-modify-write destinations, control flow, and implicit link/flag
-effects. The free function is re-exported from the crate root. An `alloc`-gated
-factory caches and reuses the most recent result.
+common read-modify-write destinations, merging-vs-zeroing predication, MOPS
+writeback operands, governing predicates, control flow, and the SME `ZA` array,
+then merges in every
+[implicit register](#implicit-register-readswrites). The free function is
+re-exported from the crate root. An `alloc`-gated factory caches and reuses the
+most recent result.
 
 ```rust
 #[derive(Debug, Clone, Copy)]
@@ -900,6 +955,7 @@ pub struct InstructionInfo { /* fixed inline arrays + counts */ }
 pub fn instruction_info(insn: &Instruction) -> InstructionInfo;
 
 impl InstructionInfo {
+    /// Explicit operands **and** implicit registers, merged.
     pub fn used_registers(&self) -> &[UsedRegister];
     pub fn used_memory(&self) -> &[UsedMemory];
     pub fn flow_control(&self) -> FlowControl;
@@ -940,6 +996,140 @@ pub struct InstructionInfoFactory { /* ... */ }
 impl InstructionInfoFactory {
     pub fn new() -> Self;
     pub fn info(&mut self, insn: &Instruction) -> &InstructionInfo;
+}
+```
+
+---
+
+## Implicit register reads/writes
+
+A64 hides real dataflow behind the mnemonic: `BL` writes `X30`, `PACIASP`
+read-modifies `X30` using `SP`, `PACIA1716` read-modifies `X17` using `X16`,
+`LD64B <Xt>` writes the eight registers `Xt..Xt+7` while spelling only `Xt`,
+`LDFF1*` read-modifies the SVE `FFR`, and `ADR` reads `PC`. The `implicit`
+module reports all of it as a fixed-capacity, allocation-free list.
+
+State with no numbered register is modelled as a **pseudo-register** appended to
+`Register`: `Register::Nzcv`, `Register::Ffr`, `Register::Za`, `Register::Pc`.
+They are `RegClass::Special`, are never produced by the decoder as an explicit
+operand, and never render in disassembly text (`Register::is_pseudo()`
+identifies them).
+
+```rust
+pub const MAX_IMPLICIT_REGS: usize = 10;
+
+/// Zero-alloc: only the *implicit* part of the access set.
+pub fn implicit_registers(insn: &Instruction) -> ImplicitRegisters;
+
+#[derive(Debug, Clone, Copy)]
+pub struct ImplicitRegisters { /* fixed inline array + count */ }
+
+impl ImplicitRegisters {
+    pub fn as_slice(&self) -> &[UsedRegister];
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    pub fn iter(&self) -> core::slice::Iter<'_, UsedRegister>;
+    /// `OpAccess::None` if the register is not touched implicitly.
+    pub fn access_of(&self, register: Register) -> OpAccess;
+    pub fn reads(&self, register: Register) -> bool;
+    pub fn writes(&self, register: Register) -> bool;
+}
+```
+
+`instruction_info()` merges this list into `used_registers()`, so a register
+that is both named and implicitly touched (`LD64B x0, [x1]`, where `x1` is the
+address base *and* part of the destination group) reports one combined
+`OpAccess::ReadWrite`. Use `implicit_registers()` directly when you need the
+implicit part on its own.
+
+| Family | Implicit access |
+|-|-|
+| `BL`, `BLR`, `BLRA*` | `X30` write |
+| `RET` (no operand), `RETAA`/`RETAB`, `RETA*SPPC{R}` | `X30` read |
+| `RETAA`/`RETAB`, `ERETAA`/`ERETAB`, the `*SPPC*` forms | `SP` read |
+| `PACIASP`/`PACIBSP`/`AUTIASP`/`AUTIBSP` | `X30` read-write, `SP` read |
+| `PACIAZ`/`PACIBZ`/`AUTIAZ`/`AUTIBZ`, `XPACLRI` | `X30` read-write |
+| `PACIA1716` & co. | `X17` read-write, `X16` read |
+| `PAC*SPPC` / `AUT*SPPC{R}` | `X30` read-write, `SP` read, `PC` read |
+| `LD64B` / `ST64B` / `ST64BV{0}` | `Xt+1..Xt+7` write / read |
+| `LDFF1*` | `FFR` read-write |
+| `LDNF1*`, `RDFFR`/`RDFFRS` | `FFR` read |
+| `SETFFR`, `WRFFR` | `FFR` write |
+| `SMSTART`/`SMSTOP` (bare or `ZA`) | `ZA` write |
+| `ADR`/`ADRP`, PC-relative literal loads | `PC` read |
+| every flag-setting / flag-consuming form | `NZCV` read / write / read-write |
+
+`PC` is reported only where it is a genuine *data input*. Sequential fetch and
+branch-target formation are not reported, since otherwise every instruction
+would read `PC`; a branch's resolved absolute target is available from
+`near_branch_target()` instead.
+
+---
+
+## Editing an instruction and re-encoding it
+
+The encoder rebuilds the 32-bit word from an `Instruction`'s **semantics** and
+never reads `word()`. That makes editing straightforward: change the operands,
+then encode.
+
+```rust
+use fARM64::{Decoder, DecoderOptions, Register};
+
+// ldr x0, [x1, #8]
+let bytes = 0xF940_0420u32.to_le_bytes();
+let mut insn = Decoder::new(&bytes, 0, DecoderOptions::NONE).decode();
+
+assert!(insn.set_memory_base(Register::X3));
+assert!(insn.set_memory_displacement64(16));
+
+// ldr x0, [x3, #16]
+assert_eq!(insn.encode(), Ok(0xF940_0860));
+```
+
+Rules the mutators follow:
+
+- **Total.** Each returns `false` (changing nothing) rather than panicking when
+  the edit does not apply: an out-of-range slot, a wrong operand shape, or a
+  value that does not fit the operand variant.
+- **Class- and width-checked registers.** `set_op_register` refuses a `W`
+  register where an `X` register was, or a `P` where a `Z` was, because
+  `Instruction::code()` — not the operand — carries the operand size. It also
+  enforces the operand shape's own range where one is narrower than the register
+  file: the predicate-as-counter `PNg` field is three bits, so `Operand::PredCounter`
+  accepts only `P8`..`P15`. Pair `set_op_register_unchecked` with `set_code` to
+  change the width deliberately.
+- **Decorations are preserved.** Replacing the register of `v0.4s[1]` keeps the
+  arrangement and lane; replacing an immediate keeps its `Operand` variant, and
+  therefore how the encoder packs it.
+- **Validation happens at encode time.** An immediate with no representation in
+  the instruction's fields, an out-of-range or misaligned branch target, an
+  `ADRP` target that is not 4 KiB-aligned, or an operand list that does not fit
+  the chosen `Code` surfaces as an `EncodeError` from `encode()` — not from the
+  setter. No form silently rounds a value it cannot represent.
+- **`word()` stays the decoded word.** `is_modified()` reports that it may be
+  stale; it is an upper bound for operand edits (swapping `SP` for `XZR` sets it
+  although both encode as register 31) and exact for the address — `set_ip` and
+  `relocate` set it only for an instruction whose encoding depends on `ip`.
+  `re_encode()` encodes and stores the result in `word()`'s place (and clears
+  the flag); on failure it changes nothing.
+
+`set_ip` and `relocate` are the two ways to move an instruction. `set_ip` keeps
+label operands pointing at the same **absolute** address, so the encoder
+re-derives the displacement — the behaviour you want when moving code that
+refers to fixed addresses. `relocate` shifts every label by the same delta, so
+**relative** displacements survive — the behaviour you want when copying a
+self-contained sequence elsewhere. Either can leave a target the encoding cannot
+name (a branch out of range, an `ADRP` moved by a sub-page delta); that is an
+`EncodeError`, never a silently rounded address.
+
+```rust
+pub fn encode(insn: &Instruction) -> Result<u32, EncodeError>;
+
+impl Instruction {
+    pub fn encode(&self) -> Result<u32, EncodeError>;
+    pub fn encode_bytes(&self) -> Result<[u8; 4], EncodeError>;
+    /// Encode, store into `word()`, clear `is_modified()`. Unchanged on failure.
+    pub fn re_encode(&mut self) -> Result<u32, EncodeError>;
 }
 ```
 
@@ -1097,13 +1287,17 @@ not apply and adds AArch64-specific concepts.
 | Separate `Mnemonic` only | `Code` **and** `Mnemonic` (kept), plus alias resolution in the formatter | Same split as iced; alias conditions applied per the ARM ARM. |
 | Many formatter dialects (Intel/AT&T/masm/nasm/gas) | `FmtFormatter` (UAL) default + optional UAL-equivalent `GnuFormatter` adapter | A distinct GNU policy is planned but not claimed today. |
 | `Register` as flat numeric, raw stack pointer | SP/ZR resolved at decode; never raw reg-31; SVE `Z`/predicate `P`, scalar `B/H/S/D/Q`, vector `V` views | A64 register model. |
-| Encoder/`BlockEncoder` shipped | semantic **encoder shipped** (`encode`/`Instruction::encode` → `Result<u32, EncodeError>`, validated by decode→encode→decode round-trip); no `BlockEncoder`/relocation layer | Round-trip proves the decode is invertible; block-level relocation is out of scope. |
+| Encoder/`BlockEncoder` shipped | semantic **encoder shipped** (`encode`/`Instruction::encode` → `Result<u32, EncodeError>`, validated by decode→encode→decode round-trip) plus in-place operand [editing](#editing-an-instruction-and-re-encoding-it); no `BlockEncoder` | Round-trip proves the decode is invertible, and editing makes it a rewriter; multi-instruction layout/branch-fixup is still out of scope. |
+| `Instruction::set_*` operand setters, `set_near_branch64` | `set_op_register`/`set_op_immediate`/`set_memory_*`/`set_near_branch_target`/`set_code`/… , all returning `bool` | Same intent; totality replaces iced's panicking/`debug_assert` contract, and register replacement is class- and width-checked because A64 puts the operand size in `Code`. |
+| `InstructionInfo` implicit `RFLAGS`/`used_registers` | same, with `Register::Nzcv`/`Ffr`/`Za`/`Pc` pseudo-registers and a standalone [`implicit_registers()`](#implicit-register-readswrites) | A64's implicit state (link register, PAC modifiers, the LS64 eight-register group, `FFR`) is per-family rather than a flag bitset. |
 | `alloc`/`String` assumed available | **no_std + no-alloc is the default**; `String`/`Vec` are `alloc`-gated extras | Hard portability requirement (wasm32, bare-metal). |
 
 **Added vs iced:** `FeatureSet`/`Feature` runtime extension gating (gated-off
 words remain invalid); `Operand` carries arrangement / lane / predicate
 qualifier / SME-tile shapes; `VectorArrangement`, `PredQual`, `SliceIndicator`,
-and `SmeTile` operands; `BufSink` fixed-buffer formatting as a first-class sink.
+and `SmeTile` operands; `BufSink` fixed-buffer formatting as a first-class sink;
+a standalone `implicit_registers()` projection; and `Instruction::relocate()`
+alongside `set_ip()` for the two distinct "move this instruction" semantics.
 
 ---
 

@@ -154,7 +154,7 @@ pub fn decode(word: u32, features: FeatureSet, out: &mut Instruction) {
             }
             let index = (b23 << 1) | b22;
             out.set(Code::SveLuti2);
-            out.set_mnemonic(Mnemonic::Luti2);
+            out.set_alias(Mnemonic::Luti2);
             out.push_operand(zreg(zd, VA::Sb));
             out.push_operand(zlist1(zn, VA::Sb));
             out.push_operand(zidx(zm, index));
@@ -162,7 +162,7 @@ pub fn decode(word: u32, features: FeatureSet, out: &mut Instruction) {
             // LUTI2 .H: 3-bit index = <23>:<22>:<12>.
             let index = (b23 << 2) | (b22 << 1) | b12;
             out.set(Code::SveLuti2);
-            out.set_mnemonic(Mnemonic::Luti2);
+            out.set_alias(Mnemonic::Luti2);
             out.push_operand(zreg(zd, VA::Sh));
             out.push_operand(zlist1(zn, VA::Sh));
             out.push_operand(zidx(zm, index));
@@ -177,7 +177,7 @@ pub fn decode(word: u32, features: FeatureSet, out: &mut Instruction) {
                 }
                 let index = b23;
                 out.set(Code::SveLuti4);
-                out.set_mnemonic(Mnemonic::Luti4);
+                out.set_alias(Mnemonic::Luti4);
                 out.push_operand(zreg(zd, VA::Sb));
                 out.push_operand(zlist1(zn, VA::Sb));
                 out.push_operand(zidx(zm, index));
@@ -186,7 +186,7 @@ pub fn decode(word: u32, features: FeatureSet, out: &mut Instruction) {
             (1, 1) => {
                 let index = (b23 << 1) | b22;
                 out.set(Code::SveLuti4);
-                out.set_mnemonic(Mnemonic::Luti4);
+                out.set_alias(Mnemonic::Luti4);
                 out.push_operand(zreg(zd, VA::Sh));
                 out.push_operand(zlist1(zn, VA::Sh));
                 out.push_operand(zidx(zm, index));
@@ -195,7 +195,7 @@ pub fn decode(word: u32, features: FeatureSet, out: &mut Instruction) {
             (1, 0) => {
                 let index = (b23 << 1) | b22;
                 out.set(Code::SveLuti4Two);
-                out.set_mnemonic(Mnemonic::Luti4);
+                out.set_alias(Mnemonic::Luti4);
                 out.push_operand(zreg(zd, VA::Sh));
                 out.push_operand(zlist2(zn, VA::Sh));
                 out.push_operand(zidx(zm, index));

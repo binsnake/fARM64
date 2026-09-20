@@ -189,7 +189,7 @@ fn decode_logical_shifted(word: u32, out: &mut Instruction) {
 
     // ORR Rn==ZR with LSL #0 -> MOV Rd, Rm.
     if is_orr && rn == 31 && st == ShiftType::Lsl && imm6 == 0 {
-        out.set_mnemonic(Mnemonic::Mov);
+        out.set_alias(Mnemonic::Mov);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rm));
         return;
@@ -197,7 +197,7 @@ fn decode_logical_shifted(word: u32, out: &mut Instruction) {
 
     // ORN Rn==ZR -> MVN Rd, Rm{, shift #amt}.
     if is_orn && rn == 31 {
-        out.set_mnemonic(Mnemonic::Mvn);
+        out.set_alias(Mnemonic::Mvn);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg_shifted(w, rm, st, imm6));
         return;
@@ -205,7 +205,7 @@ fn decode_logical_shifted(word: u32, out: &mut Instruction) {
 
     // ANDS Rd==ZR -> TST Rn, Rm{, shift #amt}.
     if is_ands && rd == 31 {
-        out.set_mnemonic(Mnemonic::Tst);
+        out.set_alias(Mnemonic::Tst);
         out.push_operand(reg(false, w, rn));
         out.push_operand(reg_shifted(w, rm, st, imm6));
         return;
@@ -261,7 +261,7 @@ fn decode_addsub_shifted(word: u32, out: &mut Instruction) {
 
     // SUBS/ADDS Rd==ZR -> CMP/CMN Rn, Rm{, shift #amt}.
     if flag_setting && rd == 31 {
-        out.set_mnemonic(if op == 1 {
+        out.set_alias(if op == 1 {
             Mnemonic::Cmp
         } else {
             Mnemonic::Cmn
@@ -273,7 +273,7 @@ fn decode_addsub_shifted(word: u32, out: &mut Instruction) {
 
     // SUB/SUBS Rn==ZR -> NEG/NEGS Rd, Rm{, shift #amt}.
     if op == 1 && rn == 31 {
-        out.set_mnemonic(if flag_setting {
+        out.set_alias(if flag_setting {
             Mnemonic::Negs
         } else {
             Mnemonic::Neg
@@ -361,7 +361,7 @@ fn decode_addsub_extended(word: u32, out: &mut Instruction) {
     let rm_op = build_extended_rm(rm, rm_w, ext, imm3, use_lsl);
 
     if is_cmp {
-        out.set_mnemonic(if op == 1 {
+        out.set_alias(if op == 1 {
             Mnemonic::Cmp
         } else {
             Mnemonic::Cmn
@@ -464,7 +464,7 @@ fn decode_addsub_carry(word: u32, out: &mut Instruction) {
 
     // SBC/SBCS Rn==ZR -> NGC/NGCS Rd, Rm.
     if op == 1 && rn == 31 {
-        out.set_mnemonic(if s == 1 {
+        out.set_alias(if s == 1 {
             Mnemonic::Ngcs
         } else {
             Mnemonic::Ngc
@@ -643,7 +643,7 @@ fn decode_cond_select(word: u32, out: &mut Instruction) {
 
     // CSET/CSETM: CSINC/CSINV with Rm==Rn==ZR.
     if (is_csinc || is_csinv) && rm == 31 && rn == 31 && cond_ok {
-        out.set_mnemonic(if is_csinc {
+        out.set_alias(if is_csinc {
             Mnemonic::Cset
         } else {
             Mnemonic::Csetm
@@ -664,7 +664,7 @@ fn decode_cond_select(word: u32, out: &mut Instruction) {
         } else {
             Mnemonic::Cneg
         };
-        out.set_mnemonic(m);
+        out.set_alias(m);
         out.push_operand(reg(false, w, rd));
         out.push_operand(reg(false, w, rn));
         out.push_operand(Operand::Cond(c.invert()));
@@ -734,7 +734,7 @@ fn decode_dp_3source(word: u32, out: &mut Instruction) {
             let is_msub = o0 == 1;
             // MUL/MNEG alias: Ra==ZR.
             if ra == 31 {
-                out.set_mnemonic(if is_msub {
+                out.set_alias(if is_msub {
                     Mnemonic::Mneg
                 } else {
                     Mnemonic::Mul
@@ -760,7 +760,7 @@ fn decode_dp_3source(word: u32, out: &mut Instruction) {
                     (false, false) => Mnemonic::Umull,
                     (false, true) => Mnemonic::Umnegl,
                 };
-                out.set_mnemonic(m);
+                out.set_alias(m);
                 out.push_operand(reg(false, RegWidth::X64, rd));
                 out.push_operand(reg(false, RegWidth::W32, rn));
                 out.push_operand(reg(false, RegWidth::W32, rm));
@@ -846,22 +846,22 @@ fn decode_dp_2source(word: u32, features: FeatureSet, out: &mut Instruction) {
         // Variable shifts -> LSL/LSR/ASR/ROR aliases.
         0b001000 => {
             out.set(if sf == 1 { Code::Lslv64 } else { Code::Lslv32 });
-            out.set_mnemonic(Mnemonic::Lsl);
+            out.set_alias(Mnemonic::Lsl);
             push_rrr(out, w, rd, rn, rm);
         }
         0b001001 => {
             out.set(if sf == 1 { Code::Lsrv64 } else { Code::Lsrv32 });
-            out.set_mnemonic(Mnemonic::Lsr);
+            out.set_alias(Mnemonic::Lsr);
             push_rrr(out, w, rd, rn, rm);
         }
         0b001010 => {
             out.set(if sf == 1 { Code::Asrv64 } else { Code::Asrv32 });
-            out.set_mnemonic(Mnemonic::Asr);
+            out.set_alias(Mnemonic::Asr);
             push_rrr(out, w, rd, rn, rm);
         }
         0b001011 => {
             out.set(if sf == 1 { Code::Rorv64 } else { Code::Rorv32 });
-            out.set_mnemonic(Mnemonic::Ror);
+            out.set_alias(Mnemonic::Ror);
             push_rrr(out, w, rd, rn, rm);
         }
         // IRG / GMI (FEAT_MTE, 64-bit).

@@ -274,7 +274,7 @@ fn decode_multiple(word: u32, out: &mut Instruction) {
     let total = nregs as i64 * reg_bytes;
 
     out.set(code);
-    out.set_mnemonic(mnem);
+    out.set_alias(mnem);
     out.push_operand(vlist(rt, nregs, arr, None));
     push_addr(out, post, rm, rn, total);
 }
@@ -382,7 +382,7 @@ fn decode_single(word: u32, out: &mut Instruction) {
     let total = nregs as i64 * ebytes;
 
     out.set(code);
-    out.set_mnemonic(mnem);
+    out.set_alias(mnem);
     // The list uses the truncated element-size suffix (`.b`/`.h`/`.s`/`.d`); the
     // formatter selects that automatically when a lane index is present.
     out.push_operand(vlist(rt, nregs, arr, Some(index as u8)));
@@ -409,7 +409,7 @@ fn decode_replicate(
     let total = nregs as i64 * elem_bytes(arr);
 
     out.set(code);
-    out.set_mnemonic(mnem);
+    out.set_alias(mnem);
     out.push_operand(vlist(rt, nregs, arr, None));
     push_addr(out, post, rm, rn, total);
 }

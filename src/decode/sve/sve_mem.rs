@@ -718,7 +718,7 @@ fn ld1r_scale(m: Mnemonic) -> i32 {
 #[inline]
 fn ld(out: &mut Instruction, m: Mnemonic, form: Form, a: VA, zt: u32, pg: u32, addr: Operand) {
     out.set(code_for(m, form));
-    out.set_mnemonic(m);
+    out.set_alias(m);
     out.push_operand(zlist(zt, 1, a));
     out.push_operand(pg_z(pg));
     out.push_operand(addr);
@@ -727,7 +727,7 @@ fn ld(out: &mut Instruction, m: Mnemonic, form: Form, a: VA, zt: u32, pg: u32, a
 #[inline]
 fn st(out: &mut Instruction, m: Mnemonic, form: Form, a: VA, zt: u32, pg: u32, addr: Operand) {
     out.set(code_for(m, form));
-    out.set_mnemonic(m);
+    out.set_alias(m);
     out.push_operand(zlist(zt, 1, a));
     out.push_operand(pg_plain(pg));
     out.push_operand(addr);
@@ -748,7 +748,7 @@ fn structured(
     store: bool,
 ) {
     out.set(code_for(m, form));
-    out.set_mnemonic(m);
+    out.set_alias(m);
     out.push_operand(zlist(zt, nreg, a));
     out.push_operand(if store { pg_plain(pg) } else { pg_z(pg) });
     out.push_operand(addr);
@@ -763,7 +763,7 @@ fn prf(out: &mut Instruction, m: Mnemonic, form: Form, zt: u32, pg: u32, addr: O
         return;
     }
     out.set(code_for(m, form));
-    out.set_mnemonic(m);
+    out.set_alias(m);
     out.push_operand(prefetch_op_sve(zt));
     out.push_operand(pg_plain(pg));
     out.push_operand(addr);
@@ -1626,7 +1626,7 @@ fn decode_ldr_str(word: u32, out: &mut Instruction, store: bool) {
     if is_vec {
         let code = if store { Code::SveStrZ } else { Code::SveLdrZ };
         out.set(code);
-        out.set_mnemonic(if store { Mnemonic::Str } else { Mnemonic::Ldr });
+        out.set_alias(if store { Mnemonic::Str } else { Mnemonic::Ldr });
         out.push_operand(zbare(bits(word, 0, 5)));
         out.push_operand(addr);
     } else {
@@ -1637,7 +1637,7 @@ fn decode_ldr_str(word: u32, out: &mut Instruction, store: bool) {
         }
         let code = if store { Code::SveStrP } else { Code::SveLdrP };
         out.set(code);
-        out.set_mnemonic(if store { Mnemonic::Str } else { Mnemonic::Ldr });
+        out.set_alias(if store { Mnemonic::Str } else { Mnemonic::Ldr });
         out.push_operand(pbare(bits(word, 0, 4)));
         out.push_operand(addr);
     }

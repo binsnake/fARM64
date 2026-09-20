@@ -101,6 +101,46 @@ impl Instruction {
     pub fn encode(&self) -> Result<u32, EncodeError> {
         encode(self)
     }
+
+    /// Encode this instruction into its 4 little-endian bytes.
+    ///
+    /// The byte-order-explicit form of [`Instruction::encode`], for writing
+    /// straight into a buffer.
+    #[inline]
+    pub fn encode_bytes(&self) -> Result<[u8; 4], EncodeError> {
+        encode(self).map(u32::to_le_bytes)
+    }
+
+    /// Encode this instruction and store the result as its raw
+    /// [`word`](Instruction::word), clearing
+    /// [`is_modified`](Instruction::is_modified).
+    ///
+    /// This is the commit step after
+    /// [editing](Instruction#editing-and-re-encoding): it makes `word()` agree
+    /// with the edited semantics again. On failure nothing is changed — the
+    /// instruction keeps its original word and stays marked modified — so a
+    /// rejected edit is never silently half-applied.
+    ///
+    /// ```
+    /// use fARM64::{Decoder, DecoderOptions, Register};
+    ///
+    /// // `ldr x0, [x1, #8]` -> `ldr x0, [x3, #16]`
+    /// let bytes = 0xF940_0420u32.to_le_bytes();
+    /// let mut insn = Decoder::new(&bytes, 0, DecoderOptions::NONE).decode();
+    /// assert!(insn.set_memory_base(Register::X3));
+    /// assert!(insn.set_memory_displacement64(16));
+    ///
+    /// assert_eq!(insn.re_encode(), Ok(0xF940_0860));
+    /// assert_eq!(insn.word(), 0xF940_0860);
+    /// assert!(!insn.is_modified());
+    /// ```
+    #[inline]
+    pub fn re_encode(&mut self) -> Result<u32, EncodeError> {
+        let word = encode(self)?;
+        self.word = word;
+        self.flags &= !Instruction::FLAG_MODIFIED;
+        Ok(word)
+    }
 }
 
 /// `true` for every [`Code`] produced by the Data Processing -- Immediate group

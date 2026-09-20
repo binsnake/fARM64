@@ -12,6 +12,8 @@
 - **Ergonomic iteration.** `Decoder` is an `Iterator` (both `for insn in &mut dec` and consuming `for insn in dec`), plus a `decode_into` fast path for tight loops.
 - **Broad ISA coverage.** Full base A64 plus Advanced SIMD / FP, SVE / SVE2, SME / SME2, the crypto extensions, and a long tail of recent additions: MOPS, CSSC, RCPC3, D128, THE, LSE128, SVE2p1, CMPBR, CPA, and more.
 - **Encoder included.** `Instruction::encode()` reconstructs the 32-bit word from instruction *semantics* (never from the stored raw word), proving the decode is invertible.
+- **Editable instructions.** Swap registers, immediates, memory bases, conditions and branch targets on a decoded `Instruction`, then `encode()` the result. Register replacement is class- and width-checked, operand decorations are preserved, and every setter is total — an edit with no valid encoding surfaces as an `EncodeError`, never a panic.
+- **Implicit register reads/writes.** `implicit_registers()` reports the state an instruction touches without naming it: the link register of a call/return, the `X30`/`SP`/`X16`/`X17` of the pointer-authentication forms, the eight-register `LD64B`/`ST64B` group, the SVE `FFR`, `PC` for PC-relative address generation, and `NZCV`. It is merged into `instruction_info()`'s access set.
 - **Pluggable formatting.** Default Arm UAL `FmtFormatter`, an optional `GnuFormatter` compatibility adapter behind `fmt-gnu`, a token-classifying `FormatterOutput` sink, and a `SymbolResolver` hook. `GnuFormatter` currently emits the same UAL text as `FmtFormatter`.
 - **Two feature layers.** Cargo features compile optional implementation modules; a runtime `FeatureSet` controls which architectural and implementation-defined encodings the decoder accepts.
 
@@ -233,6 +235,41 @@ What each accessor means:
 - **`op_register(n)` / `op_immediate(n)`** — fast indexed accessors. `op_register` returns `Register::None` if slot `n` is not a plain register; `op_immediate` returns the unsigned/logical/signed-as-`u64`/label value, or `0` otherwise.
 - **`len()` / `ip()` / `next_ip()` / `word()`** — fixed length (always 4), decode address, following address (`ip + 4`), and the raw little-endian word.
 - **`flow_control()`** — `FlowControl` classification (branch / call / return / exception / next). **`set_flags()`** — `FlagEffect` NZCV behaviour (`SetsNormal`, `SetsFloat`, or `None`).
+- **`implicit_registers()`** — the registers touched *without* an operand naming them (see below).
+
+---
+
+## Implicit register reads and writes
+
+A64 hides real dataflow behind the mnemonic. `BL` writes `X30`; `PACIASP` read-modifies `X30` using `SP`; `PACIA1716` read-modifies `X17` using `X16`; `LD64B <Xt>` writes the eight registers `Xt..Xt+7` while spelling only `Xt`; `LDFF1*` read-modifies the SVE `FFR`; `ADR` reads `PC`. None of that appears in the operand list.
+
+`implicit_registers()` reports it as a fixed-capacity, allocation-free list. Architectural state with no numbered register is modelled as a pseudo-register appended to `Register` — `Nzcv`, `Ffr`, `Za`, `Pc` — which the decoder never produces as an operand and the formatter never prints (`Register::is_pseudo()` identifies them).
+
+```rust
+use fARM64::{implicit_registers, instruction_info, Decoder, DecoderOptions, OpAccess, Register};
+
+fn main() {
+    // `ld64b x0, [x1]` — loads x0..x7, but only x0 is spelled.
+    let code = 0xF83F_D020u32.to_le_bytes();
+    let mut dec = Decoder::new(&code, 0x1000, DecoderOptions::default());
+    let insn = dec.decode();
+
+    // The implicit part on its own: x1..x7 are written.
+    let imp = implicit_registers(&insn);
+    assert!(imp.writes(Register::X7));
+    assert_eq!(imp.access_of(Register::X2), OpAccess::Write);
+
+    // `instruction_info()` merges it with the explicit operands, so x1 — both
+    // the address base and part of the destination group — reports once.
+    let info = instruction_info(&insn);
+    let x1 = info.used_registers().iter().find(|u| u.register == Register::X1).unwrap();
+    assert_eq!(x1.access, OpAccess::ReadWrite);
+}
+```
+
+`PC` is reported only where it is a genuine data *input* (`ADR`/`ADRP`, the PC-relative literal loads, the FEAT_PAuth_LR `PAC*SPPC` forms). Sequential fetch and branch-target formation are not reported — otherwise every instruction would read `PC` — and a branch's resolved absolute target is already available from `near_branch_target()`.
+
+See [docs/API.md](docs/API.md#implicit-register-readswrites) for the full rule table.
 
 ---
 
@@ -412,6 +449,59 @@ fn main() {
 `EncodeError` variants: `Unsupported` (this `Code`/group is not implemented yet), `InvalidOperand` (operand missing or of the wrong kind), `InvalidImmediate` (an immediate, shift, or PC-relative target with no valid field encoding), and `Invalid` (the `Code::Invalid` sentinel has no encoding).
 
 Because the encoder rebuilds from the canonical `Code`, the guarantee is a **semantic** round-trip (the re-encoded word decodes to an equivalent instruction), not necessarily a byte-identical one for encodings that have multiple equivalent spellings.
+
+### Re-encoding with different operands
+
+Because the encoder works from semantics alone, editing a decoded `Instruction` and encoding it gives you the word for the *edited* instruction. That makes `fARM64` usable as a small rewriter, not just a disassembler.
+
+```rust
+use fARM64::{Code, Condition, Decoder, DecoderOptions, Register};
+
+fn main() {
+    // add x0, x1, x2  ->  add x5, x1, x7
+    let mut insn = Decoder::new(&0x8B02_0020u32.to_le_bytes(), 0, DecoderOptions::NONE).decode();
+    assert!(insn.set_op_register(0, Register::X5));
+    assert!(insn.set_op_register(2, Register::X7));
+    assert_eq!(insn.encode(), Ok(0x8B07_0025));
+
+    // ...and on to a different encoding entirely: sub x5, x1, x7
+    insn.set_code(Code::SubShifted64);
+    assert_eq!(insn.encode(), Ok(0xCB07_0025));
+
+    // ldr x0, [x1, #8]  ->  ldr x0, [x3, #16], committed into word().
+    let mut ldr = Decoder::new(&0xF940_0420u32.to_le_bytes(), 0, DecoderOptions::NONE).decode();
+    assert!(ldr.set_memory_base(Register::X3));
+    assert!(ldr.set_memory_displacement64(16));
+    assert_eq!(ldr.re_encode(), Ok(0xF940_0860));
+    assert_eq!(ldr.word(), 0xF940_0860);
+
+    // b.eq 0x1008  ->  b.ne 0x1000
+    let mut b = Decoder::new(&0x5400_0040u32.to_le_bytes(), 0x1000, DecoderOptions::NONE).decode();
+    assert!(b.set_condition(Condition::Ne));
+    assert!(b.set_near_branch_target(0x1000));
+    assert_eq!(b.encode(), Ok(0x5400_0001));
+}
+```
+
+The setters:
+
+| Setter | Edits |
+|-|-|
+| `set_op_register` / `set_op_register_unchecked` | the register of a single-register operand, keeping arrangement / lane / shift / extend / predicate |
+| `set_op_immediate` | an immediate's value, keeping its `Operand` variant (and so how it is packed) |
+| `set_op` / `push_op` / `set_op_count` | the operand list wholesale |
+| `set_memory_base` / `set_memory_index` / `set_memory_displacement64` | a memory operand, keeping its addressing mode |
+| `set_condition` | the condition-code operand |
+| `set_near_branch_target` / `set_label` | a resolved absolute target |
+| `set_code` / `set_mnemonic` | the encoding identity / the displayed alias |
+| `set_ip` / `relocate` | the address — `set_ip` keeps labels at the same absolute address, `relocate` keeps them at the same *relative* displacement |
+
+Rules worth knowing:
+
+- Every setter is **total**: it returns `false` and changes nothing when the edit does not apply, rather than panicking.
+- `set_op_register` is **class- and width-checked** — it will not put a `W` register where an `X` register was, because the operand size lives in `Code`, not in the operand. It also enforces an operand shape's own range where one is narrower than the register file (the 3-bit predicate-as-counter `PNg` field takes only `p8`..`p15`). Pair `set_op_register_unchecked` with `set_code` to change the width deliberately.
+- Edits are **not** validated against the encoding. A value with no representation in the instruction's fields (a non-bitmask logical immediate, an out-of-range branch target, a displacement the encoding cannot scale, an `ADRP` target that is not 4 KiB-aligned) surfaces as an `EncodeError` from `encode()` — never a silently rounded value.
+- `word()` keeps returning the word the instruction was *decoded* from; `is_modified()` says it may be stale. `re_encode()` encodes and stores the new word in its place, and changes nothing on failure. Moving an instruction that is not PC-relative leaves both alone: `set_ip`/`relocate` only mark an instruction modified when its encoding depends on `ip`.
 
 ---
 

@@ -3,6 +3,8 @@
 //! Each case decodes a single A64 word (encodings cross-checked with `llvm-mc`)
 //! and asserts the exact read/write register set, memory accesses, and the NZCV
 //! `flags_read`/`flags_written` booleans, against hand-derived ARM ARM semantics.
+//! The NZCV flags also appear in the register set as the [`Register::Nzcv`]
+//! pseudo-register, so flag-setting and flag-reading forms list it explicitly.
 //! There is no oracle for register-access info, so these expectations are the
 //! validation surface.
 
@@ -109,7 +111,7 @@ fn add_writes_dest_reads_sources() {
 
 #[test]
 fn adds_sets_flags() {
-    // adds x0, x1, x2 -> W x0; R x1, x2; flags written, not read.
+    // adds x0, x1, x2 -> W x0; R x1, x2; NZCV written, not read.
     let w = 0xab02_0020;
     assert_regs(
         w,
@@ -117,6 +119,7 @@ fn adds_sets_flags() {
             (Register::X0, OpAccess::Write),
             (Register::X1, OpAccess::Read),
             (Register::X2, OpAccess::Read),
+            (Register::Nzcv, OpAccess::Write),
         ],
     );
     assert_flags(w, false, true);
@@ -131,6 +134,7 @@ fn cmp_has_no_dest_and_sets_flags() {
         &[
             (Register::X1, OpAccess::Read),
             (Register::X2, OpAccess::Read),
+            (Register::Nzcv, OpAccess::Write),
         ],
     );
     assert_flags(w, false, true);
@@ -138,7 +142,7 @@ fn cmp_has_no_dest_and_sets_flags() {
 
 #[test]
 fn adc_reads_and_writes_flags() {
-    // adc x0, x1, x2 -> W x0; R x1, x2; flags read (carry), not written.
+    // adc x0, x1, x2 -> W x0; R x1, x2; NZCV read (carry), not written.
     let w = 0x9a02_0020;
     assert_regs(
         w,
@@ -146,6 +150,7 @@ fn adc_reads_and_writes_flags() {
             (Register::X0, OpAccess::Write),
             (Register::X1, OpAccess::Read),
             (Register::X2, OpAccess::Read),
+            (Register::Nzcv, OpAccess::Read),
         ],
     );
     assert_flags(w, true, false);
@@ -153,7 +158,7 @@ fn adc_reads_and_writes_flags() {
 
 #[test]
 fn csel_reads_flags() {
-    // csel x0, x1, x2, eq -> W x0; R x1, x2; flags read.
+    // csel x0, x1, x2, eq -> W x0; R x1, x2; NZCV read.
     let w = 0x9a82_0020;
     assert_regs(
         w,
@@ -161,6 +166,7 @@ fn csel_reads_flags() {
             (Register::X0, OpAccess::Write),
             (Register::X1, OpAccess::Read),
             (Register::X2, OpAccess::Read),
+            (Register::Nzcv, OpAccess::Read),
         ],
     );
     assert_flags(w, true, false);
@@ -497,6 +503,65 @@ fn ret_with_explicit_reg_reads_that_reg() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[cfg(feature = "sve")]
+fn merging_predication_read_modifies_the_destination() {
+    // The same mnemonic, distinguished only by the governing qualifier:
+    //
+    //   abs z14.b, p0/m, z25.b   inactive elements of z14 keep their value
+    //   abs z31.b, p0/z, z26.b   inactive elements of z31 are zeroed
+    //
+    // so the merging form's destination is an input as well and the zeroing
+    // form's is not.
+    assert_regs(
+        0x0416_A32E,
+        &[
+            (Register::Z14, OpAccess::ReadWrite),
+            (Register::P0, OpAccess::Read),
+            (Register::Z25, OpAccess::Read),
+        ],
+    );
+    assert_regs(
+        0x0406_A35F,
+        &[
+            (Register::Z31, OpAccess::Write),
+            (Register::P0, OpAccess::Read),
+            (Register::Z26, OpAccess::Read),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "sve")]
+fn merging_predication_applies_to_a_widening_convert() {
+    // bfcvt z31.h, p0/m, z13.s — only the selected halves are written.
+    assert_regs(
+        0x658A_A1BF,
+        &[
+            (Register::Z31, OpAccess::ReadWrite),
+            (Register::P0, OpAccess::Read),
+            (Register::Z13, OpAccess::Read),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "sme")]
+fn merging_predication_read_modifies_a_za_tile_slice() {
+    // mova z0h.b[w12, #0], p0/m, z0.b — the unselected elements of the ZA tile
+    // slice survive, so ZA is read-modified rather than overwritten.
+    assert_regs(
+        0xC000_0000,
+        &[
+            (Register::Za, OpAccess::ReadWrite),
+            (Register::W12, OpAccess::Read),
+            (Register::P0, OpAccess::Read),
+            (Register::Z0, OpAccess::Read),
+        ],
+    );
+}
+
+#[test]
+#[cfg(feature = "sve")]
 fn sve_predicated_add_reads_governing_predicate() {
     // fadd z0.s, p0/m, z0.s, z1.s -> RW z0 (merge-into-dest source), R p0, R z1.
     let w = 0x6580_8020;
@@ -527,6 +592,7 @@ fn sve_predicated_add_reads_governing_predicate() {
 }
 
 #[test]
+#[cfg(feature = "sme")]
 fn sme_fmopa_za_dest_is_read_write() {
     // fmopa za0.s, p0/m, p1/m, z0.s, z1.s
     // ZAda accumulator (rendered as z0) is RW; predicates p0/p1 read; z1 read.

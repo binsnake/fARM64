@@ -2,7 +2,8 @@
 //!
 //! `fARM64` decodes 64-bit ARM (AArch64 / A64) machine code into a rich,
 //! `Copy` value-type [`Instruction`], renders it with a pluggable [`Formatter`],
-//! and re-encodes instruction semantics with [`encode()`]. The Arm architectural
+//! and re-encodes instruction semantics with [`encode()`] — including after
+//! [editing](Instruction#editing-and-re-encoding) its operands. The Arm architectural
 //! decode tree is hand-written from the Arm Architecture Reference Manual (the
 //! "Arm ARM") and cross-checked during development against independent tools
 //! and corpora. Apple AMX and GXF are implementation-defined exceptions based
@@ -70,6 +71,38 @@
 //! let _text: &str = sink.as_str();
 //! ```
 //!
+//! ## Editing and re-encoding
+//!
+//! [`encode()`] rebuilds the word from an [`Instruction`]'s *semantics* and
+//! never reads [`Instruction::word`], so changing the operands and encoding
+//! again yields the word for the changed instruction:
+//!
+//! ```
+//! use fARM64::{Decoder, DecoderOptions, Register};
+//!
+//! // `ldr x0, [x1, #8]` -> `ldr x0, [x3, #16]`
+//! let bytes = 0xF940_0420u32.to_le_bytes();
+//! let mut insn = Decoder::new(&bytes, 0, DecoderOptions::NONE).decode();
+//! assert!(insn.set_memory_base(Register::X3));
+//! assert!(insn.set_memory_displacement64(16));
+//! assert_eq!(insn.encode(), Ok(0xF940_0860));
+//! ```
+//!
+//! Every setter is total: it returns `false` rather than panicking when the edit
+//! does not apply, and a value with no valid field encoding surfaces as an
+//! [`EncodeError`] from `encode()`. See
+//! [the editing rules](Instruction#editing-and-re-encoding).
+//!
+//! ## Implicit register reads and writes
+//!
+//! A64 hides real dataflow behind the mnemonic — `BL` writes `X30`, `PACIASP`
+//! read-modifies `X30` using `SP`, `LD64B <Xt>` writes `Xt..Xt+7`, `LDFF1*`
+//! read-modifies the SVE `FFR`, `ADR` reads `PC`. [`implicit_registers()`]
+//! reports all of it, using the [`Register::Nzcv`] / [`Register::Ffr`] /
+//! [`Register::Za`] / [`Register::Pc`] pseudo-registers for state that has no
+//! numbered register. [`instruction_info()`] merges the list into its
+//! [`used_registers`](info::InstructionInfo::used_registers) access set.
+//!
 //! ## Licensing & provenance
 //!
 //! Licensed under the MIT License. Arm architectural instruction handling is
@@ -107,6 +140,13 @@ pub mod enums;
 pub mod error;
 pub mod features;
 pub mod format;
+
+/// Implicit register reads/writes — the architectural state an instruction
+/// touches without naming it in an operand (the link register, the pointer-
+/// authentication `X30`/`SP`/`X16`/`X17`, the FEAT_LS64 `Xt+1..Xt+7` group, the
+/// SVE `FFR`, `PC` for PC-relative address generation, and the `NZCV` flags).
+pub mod implicit;
+
 pub mod info;
 pub mod instruction;
 pub mod mnemonic;
@@ -154,11 +194,12 @@ pub use crate::features::{Feature, FeatureSet};
 pub use crate::format::{
     Formatter, FormatterOptions, FormatterOutput, SymbolResolver, SymbolResult, TokenKind,
 };
+pub use crate::implicit::{implicit_registers, ImplicitRegisters, MAX_IMPLICIT_REGS};
 pub use crate::info::{instruction_info, InstructionInfo, OpAccess, UsedMemory, UsedRegister};
 pub use crate::instruction::Instruction;
 pub use crate::mnemonic::{Code, EnumValueError, Mnemonic};
 pub use crate::operand::{MemIndexMode, OpKind, Operand, PredQual, SliceIndicator, SveMemMode};
-pub use crate::register::{gp_register, RegClass, RegWidth, Register};
+pub use crate::register::{gp_register, sve_register, RegClass, RegWidth, Register};
 pub use crate::sysreg::SystemReg;
 
 #[cfg(feature = "alloc")]

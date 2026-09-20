@@ -24,7 +24,7 @@
 //!
 //! Code identity follows the module convention: one [`Code`] per ARM ARM
 //! encoding class, the preferred-disassembly alias installed via
-//! `Instruction::set_mnemonic` where the corpus uses one (`FMOV` for `FCPY`/
+//! `Instruction::set_alias` where the corpus uses one (`FMOV` for `FCPY`/
 //! `FDUP`), and arrangement / predicate / lane decoration carried in the
 //! operands. Every path is total and panic-free; unallocated encodings are left
 //! [`Code::Invalid`].
@@ -2036,7 +2036,7 @@ pub fn decode_fcpy_05(word: u32, features: FeatureSet, out: &mut Instruction) {
         _ => 64,
     };
     out.set(Code::SveFcpy);
-    out.set_mnemonic(Mnemonic::Fmov);
+    out.set_alias(Mnemonic::Fmov);
     out.push_operand(zreg(zd_of(word), a));
     out.push_operand(preg_q(pg, PredQual::Merging));
     out.push_operand(fpimm_for(imm8, n));
@@ -2065,7 +2065,7 @@ pub fn decode_fdup_25(word: u32, features: FeatureSet, out: &mut Instruction) {
         _ => 64,
     };
     out.set(Code::SveFdup);
-    out.set_mnemonic(Mnemonic::Fmov);
+    out.set_alias(Mnemonic::Fmov);
     out.push_operand(zreg(zd_of(word), a));
     out.push_operand(fpimm_for(imm8, n));
 }

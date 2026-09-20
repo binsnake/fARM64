@@ -23,7 +23,7 @@
 //!
 //! Code identity follows the module convention: one [`Code`] per ARM ARM encoding
 //! class, the preferred-disassembly alias installed via
-//! `Instruction::set_mnemonic` where the corpus uses one, and arrangement /
+//! `Instruction::set_alias` where the corpus uses one, and arrangement /
 //! predicate / lane decoration carried in the operands. Every path is total and
 //! panic-free; unallocated encodings are left [`Code::Invalid`].
 
@@ -412,7 +412,7 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
             let zn = bits(word, 5, 5);
             let zd = bits(word, 0, 5);
             out.set(Code::SveZipUzpTrnZzz);
-            out.set_mnemonic(mnem);
+            out.set_alias(mnem);
             out.push_operand(zreg(zd, a));
             out.push_operand(zreg(zn, a));
             out.push_operand(zreg(zm, a));
@@ -431,7 +431,7 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
                     let zn = bits(word, 5, 5);
                     let zd = bits(word, 0, 5);
                     out.set(Code::SveTbl);
-                    out.set_mnemonic(Mnemonic::Tbl);
+                    out.set_alias(Mnemonic::Tbl);
                     out.push_operand(zreg(zd, a));
                     out.push_operand(zlist1(zn, a));
                     out.push_operand(zreg(zm, a));
@@ -444,13 +444,13 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
                     let zd = bits(word, 0, 5);
                     if bit(word, 10) == 0 {
                         out.set(Code::SveTbl2);
-                        out.set_mnemonic(Mnemonic::Tbl);
+                        out.set_alias(Mnemonic::Tbl);
                         out.push_operand(zreg(zd, a));
                         out.push_operand(zlist2(zn, a));
                         out.push_operand(zreg(zm, a));
                     } else {
                         out.set(Code::SveTbx);
-                        out.set_mnemonic(Mnemonic::Tbx);
+                        out.set_alias(Mnemonic::Tbx);
                         out.push_operand(zreg(zd, a));
                         out.push_operand(zreg(zn, a));
                         out.push_operand(zreg(zm, a));
@@ -477,7 +477,7 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
                         let zn = bits(word, 5, 5);
                         let zd = bits(word, 0, 5);
                         out.set(Code::SveRevZz);
-                        out.set_mnemonic(Mnemonic::Rev);
+                        out.set_alias(Mnemonic::Rev);
                         out.push_operand(zreg(zd, a));
                         out.push_operand(zreg(zn, a));
                     } else if bits(word, 18, 3) == 0b100 {
@@ -500,7 +500,7 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
                         let zn = bits(word, 5, 5);
                         let zd = bits(word, 0, 5);
                         out.set(Code::SveUnpk);
-                        out.set_mnemonic(mnem);
+                        out.set_alias(mnem);
                         out.push_operand(zreg(zd, a));
                         out.push_operand(zreg(zn, src));
                     }
@@ -535,7 +535,7 @@ fn decode_perm(word: u32, features: FeatureSet, out: &mut Instruction) {
                 let zn = bits(word, 5, 5);
                 let zd = bits(word, 0, 5);
                 out.set(Code::SveZipUzpTrnQ);
-                out.set_mnemonic(mnem);
+                out.set_alias(mnem);
                 out.push_operand(zreg_q(zd));
                 out.push_operand(zreg_q(zn));
                 out.push_operand(zreg_q(zm));
@@ -612,7 +612,7 @@ fn decode_pred_perm(word: u32, out: &mut Instruction) {
         let a = arr(size);
         let pm = bits(word, 16, 4);
         out.set(Code::SveZipUzpTrnPpp);
-        out.set_mnemonic(mnem);
+        out.set_alias(mnem);
         out.push_operand(preg_sz(pd, a));
         out.push_operand(preg_sz(pn, a));
         out.push_operand(preg_sz(pm, a));
@@ -629,14 +629,14 @@ fn decode_pred_perm(word: u32, out: &mut Instruction) {
     if op2016 == 0b10100 {
         let a = arr(size);
         out.set(Code::SveRevP);
-        out.set_mnemonic(Mnemonic::Rev);
+        out.set_alias(Mnemonic::Rev);
         out.push_operand(preg_sz(pd, a));
         out.push_operand(preg_sz(pn, a));
     } else if bits(word, 17, 4) == 0b1000 && size == 0 {
         // PUNPKHI/LO: H=<16>. Dest `.H`, source `.B`.
         let hi = bit(word, 16) == 1;
         out.set(Code::SvePunpk);
-        out.set_mnemonic(if hi {
+        out.set_alias(if hi {
             Mnemonic::Punpkhi
         } else {
             Mnemonic::Punpklo
@@ -669,7 +669,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
                     RegWidth::W32
                 };
                 out.set(Code::SveClastR);
-                out.set_mnemonic(if b == 0 {
+                out.set_alias(if b == 0 {
                     Mnemonic::Clasta
                 } else {
                     Mnemonic::Clastb
@@ -688,7 +688,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
                     RegWidth::W32
                 };
                 out.set(Code::SveLastR);
-                out.set_mnemonic(if b == 0 {
+                out.set_alias(if b == 0 {
                     Mnemonic::Lasta
                 } else {
                     Mnemonic::Lastb
@@ -702,7 +702,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
             // `<15:13>=100` group below; this is its `<15:13>=101` sibling.
             0b01110 if size == 0 && bit(word, 21) == 1 && features.has(Feature::Sve2p1) => {
                 out.set(Code::SveRevdZpzZero);
-                out.set_mnemonic(Mnemonic::Revd);
+                out.set_alias(Mnemonic::Revd);
                 out.push_operand(zreg_q(d));
                 out.push_operand(preg_q(pg, PredQual::Zeroing));
                 out.push_operand(zreg_q(s1));
@@ -719,7 +719,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
             // Distinguish COMPACT (`<23>=1`) from REVW (`<20:16>=00110`, different).
             let a = if bit(word, 22) == 0 { VA::Ss } else { VA::Sd };
             out.set(Code::SveCompact);
-            out.set_mnemonic(Mnemonic::Compact);
+            out.set_alias(Mnemonic::Compact);
             out.push_operand(zreg(d, a));
             out.push_operand(preg(pg));
             out.push_operand(zreg(s1, a));
@@ -728,7 +728,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b01100 => {
             let a = arr(size);
             out.set(Code::SveSpliceDes);
-            out.set_mnemonic(Mnemonic::Splice);
+            out.set_alias(Mnemonic::Splice);
             out.push_operand(zreg(d, a));
             out.push_operand(preg(pg));
             out.push_operand(zreg(d, a));
@@ -738,7 +738,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b01101 => {
             let a = arr(size);
             out.set(Code::SveSpliceCon);
-            out.set_mnemonic(Mnemonic::Splice);
+            out.set_alias(Mnemonic::Splice);
             out.push_operand(zreg(d, a));
             out.push_operand(preg(pg));
             out.push_operand(zlist2(s1, a));
@@ -748,7 +748,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
             let b = bit(word, 16);
             let a = arr(size);
             out.set(Code::SveClastZ);
-            out.set_mnemonic(if b == 0 {
+            out.set_alias(if b == 0 {
                 Mnemonic::Clasta
             } else {
                 Mnemonic::Clastb
@@ -762,7 +762,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b01010 | 0b01011 => {
             let b = bit(word, 16);
             out.set(Code::SveClastV);
-            out.set_mnemonic(if b == 0 {
+            out.set_alias(if b == 0 {
                 Mnemonic::Clasta
             } else {
                 Mnemonic::Clastb
@@ -776,7 +776,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
         0b00010 | 0b00011 => {
             let b = bit(word, 16);
             out.set(Code::SveLastV);
-            out.set_mnemonic(if b == 0 {
+            out.set_alias(if b == 0 {
                 Mnemonic::Lasta
             } else {
                 Mnemonic::Lastb
@@ -797,7 +797,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
             }
             let a = arr(size);
             out.set(Code::SveRevbhw);
-            out.set_mnemonic(mnem);
+            out.set_alias(mnem);
             out.push_operand(zreg(d, a));
             out.push_operand(preg_q(pg, PredQual::Merging));
             out.push_operand(zreg(s1, a));
@@ -810,7 +810,7 @@ fn decode_perm_misc(word: u32, features: FeatureSet, out: &mut Instruction) {
                 return; // size field reserved; `<21>` must be 1.
             }
             out.set(Code::RevdZPZ);
-            out.set_mnemonic(Mnemonic::Revd);
+            out.set_alias(Mnemonic::Revd);
             out.push_operand(zreg_q(d));
             out.push_operand(preg_q(pg, PredQual::Merging));
             out.push_operand(zreg_q(s1));
@@ -846,7 +846,7 @@ fn decode_ext_des(word: u32, out: &mut Instruction) {
     let zm = bits(word, 5, 5);
     let zdn = bits(word, 0, 5);
     out.set(Code::SveExtDes);
-    out.set_mnemonic(Mnemonic::Ext);
+    out.set_alias(Mnemonic::Ext);
     out.push_operand(zreg(zdn, VA::Sb));
     out.push_operand(zreg(zdn, VA::Sb));
     out.push_operand(zreg(zm, VA::Sb));
@@ -867,7 +867,7 @@ fn decode_ext_con(word: u32, out: &mut Instruction) {
     let zn = bits(word, 5, 5);
     let zd = bits(word, 0, 5);
     out.set(Code::SveExtCon);
-    out.set_mnemonic(Mnemonic::Ext);
+    out.set_alias(Mnemonic::Ext);
     out.push_operand(zreg(zd, VA::Sb));
     out.push_operand(zlist2(zn, VA::Sb));
     out.push_operand(zreg(0, VA::Sb)); // Binary Ninja's spurious `z0.b`.
@@ -962,13 +962,13 @@ fn decode_while_pair_pn(word: u32, out: &mut Instruction) {
         let k = bits(word, 1, 3);
         let first = (2 * k) & 0xf;
         out.set(Code::SveWhilePair);
-        out.set_mnemonic(mnem);
+        out.set_alias(mnem);
         out.push_operand(pred_pair(first, a));
     } else {
         // Predicate-as-counter: `PN(8 + <2:0>).T`, with a VLx2/VLx4 multiplier.
         let pn = 8 + bits(word, 0, 3);
         out.set(Code::SveWhilePn);
-        out.set_mnemonic(mnem);
+        out.set_alias(mnem);
         out.push_operand(Operand::PredCounter {
             reg: P[(pn & 0xf) as usize],
             zeroing: false,
@@ -1025,7 +1025,7 @@ fn decode_pext_ptrue_pn(word: u32, out: &mut Instruction) {
                 };
                 let pd = bits(word, 0, 4);
                 out.set(Code::SvePextSingle);
-                out.set_mnemonic(Mnemonic::Pext);
+                out.set_alias(Mnemonic::Pext);
                 out.push_operand(preg_sz(pd, a));
                 out.push_operand(src);
             } else {
@@ -1045,7 +1045,7 @@ fn decode_pext_ptrue_pn(word: u32, out: &mut Instruction) {
                 };
                 let pd = bits(word, 0, 4);
                 out.set(Code::SvePextPair);
-                out.set_mnemonic(Mnemonic::Pext);
+                out.set_alias(Mnemonic::Pext);
                 out.push_operand(pred_pair(pd, a));
                 out.push_operand(src);
             }
@@ -1062,7 +1062,7 @@ fn decode_pext_ptrue_pn(word: u32, out: &mut Instruction) {
                 return;
             }
             out.set(Code::SvePtruePn);
-            out.set_mnemonic(Mnemonic::Ptrue);
+            out.set_alias(Mnemonic::Ptrue);
             out.push_operand(Operand::PredCounter {
                 reg: P[(pnd & 0xf) as usize],
                 zeroing: false,
@@ -1127,7 +1127,7 @@ fn decode_while_dup(word: u32, out: &mut Instruction) {
         _ => return,
     };
     out.set(Code::SveWhile);
-    out.set_mnemonic(mnem);
+    out.set_alias(mnem);
     out.push_operand(preg_sz(pd, a));
     out.push_operand(gpr(rn, w));
     out.push_operand(gpr(rm, w));
@@ -1146,7 +1146,7 @@ fn decode_while_rw(word: u32, out: &mut Instruction) {
     let pd = bits(word, 0, 4);
     let rw = bit(word, 4);
     out.set(Code::SveWhileRw);
-    out.set_mnemonic(if rw == 1 {
+    out.set_alias(if rw == 1 {
         Mnemonic::Whilerw
     } else {
         Mnemonic::Whilewr
@@ -1179,7 +1179,7 @@ fn decode_cterm(word: u32, out: &mut Instruction) {
     let rn = bits(word, 5, 5);
     let op = bit(word, 4);
     out.set(Code::SveCterm);
-    out.set_mnemonic(if op == 0 {
+    out.set_alias(if op == 0 {
         Mnemonic::Ctermeq
     } else {
         Mnemonic::Ctermne
@@ -1241,13 +1241,13 @@ fn decode_pred_misc(word: u32, out: &mut Instruction) {
         // MOV alias: SEL Pd, Pg, Pn, Pd  (Pm == Pd)  ->  MOV Pd.B, Pg/M, Pn.B.
         if pm == pd {
             out.set(Code::SveSelPred);
-            out.set_mnemonic(Mnemonic::Mov);
+            out.set_alias(Mnemonic::Mov);
             out.push_operand(preg_sz(pd, VA::Sb));
             out.push_operand(preg_q(pg, PredQual::Merging));
             out.push_operand(preg_sz(pn, VA::Sb));
         } else {
             out.set(Code::SveSelPred);
-            out.set_mnemonic(Mnemonic::Sel);
+            out.set_alias(Mnemonic::Sel);
             out.push_operand(preg_sz(pd, VA::Sb));
             out.push_operand(preg(pg));
             out.push_operand(preg_sz(pn, VA::Sb));
@@ -1344,40 +1344,40 @@ fn emit_pred_logical(out: &mut Instruction, mnem: Mnemonic, pd: u32, pg: u32, pn
     //   EORS Pd.B, Pg/Z, Pn.B, Pg.B  -> NOTS Pd.B, Pg/Z, Pn.B
     match mnem {
         Mnemonic::Orr if pg == pn && pn == pm => {
-            out.set_mnemonic(Mnemonic::Mov);
+            out.set_alias(Mnemonic::Mov);
             out.push_operand(preg_sz(pd, VA::Sb));
             out.push_operand(preg_sz(pn, VA::Sb));
             return;
         }
         Mnemonic::Orrs if pg == pn && pn == pm => {
-            out.set_mnemonic(Mnemonic::Movs);
+            out.set_alias(Mnemonic::Movs);
             out.push_operand(preg_sz(pd, VA::Sb));
             out.push_operand(preg_sz(pn, VA::Sb));
             return;
         }
         Mnemonic::And if pn == pm => {
-            out.set_mnemonic(Mnemonic::Mov);
+            out.set_alias(Mnemonic::Mov);
             out.push_operand(preg_sz(pd, VA::Sb));
             out.push_operand(preg_q(pg, PredQual::Zeroing));
             out.push_operand(preg_sz(pn, VA::Sb));
             return;
         }
         Mnemonic::Ands if pn == pm => {
-            out.set_mnemonic(Mnemonic::Movs);
+            out.set_alias(Mnemonic::Movs);
             out.push_operand(preg_sz(pd, VA::Sb));
             out.push_operand(preg_q(pg, PredQual::Zeroing));
             out.push_operand(preg_sz(pn, VA::Sb));
             return;
         }
         Mnemonic::Eor if pm == pg => {
-            out.set_mnemonic(Mnemonic::Not);
+            out.set_alias(Mnemonic::Not);
             out.push_operand(preg_sz(pd, VA::Sb));
             out.push_operand(preg_q(pg, PredQual::Zeroing));
             out.push_operand(preg_sz(pn, VA::Sb));
             return;
         }
         Mnemonic::Eors if pm == pg => {
-            out.set_mnemonic(Mnemonic::Nots);
+            out.set_alias(Mnemonic::Nots);
             out.push_operand(preg_sz(pd, VA::Sb));
             out.push_operand(preg_q(pg, PredQual::Zeroing));
             out.push_operand(preg_sz(pn, VA::Sb));
@@ -1386,7 +1386,7 @@ fn emit_pred_logical(out: &mut Instruction, mnem: Mnemonic, pd: u32, pg: u32, pn
         _ => {}
     }
 
-    out.set_mnemonic(mnem);
+    out.set_alias(mnem);
     out.push_operand(preg_sz(pd, VA::Sb));
     out.push_operand(preg_q(pg, PredQual::Zeroing));
     out.push_operand(preg_sz(pn, VA::Sb));
@@ -1413,7 +1413,7 @@ fn decode_brkp(word: u32, out: &mut Instruction) {
         _ => Mnemonic::Brkpbs,
     };
     out.set(Code::SveBrkpPred);
-    out.set_mnemonic(mnem);
+    out.set_alias(mnem);
     out.push_operand(preg_sz(pd, VA::Sb));
     out.push_operand(preg_q(pg, PredQual::Zeroing));
     out.push_operand(preg_sz(pn, VA::Sb));
@@ -1453,7 +1453,7 @@ fn decode_break(word: u32, out: &mut Instruction) {
             PredQual::Zeroing
         };
         out.set(Code::SveBrkPred);
-        out.set_mnemonic(mnem);
+        out.set_alias(mnem);
         out.push_operand(preg_sz(pd, VA::Sb));
         out.push_operand(preg_q(pg, q));
         out.push_operand(preg_sz(pn, VA::Sb));
@@ -1470,7 +1470,7 @@ fn decode_break(word: u32, out: &mut Instruction) {
     {
         let s = bit(word, 22);
         out.set(Code::SveBrkn);
-        out.set_mnemonic(if s == 0 {
+        out.set_alias(if s == 0 {
             Mnemonic::Brkn
         } else {
             Mnemonic::Brkns
@@ -1491,7 +1491,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
     // SETFFR: `00100101 0010 1100 1001 0000 0000 0000` (fully fixed).
     if word & 0x00FF_FFFF == 0x002C_9000 {
         out.set(Code::SveSetffr);
-        out.set_mnemonic(Mnemonic::Setffr);
+        out.set_alias(Mnemonic::Setffr);
         return;
     }
     // WRFFR: `00100101 0010 1000 1001 000 Pn 0 0000`. The `000` between `1001`
@@ -1501,7 +1501,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
     if bits(word, 12, 12) == 0b001010001001 && bits(word, 9, 3) == 0 && bits(word, 0, 5) == 0 {
         let pn = bits(word, 5, 4);
         out.set(Code::SveWrffr);
-        out.set_mnemonic(Mnemonic::Wrffr);
+        out.set_alias(Mnemonic::Wrffr);
         out.push_operand(preg_sz(pn, VA::Sb));
         return;
     }
@@ -1509,7 +1509,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
     if bits(word, 4, 20) == 0b00011000111001000000 {
         let pd = bits(word, 0, 4);
         out.set(Code::SvePfalse);
-        out.set_mnemonic(Mnemonic::Pfalse);
+        out.set_alias(Mnemonic::Pfalse);
         out.push_operand(preg_sz(pd, VA::Sb));
         return;
     }
@@ -1517,7 +1517,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
     if bits(word, 4, 20) == 0b00011001111100000000 {
         let pd = bits(word, 0, 4);
         out.set(Code::SveRdffr);
-        out.set_mnemonic(Mnemonic::Rdffr);
+        out.set_alias(Mnemonic::Rdffr);
         out.push_operand(preg_sz(pd, VA::Sb));
         return;
     }
@@ -1537,7 +1537,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
         let pg = bits(word, 5, 4);
         let pd = bits(word, 0, 4);
         out.set(Code::SveRdffrPred);
-        out.set_mnemonic(if s == 0 {
+        out.set_alias(if s == 0 {
             Mnemonic::Rdffr
         } else {
             Mnemonic::Rdffrs
@@ -1556,7 +1556,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
         let pg = bits(word, 10, 4);
         let pn = bits(word, 5, 4);
         out.set(Code::SvePtest);
-        out.set_mnemonic(Mnemonic::Ptest);
+        out.set_alias(Mnemonic::Ptest);
         out.push_operand(preg(pg));
         out.push_operand(preg_sz(pn, VA::Sb));
         return;
@@ -1567,7 +1567,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
         let pg = bits(word, 5, 4);
         let pdn = bits(word, 0, 4);
         out.set(Code::SvePfirst);
-        out.set_mnemonic(Mnemonic::Pfirst);
+        out.set_alias(Mnemonic::Pfirst);
         out.push_operand(preg_sz(pdn, VA::Sb));
         out.push_operand(preg(pg));
         out.push_operand(preg_sz(pdn, VA::Sb));
@@ -1585,7 +1585,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
         let pg = bits(word, 5, 4);
         let pdn = bits(word, 0, 4);
         out.set(Code::SvePnext);
-        out.set_mnemonic(Mnemonic::Pnext);
+        out.set_alias(Mnemonic::Pnext);
         out.push_operand(preg_sz(pdn, a));
         out.push_operand(preg(pg));
         out.push_operand(preg_sz(pdn, a));
@@ -1610,7 +1610,7 @@ fn decode_pred_gen(word: u32, out: &mut Instruction) {
         let pattern = bits(word, 5, 5);
         let pd = bits(word, 0, 4);
         out.set(Code::SvePtrue);
-        out.set_mnemonic(if s == 0 {
+        out.set_alias(if s == 0 {
             Mnemonic::Ptrue
         } else {
             Mnemonic::Ptrues

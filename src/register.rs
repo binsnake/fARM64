@@ -381,12 +381,46 @@ pub enum Register {
 
     // --- SME2 lookup-table register (FEAT_LUT): the single ZT0 table ---
     Zt0,
+
+    // --- Architectural state that instructions touch *implicitly*, modelled as
+    // pseudo-registers so [`crate::info::InstructionInfo::used_registers`] can
+    // report it uniformly alongside the real register file. These are never
+    // produced by the decoder as explicit operands and never render in
+    // disassembly text. ---
+    /// The NZCV condition flags, as a single pseudo-register.
+    ///
+    /// Reported by the access analysis for every flag-setting and
+    /// flag-consuming form (`ADDS`, `CMP`, `B.<cond>`, `CSEL`, `ADC`, ...).
+    /// The [`crate::info::InstructionInfo::flags_read`] /
+    /// [`crate::info::InstructionInfo::flags_written`] booleans are the same
+    /// information in scalar form.
+    Nzcv,
+    /// The SVE first-fault register `FFR`.
+    ///
+    /// Read by the non-faulting loads (`LDNF1*`), read-modified by the
+    /// first-faulting loads (`LDFF1*`), and read/written by `RDFFR`/`RDFFRS`/
+    /// `WRFFR`/`SETFFR`.
+    Ffr,
+    /// The SME `ZA` array (the whole tile storage), as a single pseudo-register.
+    ///
+    /// Reported for every operand that names a ZA tile, tile slice, or ZA-array
+    /// vector group, and for `ZERO`'s tile mask.
+    Za,
+    /// The program counter, as an implicit *input*.
+    ///
+    /// Reported only where `PC` is a genuine data input to the computation:
+    /// `ADR`/`ADRP`, the PC-relative literal loads, and the FEAT_PAuth_LR
+    /// PC-modifier `PAC*SPPC`/`RETA*SPPC` forms. Ordinary sequential fetch and
+    /// branch-target formation are *not* reported, since every instruction
+    /// would then read `PC`.
+    Pc,
 }
 
 /// Coarse class of a [`Register`], used by operand programs and the formatter to
 /// choose suffixes and SP-vs-ZR policy.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum RegClass {
     /// No register.
     None,
@@ -404,6 +438,9 @@ pub enum RegClass {
     Prefetch,
     /// SME2 lookup-table register (`ZT0`).
     ZtLut,
+    /// Implicit-state pseudo-register (`NZCV`, `FFR`, `ZA`, `PC`) — never an
+    /// explicit operand, only reported by the [`crate::info`] access analysis.
+    Special,
 }
 
 /// Bit-width of a general-purpose register operand.
@@ -773,6 +810,13 @@ impl Register {
             // SME2 ZT0 lookup table: a fixed-size architectural table, not a
             // value-width register — report 0 (VL-independent, like SVE).
             Register::Zt0 => 0,
+            // NZCV is four architectural bits; report the 4-bit field width.
+            Register::Nzcv => 4,
+            // FFR and ZA are VL-dependent/scalable architectural state — report
+            // 0, like the SVE Z/P registers.
+            Register::Ffr | Register::Za => 0,
+            // PC is a 64-bit value.
+            Register::Pc => 64,
         }
     }
 
@@ -1122,6 +1166,8 @@ impl Register {
             Register::Pf31 => 31,
             // ZT0 is the single, unnumbered SME2 lookup table.
             Register::Zt0 => 0,
+            // The implicit-state pseudo-registers are single, unnumbered.
+            Register::Nzcv | Register::Ffr | Register::Za | Register::Pc => 0,
         }
     }
 
@@ -1582,7 +1628,23 @@ impl Register {
             | Register::Pf30
             | Register::Pf31 => RegClass::Prefetch,
             Register::Zt0 => RegClass::ZtLut,
+            Register::Nzcv | Register::Ffr | Register::Za | Register::Pc => RegClass::Special,
         }
+    }
+
+    /// `true` for the implicit-state pseudo-registers ([`Register::Nzcv`],
+    /// [`Register::Ffr`], [`Register::Za`], [`Register::Pc`]).
+    ///
+    /// These are never produced by the decoder as explicit operands and never
+    /// appear in disassembly text; they exist so the access analysis in
+    /// [`crate::info`] can report implicitly-touched architectural state in the
+    /// same [`crate::info::UsedRegister`] list as the real register file.
+    #[inline]
+    pub const fn is_pseudo(self) -> bool {
+        matches!(
+            self,
+            Register::Nzcv | Register::Ffr | Register::Za | Register::Pc
+        )
     }
 
     /// The canonical lowercase mnemonic for this register (e.g. `"x0"`, `"wsp"`,

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-20
+
 ### Added
 
 - `implicit` module: implicit register reads/writes — the architectural state an
@@ -110,6 +112,7 @@ Initial crates.io release.
 - Optional `alloc` and `std` convenience APIs.
 - Differential, round-trip, portability, MSRV, and allocation-audit tests.
 
-[Unreleased]: https://github.com/binsnake/fARM64/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/binsnake/fARM64/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/binsnake/fARM64/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/binsnake/fARM64/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/binsnake/fARM64/releases/tag/v0.0.1

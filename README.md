@@ -53,17 +53,17 @@ The default build links neither `alloc` nor `std`. `std` implies `alloc`. The ru
 ```toml
 [dependencies]
 # Default: no_std, no alloc, zero-heap decoder + formatter + encoder.
-fARM64 = "0.0.2"
+fARM64 = "0.1.0"
 ```
 
 Opt into more as needed:
 
 ```toml
 # Owned-string conveniences and the cached info factory.
-fARM64 = { version = "0.0.2", features = ["alloc"] }
+fARM64 = { version = "0.1.0", features = ["alloc"] }
 
 # All optional implementation modules plus std and the GNU adapter.
-fARM64 = { version = "0.0.2", features = ["std", "full", "fmt-gnu"] }
+fARM64 = { version = "0.1.0", features = ["std", "full", "fmt-gnu"] }
 ```
 
 The import path uses the stylized crate name: `use fARM64::...`.
@@ -589,7 +589,7 @@ Design and reference docs: [`docs/DESIGN.md`](docs/DESIGN.md), [`docs/API.md`](d
 
 ## Status
 
-Version `0.0.2` adds complete, allocation-free `Code::values()` and `Mnemonic::values()` catalogs plus checked integer conversions compatible with iced-style consumers. The checked-in test suite is the release gate; optional corpus and LLVM sweeps provide additional local cross-checking but are not packaged and no fixed coverage percentage is promised. The `Code`/`Mnemonic`/`Register`/`Feature` enums are `#[non_exhaustive]` with an append-only discriminant policy.
+Version `0.1.0` adds implicit register read/write analysis (`implicit_registers()`, plus the `Nzcv`/`Ffr`/`Za`/`Pc` pseudo-registers) and in-place instruction editing, so a decoded `Instruction` can be re-encoded with different operands. It also corrects several access-classification and flow-control results; see the changelog for the behaviour changes, notably that `used_registers()` now reports `NZCV` as `Register::Nzcv`. The checked-in test suite is the release gate; optional corpus and LLVM sweeps provide additional local cross-checking but are not packaged and no fixed coverage percentage is promised. The `Code`/`Mnemonic`/`Register`/`Feature` enums are `#[non_exhaustive]` with an append-only discriminant policy.
 
 ## License
 

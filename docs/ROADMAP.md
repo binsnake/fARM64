@@ -5,6 +5,21 @@ roadmap records current public priorities; completed development-session logs
 and local-machine measurements belong in version control history, not in the
 published crate documentation.
 
+## Delivered for 0.1.0
+
+- Implicit register reads/writes: the architectural state an instruction
+  touches without naming it in an operand (link register, pointer-
+  authentication modifiers, the FEAT_LS64 eight-register group, the SVE `FFR`,
+  `PC`, and `NZCV`), reported allocation-free and merged into
+  `InstructionInfo::used_registers()`.
+- Four implicit-state pseudo-registers (`Nzcv`, `Ffr`, `Za`, `Pc`) in a new
+  `RegClass::Special`, never produced by the decoder or rendered by a formatter.
+- In-place instruction editing, so a decoded `Instruction` can be re-encoded
+  with different registers, immediates, memory operands, conditions, branch
+  targets, encodings, or address. Every setter is total.
+- A feature-gated test suite: `cargo test` now passes for every combination of
+  Cargo features rather than only `--all-features`.
+
 ## Delivered for 0.0.2
 
 - Complete public `Code::values()` and `Mnemonic::values()` enumeration in
